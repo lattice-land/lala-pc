@@ -38,7 +38,7 @@ FetchContent_MakeAvailable(cuda_battery)
 FetchContent_Declare(
   lala_core
   GIT_REPOSITORY "https://github.com/lattice-land/lala-core.git"
-  GIT_TAG        a7724fd7be03cf7bbcb02b44646ed2ff5fc616ef
+  GIT_TAG        84a5222776c3253bd3544ccf2a2cdf32c5b732ce
 )
 FetchContent_MakeAvailable(lala_core)
 

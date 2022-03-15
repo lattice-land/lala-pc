@@ -49,8 +49,8 @@ TEST(TermTest, AddTerm) {
   EXPECT_EQ2(x_plus_y.project(store), Itv(0,20));
   BInc has_changed2 = BInc::bot();
   x_plus_y.tell(store, Itv(zi::bot(), 5), has_changed2);
-  EXPECT_FALSE2(has_changed2);
-  EXPECT_EQ2(x_plus_y.project(store), Itv(0,20));
+  EXPECT_TRUE2(has_changed2);
+  EXPECT_EQ2(x_plus_y.project(store), Itv(0,10));
 }
 
 TEST(TermTest, AddTermBinary) {

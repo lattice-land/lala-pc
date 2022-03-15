@@ -136,6 +136,10 @@ struct GroupAdd {
     return add<appx>(a, b);
   }
 
+  CUDA static U rev_op(const U& a, const U& b) {
+    return rev_add<appx>(a, b);
+  }
+
   CUDA static U inv(const U& a, const U& b) {
     return sub<appx>(a, b);
   }
@@ -148,6 +152,10 @@ struct GroupMul {
   using U = Universe;
   CUDA static U op(const U& a, const U& b) {
     return mul<appx>(a, b);
+  }
+
+  CUDA static U rev_op(const U& a, const U& b) {
+    return div<appx>(a, b); // probably not ideal? Could think more about that.
   }
 
   CUDA static U inv(const U& a, const U& b) {
@@ -254,7 +262,7 @@ public:
   CUDA void tell(A& a, const U& u, BInc& has_changed) const {
     U all = project(a);
     for(int i = 0; i < terms.size(); ++i) {
-      t(i).tell(a, G::inv(u, G::inv(all, t(i).project(a))), has_changed);
+      t(i).tell(a, G::inv(u, G::rev_op(all, t(i).project(a))), has_changed);
     }
   }
 

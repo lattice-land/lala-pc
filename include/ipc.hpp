@@ -17,7 +17,7 @@ template <class AD, class Alloc = typename AD::Allocator>
 class IPC {
 public:
   using A = AD;
-  using U = typename A::U;
+  using Universe = typename A::Universe;
   using Allocator = Alloc;
   using this_type = IPC<A, Allocator>;
   using Env = typename A::Env;
@@ -25,8 +25,9 @@ public:
 private:
   struct Propagator {
     Term<A>* left;
-    U right;
-    Propagator(Term<A>* left, U right):
+    Universe right;
+    Propagator(): left(nullptr), right(Universe::bot()) {}
+    Propagator(Term<A>* left, Universe right):
       left(left), right(right) {}
   };
 
@@ -39,7 +40,8 @@ public:
     Allocator alloc = Allocator()): a(a), props(0, alloc), uid(uid)  {}
 
   CUDA IPC(const IPC& other): props(other.props), uid(other.uid) {
-    a = new(props.allocator()) A(*other.a);
+    Allocator alloc = props.get_allocator();
+    a = new(alloc) A(*other.a);
   }
 
   CUDA IPC(IPC&& other): a(other.a), props(std::move(other.props)), uid(other.uid) {
@@ -71,48 +73,70 @@ private:
         return {};
       }
       else {
-        subterms[i] = *t;
+        subterms[i] = std::move(*t);
       }
     }
-    switch(sig) {
-      case ADD:
-        return new(props.get_allocator()) DynTerm(
-          NaryAdd<Term<A>*, Allocator>(std::move(subterms)));
-      case MUL:
-        return new(props.get_allocator()) DynTerm(
-          NaryMul<Term<A>*, Allocator>(std::move(subterms)));
-      default:
-        return {};
+    Allocator alloc = props.get_allocator();
+    if(subterms.size() == 2) {
+      // This code is not very good, it is necessary to set subterms[i] to nullptr, otherwsie DArray will free the pointers because DArray owns polymorphic objects.
+      // I'm not sure about what would be a better solution at the moment.
+      Term<A>* x = subterms[0];
+      Term<A>* y = subterms[1];
+      subterms[0] = nullptr;
+      subterms[1] = nullptr;
+      switch(sig) {
+        case ADD:
+          return new(alloc) DynTerm(
+            Add<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
+        case MUL:
+          return new(alloc) DynTerm(
+            Mul<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
+        default:
+          return {};
+      }
+    }
+    else {
+      switch(sig) {
+        case ADD:
+          return new(alloc) DynTerm(
+            NaryAdd<Term<A>*, Allocator>(std::move(subterms)));
+        case MUL:
+          return new(alloc) DynTerm(
+            NaryMul<Term<A>*, Allocator>(std::move(subterms)));
+        default:
+          return {};
+      }
     }
   }
 
   template <class F>
   CUDA thrust::optional<Term<A>*> interpret_term(const F& f) {
+    Allocator alloc = props.get_allocator();
     if(f.is(F::V)) {
       // need to check that this variable is defined in the domain?
       // or should we just suppose it is?
-      return new(props.get_allocator()) DynTerm(Variable<A>(f.v()));
+      return new(alloc) DynTerm(Variable<A>(f.v()));
     }
     else if(f.is(F::LV)) {
-      auto v = a.env().to_avar(f.lv());
+      auto v = a->environment().to_avar(f.lv());
       if(!v.has_value()) {
         return {};
       }
       else {
-        return new(props.get_allocator()) DynTerm(Variable<A>(*v));
+        return new(alloc) DynTerm(Variable<A>(*v));
       }
     }
     else if(f.is(F::Z)) {
-      auto k = U::interpret(F::make_binary(0, F::EQ, f));
+      auto k = Universe::interpret(F::make_binary(F::make_avar(0), EQ, f));
       if(!k.has_value()) {
         return {};
       }
       else {
-        return new(props.get_allocator()) DynTerm(Constant<A>(*k));
+        return new(alloc) DynTerm(Constant<A>(std::move(*k)));
       }
     }
     else if(f.is(F::Seq)) {
-      return interpret_sequence(f.sig(), f.seq());
+      return interpret_sequence<F>(f.sig(), f.seq());
     }
     return {};
   }
@@ -122,7 +146,7 @@ private:
     assert(f.type() == uid);
     // Form of the constraint `T <op> u` with `x <op> u` interpreted in the underlying universe.
     if(f.is(F::Seq) && f.seq().size() == 2) {
-      auto u = U::interpret(F::make_binary(0, f.sig(), f.seq(1)));
+      auto u = Universe::interpret(F::make_binary(F::make_avar(0), f.sig(), f.seq(1)));
       if(u.has_value()) {
         auto term = interpret_term(f.seq(0));
         if(term.has_value()) {
@@ -151,12 +175,12 @@ public:
     if(f.type() != uid) {
       auto r = a->interpret(f);
       if(r.has_value()) {
-        return TellType(*r);
+        return TellType(std::move(*r));
       }
       return {}; // Reason: The formula `f` could not be interpreted in the sub-domain `A`.
     }
     // Conjunction
-    else if(f.is(F::Seq) && f.sig() == F::AND) {
+    else if(f.is(F::Seq) && f.sig() == AND) {
       const typename F::Sequence& seq = f.seq();
       size_t num_props = 0;
       size_t num_sub = 0;
@@ -176,7 +200,7 @@ public:
         if(seq[i].type() == uid) {
           auto prop = interpret_one(seq[i]);
           if(prop.has_value()) {
-            res.props[p] = *prop;
+            res.props[p] = std::move(*prop);
             ++p;
           }
           else {
@@ -186,21 +210,21 @@ public:
         else {
           auto sub = a->interpret(seq[i]);
           if(sub.has_value()) {
-            res.sub = *sub;
+            res.sub = std::move(*sub);
           }
           else {
             return {}; // Reason: A formula could not be interpreted in the sub-domain `A`.
           }
         }
       }
-      return res;
+      return std::move(res);
     }
     else {
       auto prop = interpret_one(f);
       if(prop.has_value()) {
         TellType res(1, props.get_allocator());
-        res.props[0] = *prop;
-        return res;
+        res.props[0] = std::move(*prop);
+        return std::move(res);
       }
       return {}; // Reason: The formula `f` could not be interpreted as a propagator.
     }
@@ -224,12 +248,16 @@ public:
         * 1. Walk through the existing propagators to check which ones are already in.
         * 2. If a propagator has the same shape but different constant `U`, join them in place.
         * 3. See paper notes for a technique to deal with copy. */
-  CUDA this_type& tell(const TellType& t, BInc& has_changed) {
+  CUDA this_type& tell(TellType&& t, BInc& has_changed) {
     a->tell(t.sub, has_changed);
     // !! Not correct, need to fill the temporary array first.
-    resize(props.size() + t.props.size());
+    if(t.props.size() > 0) {
+      has_changed = BInc::top();
+    }
+    size_t n = props.size();
+    resize(n + t.props.size());
     for(int i = 0; i < t.props.size(); ++i) {
-      props[props.size() + i] = t.props[i];
+      props[n + i] = std::move(t.props[i]);
     }
     return *this;
   }
@@ -261,7 +289,7 @@ public:
     return a->is_bot() && props.size() == 0;
   }
 
-  CUDA const U& project(AVar x) const {
+  CUDA const Universe& project(AVar x) const {
     return a->project(x);
   }
 

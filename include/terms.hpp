@@ -19,7 +19,7 @@ public:
   using U = typename A::Universe;
   CUDA virtual ~Term() {}
   CUDA virtual void tell(A&, const U&, BInc&) const = 0;
-  CUDA virtual U project(A&) const = 0;
+  CUDA virtual U project(const A&) const = 0;
   CUDA virtual BInc is_top(const A&) const = 0;
   CUDA virtual void print(const A&) const = 0;
 };
@@ -33,15 +33,15 @@ public:
   using A = typename BaseTerm::A;
   using U = typename A::Universe;
 
-  CUDA DynTerm(const BaseTerm& t): t(t) {}
-  CUDA DynTerm(const DynTerm<BaseTerm>& other): DynTerm(other.t) {}
+  CUDA DynTerm(BaseTerm&& t): t(std::move(t)) {}
+  CUDA DynTerm(DynTerm<BaseTerm>&& other): DynTerm(std::move(other.t)) {}
 
   CUDA void tell(A& a, const U& u, BInc& has_changed) const override {
     t.tell(a, u, has_changed);
   }
 
-  CUDA U project(A& a) const override {
-    t.project(a);
+  CUDA U project(const A& a) const override {
+    return t.project(a);
   }
 
   CUDA BInc is_top(const A& a) const override {
@@ -61,13 +61,12 @@ public:
 // But we did not want to duplicate the code to handle both.
 template <typename T>
 CUDA const typename std::remove_pointer<T>::type& deref(const T& x) {
-  if constexpr(std::is_pointer<T>()) {
+  if constexpr(std::is_pointer_v<T>) {
     return *x;
   }
   else {
     return x;
   }
-  return 0; // unreachable (to avoid a compiler warning)
 }
 
 template <typename AD>
@@ -80,13 +79,26 @@ private:
   U k;
 
 public:
-  CUDA Constant(U k) : k(k) {}
-  CUDA Constant(const Constant<A>& other): k(other.k) {}
+  CUDA Constant(U&& k) : k(k) {}
+  CUDA Constant(Constant<A>&& other): k(std::move(other.k)) {}
   CUDA void tell(A&, const U&, BInc&) const {}
-  CUDA U project(A&) const { return k; }
+  CUDA U project(const A&) const { return k; }
   CUDA BInc is_top(const A&) const { return BInc::bot(); }
   CUDA void print(const A&) const { ::print(k); }
 };
+
+template<class T>
+struct is_constant_term {
+  static constexpr bool value = false;
+};
+
+template <class A>
+struct is_constant_term<Constant<A>> {
+  static constexpr bool value = true;
+};
+
+template<class T>
+inline constexpr bool is_constant_term_v = is_constant_term<T>::value;
 
 template <typename AD>
 class Variable {
@@ -98,8 +110,12 @@ private:
   AVar avar;
 
 public:
+  CUDA Variable() {}
   CUDA Variable(AVar avar) : avar(avar) {}
-  CUDA Variable(const Variable<A>& other): Variable(other.avar) {}
+  CUDA Variable(Variable<A>&& other) = default;
+  CUDA Variable(const Variable<A>& other) = default;
+  CUDA Variable<A>& operator=(Variable<A>&&) = default;
+  CUDA Variable<A>& operator=(const Variable<A>&) = default;
 
   CUDA void tell(A& a, const U& u, BInc& has_changed) const {
     a.tell(avar, u, has_changed);
@@ -113,8 +129,9 @@ public:
   CUDA void print(const A& a) const { a.environment().to_lvar(avar).print(); }
 };
 
-template<class U, Approx appx = EXACT>
+template<class Universe, Approx appx = EXACT>
 struct GroupAdd {
+  using U = Universe;
   CUDA static U op(const U& a, const U& b) {
     return add<appx>(a, b);
   }
@@ -126,8 +143,9 @@ struct GroupAdd {
   CUDA static char symbol() { return '+'; }
 };
 
-template<class U, Approx appx = OVER>
+template<class Universe, Approx appx = OVER>
 struct GroupMul {
+  using U = Universe;
   CUDA static U op(const U& a, const U& b) {
     return mul<appx>(a, b);
   }
@@ -142,17 +160,17 @@ struct GroupMul {
 template <class Group, class TermX, class TermY>
 class Binary {
 public:
-  using A = typename TermX::A;
-  using U = typename TermX::U;
+  using TermX_ = typename std::remove_pointer<TermX>::type;
+  using TermY_ = typename std::remove_pointer<TermY>::type;
+
+  using A = typename TermX_::A;
+  using U = typename Group::U;
   using G = Group;
   using this_type = Binary<Group, TermX, TermY>;
 
 private:
   TermX x_term;
   TermY y_term;
-
-  using TermX_ = typename std::remove_pointer<TermX>::type;
-  using TermY_ = typename std::remove_pointer<TermY>::type;
 
   CUDA INLINE const TermX_& x() const {
     return deref(x_term);
@@ -163,8 +181,8 @@ private:
   }
 
 public:
-  CUDA Binary(const TermX& x_term, const TermY& y_term): x_term(x_term), y_term(y_term) {}
-  CUDA Binary(const this_type& other): Binary(other.x_term, other.y_term) {}
+  CUDA Binary(TermX&& x_term, TermY&& y_term): x_term(x_term), y_term(y_term) {}
+  CUDA Binary(this_type&& other): Binary(std::move(other.x_term), std::move(other.y_term)) {}
 
   /** Enforce `x + y >= u` where >= is the lattice order of the universe of discourse.
       For instance, over the interval abstract universe, `x + y >= [2..5]` will ensure that `x + y` is eventually at least `2` and at most `5`. */
@@ -172,16 +190,16 @@ public:
     auto xt = x().project(a);
     auto yt = y().project(a);
     if(lor(xt.is_top(), yt.is_top()).guard()) { return; }
-    if constexpr(!std::is_same_v<TermX, Constant>()) {
-      x().tell(a, G::inv(u, y().project(a)), has_changed);   // x <- u - y
+    if constexpr(!is_constant_term_v<TermX>) {
+      x().tell(a, G::inv(u, yt), has_changed);   // x <- u - y
     }
-    if constexpr(!std::is_same_v<TermY, Constant>()) {
+    if constexpr(!is_constant_term_v<TermY>) {
       y().tell(a, G::inv(u, x().project(a)), has_changed);   // y <- u - x
     }
   }
 
   CUDA U project(const A& a) const {
-    return G::op(x().project(), y().project());
+    return G::op(x().project(a), y().project(a));
   }
 
   CUDA BInc is_top(const A& a) const {
@@ -222,8 +240,8 @@ public:
   using U = typename Combinator::U;
   using G = typename Combinator::G;
 
-  CUDA Nary(DArray<T, Allocator>&& terms): terms(terms) {}
-  CUDA Nary(const this_type& other): Nary(other.terms) {}
+  CUDA Nary(DArray<T, Allocator>&& terms): terms(std::move(terms)) {}
+  CUDA Nary(this_type&& other): Nary(std::move(other.terms)) {}
 
   CUDA U project(const A& a) const {
     U accu = t(0).project(a);
@@ -242,7 +260,7 @@ public:
 
   CUDA BInc is_top(const A& a) const {
     for(int i = 0; i < terms.size(); ++i) {
-      if(t(i).is_top().guard()) {
+      if(t(i).is_top(a).guard()) {
         return BInc::top();
       }
     }

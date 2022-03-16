@@ -31,14 +31,14 @@ endif()
 FetchContent_Declare(
   cuda_battery
   GIT_REPOSITORY "https://github.com/lattice-land/cuda-battery.git"
-  GIT_TAG        305190b235eacb9350528ef151f6fa8790773a15
+  GIT_TAG        337cf303a190dfd500cfc7e960a94fe9cfcc541c
 )
 FetchContent_MakeAvailable(cuda_battery)
 
 FetchContent_Declare(
   lala_core
   GIT_REPOSITORY "https://github.com/lattice-land/lala-core.git"
-  GIT_TAG        84a5222776c3253bd3544ccf2a2cdf32c5b732ce
+  GIT_TAG        2e4fa45ddb32aa31dea423cf84130bf43f0dab74
 )
 FetchContent_MakeAvailable(lala_core)
 

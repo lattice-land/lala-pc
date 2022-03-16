@@ -198,11 +198,12 @@ public:
     auto xt = x().project(a);
     auto yt = y().project(a);
     if(lor(xt.is_top(), yt.is_top()).guard()) { return; }
+    U u2 = join(u, G::op(xt, yt)); // project(a));
     if constexpr(!is_constant_term_v<TermX>) {
-      x().tell(a, G::inv(u, yt), has_changed);   // x <- u - y
+      x().tell(a, G::inv(u2, yt), has_changed);   // x <- u <inv> y
     }
     if constexpr(!is_constant_term_v<TermY>) {
-      y().tell(a, G::inv(u, x().project(a)), has_changed);   // y <- u - x
+      y().tell(a, G::inv(u2, x().project(a)), has_changed);   // y <- u <inv> x
     }
   }
 

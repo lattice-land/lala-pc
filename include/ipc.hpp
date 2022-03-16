@@ -27,6 +27,10 @@ private:
     Term<A>* left;
     Universe right;
     Propagator(): left(nullptr), right(Universe::bot()) {}
+    Propagator(const Propagator&) = default;
+    Propagator(Propagator&&) = default;
+    Propagator& operator=(Propagator&&) = default;
+    Propagator& operator=(const Propagator&) = default;
     Propagator(Term<A>* left, Universe right):
       left(left), right(right) {}
   };
@@ -37,15 +41,10 @@ private:
 
 public:
   CUDA IPC(AType uid, A* a,
-    Allocator alloc = Allocator()): a(a), props(0, alloc), uid(uid)  {}
+    Allocator alloc = Allocator()): a(a), props(alloc), uid(uid)  {}
 
-  CUDA IPC(const IPC& other): props(other.props), uid(other.uid) {
-    Allocator alloc = props.get_allocator();
-    a = new(alloc) A(*other.a);
-  }
-
-  CUDA IPC(IPC&& other): a(other.a), props(std::move(other.props)), uid(other.uid) {
-    other.a = nullptr;
+  CUDA IPC(IPC&& other): props(std::move(other.props)), uid(other.uid) {
+    swap(a, other.a);
   }
 
   CUDA static this_type bot(AType uid = UNTYPED) {
@@ -159,9 +158,11 @@ private:
 
 public:
   struct TellType {
-    A::TellType sub;
+    thrust::optional<typename A::TellType> sub;
     DArray<Propagator, Allocator> props;
-    TellType(A::TellType&& sub): sub(sub), props(0) {}
+    TellType(TellType&&) = default;
+    TellType& operator=(TellType&&) = default;
+    TellType(A::TellType&& sub): sub(std::move(sub)), props() {}
     TellType(size_t n, const Allocator& alloc): sub(), props(n, alloc) {}
   };
 
@@ -210,7 +211,7 @@ public:
         else {
           auto sub = a->interpret(seq[i]);
           if(sub.has_value()) {
-            res.sub = std::move(*sub);
+            res.sub = std::move(sub);
           }
           else {
             return {}; // Reason: A formula could not be interpreted in the sub-domain `A`.
@@ -249,7 +250,9 @@ public:
         * 2. If a propagator has the same shape but different constant `U`, join them in place.
         * 3. See paper notes for a technique to deal with copy. */
   CUDA this_type& tell(TellType&& t, BInc& has_changed) {
-    a->tell(t.sub, has_changed);
+    if(t.sub.has_value()) {
+      a->tell(*t.sub, has_changed);
+    }
     // !! Not correct, need to fill the temporary array first.
     if(t.props.size() > 0) {
       has_changed = BInc::top();
@@ -258,6 +261,7 @@ public:
     resize(n + t.props.size());
     for(int i = 0; i < t.props.size(); ++i) {
       props[n + i] = std::move(t.props[i]);
+      props[n + i].right.tell(props[n + i].left->project(*a), has_changed);
     }
     return *this;
   }

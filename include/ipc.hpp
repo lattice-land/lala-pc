@@ -61,6 +61,48 @@ public:
   }
 
 private:
+  CUDA thrust::optional<Term<A>*> interpret_unary(Sig sig, Term<A>* a) {
+    return {};
+  }
+
+  CUDA thrust::optional<Term<A>*> interpret_binary(Sig sig,
+    Term<A>* x, Term<A>* y)
+  {
+    Allocator alloc = props.get_allocator();
+    switch(sig) {
+      case ADD:
+        return new(alloc) DynTerm(
+          Add<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
+      case SUB:
+        return new(alloc) DynTerm(
+          Sub<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
+      case MUL:
+        return new(alloc) DynTerm(
+          Mul<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
+      case DIV:
+        return new(alloc) DynTerm(
+          Mul<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
+      default:
+        return {};
+    }
+  }
+
+  CUDA thrust::optional<Term<A>*> interpret_nary(Sig sig,
+    DArray<Term<A>*, Allocator> subterms)
+  {
+    Allocator alloc = props.get_allocator();
+    switch(sig) {
+      case ADD:
+        return new(alloc) DynTerm(
+          NaryAdd<Term<A>*, Allocator>(std::move(subterms)));
+      case MUL:
+        return new(alloc) DynTerm(
+          NaryMul<Term<A>*, Allocator>(std::move(subterms)));
+      default:
+        return {};
+    }
+  }
+
   template <class F>
   CUDA thrust::optional<Term<A>*> interpret_sequence(Sig sig,
     const typename F::Sequence& seq)
@@ -75,36 +117,22 @@ private:
         subterms[i] = std::move(*t);
       }
     }
-    Allocator alloc = props.get_allocator();
-    if(subterms.size() == 2) {
+    if(subterms.size() == 1) {
+      Term<A>* x = subterms[0];
+      subterms[0] = nullptr;
+      return interpret_unary(sig, x);
+    }
+    else if(subterms.size() == 2) {
       // This code is not very good, it is necessary to set subterms[i] to nullptr, otherwsie DArray will free the pointers because DArray owns polymorphic objects.
       // I'm not sure about what would be a better solution at the moment.
       Term<A>* x = subterms[0];
       Term<A>* y = subterms[1];
       subterms[0] = nullptr;
       subterms[1] = nullptr;
-      switch(sig) {
-        case ADD:
-          return new(alloc) DynTerm(
-            Add<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
-        case MUL:
-          return new(alloc) DynTerm(
-            Mul<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
-        default:
-          return {};
-      }
+      return interpret_binary(sig, x, y);
     }
     else {
-      switch(sig) {
-        case ADD:
-          return new(alloc) DynTerm(
-            NaryAdd<Term<A>*, Allocator>(std::move(subterms)));
-        case MUL:
-          return new(alloc) DynTerm(
-            NaryMul<Term<A>*, Allocator>(std::move(subterms)));
-        default:
-          return {};
-      }
+      return interpret_nary(sig, std::move(subterms));
     }
   }
 

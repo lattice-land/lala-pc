@@ -140,11 +140,33 @@ struct GroupAdd {
     return rev_add<appx>(a, b);
   }
 
-  CUDA static U inv(const U& a, const U& b) {
+  CUDA static U inv1(const U& a, const U& b) {
     return sub<appx>(a, b);
   }
 
+  CUDA static U inv2(const U& a, const U& b) {
+    return inv1(a,b);
+  }
+
   CUDA static char symbol() { return '+'; }
+};
+
+template<class Universe, Approx appx = EXACT>
+struct GroupSub {
+  using U = Universe;
+  CUDA static U op(const U& a, const U& b) {
+    return sub<appx>(a, b);
+  }
+
+  CUDA static U inv1(const U& a, const U& b) {
+    return add<appx>(a, b);
+  }
+
+  CUDA static U inv2(const U& a, const U& b) {
+    return neg<appx>(sub<appx>(a, b));
+  }
+
+  CUDA static char symbol() { return '-'; }
 };
 
 template<class Universe, Approx appx = OVER>
@@ -158,11 +180,33 @@ struct GroupMul {
     return div<appx>(a, b); // probably not ideal? Could think more about that.
   }
 
-  CUDA static U inv(const U& a, const U& b) {
+  CUDA static U inv1(const U& a, const U& b) {
     return div<appx>(a, b);
   }
 
+  CUDA static U inv2(const U& a, const U& b) {
+    return inv1(a, b);
+  }
+
   CUDA static char symbol() { return '*'; }
+};
+
+template<class Universe, Approx appx = OVER>
+struct GroupDiv {
+  using U = Universe;
+  CUDA static U op(const U& a, const U& b) {
+    return div<appx>(a, b);
+  }
+
+  CUDA static U inv1(const U& a, const U& b) {
+    return mul<appx>(a, b);
+  }
+
+  CUDA static U inv2(const U& a, const U& b) {
+    return div<appx>(b, a);
+  }
+
+  CUDA static char symbol() { return '/'; }
 };
 
 template <class Group, class TermX, class TermY>
@@ -192,18 +236,17 @@ public:
   CUDA Binary(TermX&& x_term, TermY&& y_term): x_term(x_term), y_term(y_term) {}
   CUDA Binary(this_type&& other): Binary(std::move(other.x_term), std::move(other.y_term)) {}
 
-  /** Enforce `x + y >= u` where >= is the lattice order of the universe of discourse.
+  /** Enforce `x <op> y >= u` where >= is the lattice order of the underlying abstract universe.
       For instance, over the interval abstract universe, `x + y >= [2..5]` will ensure that `x + y` is eventually at least `2` and at most `5`. */
   CUDA void tell(A& a, const U& u, BInc& has_changed) const {
     auto xt = x().project(a);
     auto yt = y().project(a);
     if(lor(xt.is_top(), yt.is_top()).guard()) { return; }
-    U u2 = join(u, G::op(xt, yt)); // project(a));
     if constexpr(!is_constant_term_v<TermX>) {
-      x().tell(a, G::inv(u2, yt), has_changed);   // x <- u <inv> y
+      x().tell(a, G::inv1(u, yt), has_changed);   // x <- u <inv> y
     }
     if constexpr(!is_constant_term_v<TermY>) {
-      y().tell(a, G::inv(u2, x().project(a)), has_changed);   // y <- u <inv> x
+      y().tell(a, G::inv2(u, x().project(a)), has_changed);   // y <- u <inv> x
     }
   }
 
@@ -228,12 +271,25 @@ using Add = Binary<
   TermX,
   TermY>;
 
+template <class TermX, class TermY, Approx appx = EXACT>
+using Sub = Binary<
+  GroupSub<typename std::remove_pointer<TermX>::type::U, appx>,
+  TermX,
+  TermY>;
+
 template <class TermX, class TermY, Approx appx = OVER>
 using Mul = Binary<
   GroupMul<typename std::remove_pointer<TermX>::type::U, appx>,
   TermX,
   TermY>;
 
+template <class TermX, class TermY, Approx appx = OVER>
+using Div = Binary<
+  GroupDiv<typename std::remove_pointer<TermX>::type::U, appx>,
+  TermX,
+  TermY>;
+
+// Nary is only valid for commutative group (e.g., addition and multiplication).
 template <class T, class Combinator, class Allocator>
 class Nary {
   DArray<T, Allocator> terms;
@@ -263,7 +319,7 @@ public:
   CUDA void tell(A& a, const U& u, BInc& has_changed) const {
     U all = project(a);
     for(int i = 0; i < terms.size(); ++i) {
-      t(i).tell(a, G::inv(u, G::rev_op(all, t(i).project(a))), has_changed);
+      t(i).tell(a, G::inv1(u, G::rev_op(all, t(i).project(a))), has_changed);
     }
   }
 

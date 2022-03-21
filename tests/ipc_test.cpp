@@ -30,6 +30,19 @@ using IIPC = IPC<IStore>;
 const AType sty = 0;
 const AType pty = 1;
 
+IStore x_store(int lb, int ub) {
+  IStore store = IStore::bot(sty);
+  F::Sequence doms(3);
+  doms[0] = F::make_exists(sty, var_x, Int);
+  doms[1] = make_v_op_z(var_x, LEQ, ub);
+  doms[2] = make_v_op_z(var_x, GEQ, lb);
+  auto f = F::make_nary(AND, doms, sty);
+  auto cons = store.interpret(f);
+  BInc has_changed = BInc::bot();
+  store.tell(*cons, has_changed);
+  return std::move(store);
+}
+
 IStore xy_store(int lb, int ub) {
   IStore store = IStore::bot(sty);
   F::Sequence doms(6);
@@ -354,4 +367,79 @@ TEST(IPCTest, PseudoBoolean4) {
   EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 1));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(0, 1));
   EXPECT_EQ2(ipc.project(vars[2]), Itv(0, 1));
+}
+
+// Constraint of the form <unop> x <op> k.
+IIPC unop_constraint(Sig unop, int lb, int ub, Sig binop, int k, bool expect_changed) {
+  IStore* store = new IStore(std::move(x_store(lb, ub)));
+  IIPC ipc(pty, store);
+  auto cons = F::make_binary(
+    F::make_unary(unop, F::make_lvar(sty, var_x), pty),
+    binop,
+    F::make_z(k), pty);
+  thrust::optional<IIPC::TellType> res(ipc.interpret(cons));
+  EXPECT_TRUE(res.has_value());
+  BInc has_changed = BInc::bot();
+  ipc.tell(std::move(*res), has_changed);
+  EXPECT_TRUE2(has_changed.is_top());
+  EXPECT_EQ(ipc.num_refinements(), 1);
+  EXPECT_EQ(ipc.environment().size(), 1);
+
+  // Propagation tests
+  AVar var = *(ipc.environment().to_avar(var_x));
+  EXPECT_EQ2(ipc.project(var), Itv(lb, ub));
+
+  BInc has_changed2 = BInc::bot();
+  ipc.refine(has_changed2);
+  EXPECT_EQ2(expect_changed, has_changed2.is_top());
+  return std::move(ipc);
+}
+
+// x in [-4..3], -x <= 2
+TEST(IPCTest, NegationOp1) {
+  IIPC ipc = unop_constraint(NEG, -4, 3, LEQ, 2, true);
+  AVar var = *(ipc.environment().to_avar(var_x));
+  EXPECT_EQ2(ipc.project(var), Itv(-2, 3));
+}
+
+// x in [-4..3], -x <= -2
+TEST(IPCTest, NegationOp2) {
+  IIPC ipc = unop_constraint(NEG, -4, 3, LEQ, -2, true);
+  AVar var = *(ipc.environment().to_avar(var_x));
+  EXPECT_EQ2(ipc.project(var), Itv(2, 3));
+}
+
+// x in [0..3], -x <= -2
+TEST(IPCTest, NegationOp3) {
+  IIPC ipc = unop_constraint(NEG, 0, 3, LEQ, -2, true);
+  AVar var = *(ipc.environment().to_avar(var_x));
+  EXPECT_EQ2(ipc.project(var), Itv(2, 3));
+}
+
+// x in [-4..-3], -x <= 4
+TEST(IPCTest, NegationOp4) {
+  IIPC ipc = unop_constraint(NEG, -4, -3, LEQ, 4, false);
+  AVar var = *(ipc.environment().to_avar(var_x));
+  EXPECT_EQ2(ipc.project(var), Itv(-4, -3));
+}
+
+// x in [-4..3], -x >= -2
+TEST(IPCTest, NegationOp5) {
+  IIPC ipc = unop_constraint(NEG, -4, 3, GEQ, -2, true);
+  AVar var = *(ipc.environment().to_avar(var_x));
+  EXPECT_EQ2(ipc.project(var), Itv(-4, 2));
+}
+
+// x in [-4..3], -x > 2
+TEST(IPCTest, NegationOp6) {
+  IIPC ipc = unop_constraint(NEG, -4, 3, GT, 2, true);
+  AVar var = *(ipc.environment().to_avar(var_x));
+  EXPECT_EQ2(ipc.project(var), Itv(-4, -3));
+}
+
+// x in [-4..3], -x >= 5
+TEST(IPCTest, NegationOp7) {
+  IIPC ipc = unop_constraint(NEG, -4, 3, GEQ, 5, true);
+  AVar var = *(ipc.environment().to_avar(var_x));
+  EXPECT_TRUE2(ipc.project(var).is_top());
 }

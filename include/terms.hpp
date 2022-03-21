@@ -12,7 +12,7 @@ namespace lala {
 //       This is because terms have a constant state, that is, terms are read-only once constructed.
 //       Therefore, the copy constructor does not perform a deep copy.
 
-template <typename AD>
+template <class AD>
 class Term {
 public:
   using A = AD;
@@ -26,7 +26,7 @@ public:
 
 // `DynTerm` wraps a term and inherits from Term.
 // A vtable will be created.
-template<typename BaseTerm>
+template<class BaseTerm>
 class DynTerm: public Term<typename BaseTerm::A> {
   BaseTerm t;
 public:
@@ -59,7 +59,7 @@ public:
 // The rational behind that, is to be able to manipulate a type T as a pointer or a reference.
 // In the following code, our term AST is either static (only with template) or dynamic (with virtual function call).
 // But we did not want to duplicate the code to handle both.
-template <typename T>
+template <class T>
 CUDA const typename std::remove_pointer<T>::type& deref(const T& x) {
   if constexpr(std::is_pointer_v<T>) {
     return *x;
@@ -69,7 +69,7 @@ CUDA const typename std::remove_pointer<T>::type& deref(const T& x) {
   }
 }
 
-template <typename AD>
+template <class AD>
 class Constant {
 public:
   using A = AD;
@@ -100,7 +100,7 @@ struct is_constant_term<Constant<A>> {
 template<class T>
 inline constexpr bool is_constant_term_v = is_constant_term<T>::value;
 
-template <typename AD>
+template <class AD>
 class Variable {
 public:
   using A = AD;
@@ -128,6 +128,59 @@ public:
   CUDA BInc is_top(const A& a) const { return project(a).is_top(); }
   CUDA void print(const A& a) const { a.environment().to_lvar(avar).print(); }
 };
+
+template<class Universe, Approx appx = EXACT>
+struct NegOp {
+  using U = Universe;
+
+  CUDA static U op(const U& a) {
+    return neg<appx>(a);
+  }
+
+  CUDA static char symbol() { return '-'; }
+};
+
+template <class UnaryOp, class TermX>
+class Unary {
+public:
+  using TermX_ = typename std::remove_pointer<TermX>::type;
+  using A = typename TermX_::A;
+  using U = typename A::Universe;
+  using this_type = Unary<UnaryOp, TermX>;
+private:
+  TermX x_term;
+
+  CUDA INLINE const TermX_& x() const {
+    return deref(x_term);
+  }
+
+public:
+  CUDA Unary(TermX&& x_term): x_term(x_term) {}
+  CUDA Unary(this_type&& other): Unary(std::move(other.x_term)) {}
+
+  CUDA void tell(A& a, const U& u, BInc& has_changed) const {
+    if(x().is_top(a).guard()) { return; }
+    x().tell(a, UnaryOp::op(u), has_changed);
+  }
+
+  CUDA U project(const A& a) const {
+    return UnaryOp::op(x().project(a));
+  }
+
+  CUDA BInc is_top(const A& a) const {
+    return x().is_top(a);
+  }
+
+  CUDA void print(const A& a) const {
+    printf("%c", UnaryOp::symbol());
+    x().print(a);
+  }
+};
+
+template <class TermX, Approx appx = EXACT>
+using Neg = Unary<
+  NegOp<typename std::remove_pointer<TermX>::type::U, appx>,
+  TermX>;
 
 template<class Universe, Approx appx = EXACT>
 struct GroupAdd {

@@ -62,7 +62,13 @@ public:
 
 private:
   CUDA thrust::optional<Term<A>*> interpret_unary(Sig sig, Term<A>* a) {
-    return {};
+    Allocator alloc = props.get_allocator();
+    switch(sig) {
+      case NEG:
+        return new(alloc) DynTerm(Neg<Term<A>*>(std::move(a)));
+      default:
+        return {};
+    }
   }
 
   CUDA thrust::optional<Term<A>*> interpret_binary(Sig sig,

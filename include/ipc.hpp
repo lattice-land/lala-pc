@@ -9,6 +9,8 @@
 
 namespace lala {
 
+struct gpu_tag_t {} gpu_tag;
+
 /** IPC is an abstract transformer built on top of an abstract domain `A`.
     It is expected that `A` has a projection function `itv = project(x)`, and the resulting abstract universe has a lower bound and upper bound projection functions `itv.lb()` and `itv.ub()`.
     We also expect a `tell(x, itv, has_changed)` function to join the interval `itv` in the domain of the variable `x`.
@@ -315,6 +317,24 @@ public:
     }
   }
 
+#ifdef __NVCC__
+
+  DEVICE void refine(BInc& has_changed, gpu_tag_t) {
+    int tid = threadIdx.x;
+    int stride = blockDim.x;
+    __shared__ BInc changed[3] = {BInc::bot(), BInc::bot(), BInc::bot()};
+    for(int i = 1; a->is_top().guard() && changed[(i-1)%3]; ++i) {
+      for (int t = tid; t < num_refinements(); t += stride) {
+        refine(t, changed[i%3]);
+      }
+      changed[(i+1)%3].dtell(BInc::bot());
+      has_changed.tell(changed[i%3]);
+      __syncthreads();
+    }
+  }
+
+#endif
+
   // Functions forwarded to the sub-domain `A`.
 
   /** `true` if the underlying abstract element is top, `false` otherwise. */
@@ -322,7 +342,7 @@ public:
     return a->is_top();
   }
 
-  /** `true` if the underlying abstract element is bot, `false` otherwise. */
+  /** `true` if the underlying abstract element is bot and there is no refinement function, `false` otherwise. */
   CUDA BInc is_bot() const {
     return a->is_bot() && props.size() == 0;
   }

@@ -5,6 +5,8 @@
 
 #include "ast.hpp"
 #include "terms.hpp"
+#include "formula.hpp"
+#include "rewritting.hpp"
 #include "z.hpp"
 
 namespace lala {
@@ -25,21 +27,9 @@ public:
   using Env = typename A::Env;
 
 private:
-  struct Propagator {
-    Term<A>* left;
-    Universe right;
-    Propagator(): left(nullptr), right(Universe::bot()) {}
-    Propagator(const Propagator&) = default;
-    Propagator(Propagator&&) = default;
-    Propagator& operator=(Propagator&&) = default;
-    Propagator& operator=(const Propagator&) = default;
-    Propagator(Term<A>* left, Universe right):
-      left(left), right(right) {}
-  };
-
   AType uid;
   A* a;
-  DArray<Propagator, Allocator> props;
+  DArray<Formula<A>*, Allocator> props;
 
 public:
   CUDA IPC(AType uid, A* a,
@@ -89,7 +79,7 @@ private:
           Mul<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
       case DIV:
         return new(alloc) DynTerm(
-          Mul<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
+          Div<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
       default:
         return {};
     }
@@ -119,11 +109,12 @@ private:
     for(int i = 0; i < subterms.size(); ++i) {
       auto t = interpret_term(seq[i]);
       if(!t.has_value()) {
-        return {};
+        t = interpret_formula(seq[i], true);
+        if(!t.has_value()) {
+          return {};
+        }
       }
-      else {
-        subterms[i] = std::move(*t);
-      }
+      subterms[i] = std::move(*t);
     }
     if(subterms.size() == 1) {
       Term<A>* x = subterms[0];
@@ -177,17 +168,94 @@ private:
   }
 
   template <class F>
-  CUDA thrust::optional<Propagator> interpret_one(const F& f) {
-    assert(f.type() == uid);
-    // Form of the constraint `T <op> u` with `x <op> u` interpreted in the underlying universe.
-    if(f.is(F::Seq) && f.seq().size() == 2) {
-      auto u = Universe::interpret(F::make_binary(F::make_avar(0), f.sig(), f.seq(1)));
-      if(u.has_value()) {
-        auto term = interpret_term(f.seq(0));
-        if(term.has_value()) {
-          return Propagator(*term, *u);
-        }
+  CUDA thrust::optional<Formula<A>*> interpret_negation(const F& f, bool neg_context) {
+    auto nf = negate(f);
+    if(nf.has_value()) {
+      return interpret_formula(*nf, neg_context);
+    }
+    return {};
+  }
+
+  template<class F,
+    template<class> class LogicalConnector>
+  CUDA thrust::optional<Formula<A>*> interpret_binary_logical_connector(const F& f, const F& g, bool neg_context) {
+    auto l = interpret_formula(f, neg_context);
+    if(l.has_value()) {
+      auto k = interpret_formula(g, neg_context);
+      if(k.has_value()) {
+        Allocator allocator = props.get_allocator();
+        return new(allocator) DynFormula(
+          LogicalConnector<Formula<A>*>(std::move(*l), std::move(*k)));
       }
+    }
+    return {};
+  }
+
+  template <class F>
+  CUDA thrust::optional<Formula<A>*> interpret_conjunction(const F& f, const F& g, bool neg_context) {
+    return interpret_binary_logical_connector<F, Conjunction>(f, g, neg_context);
+  }
+
+  template <class F>
+  CUDA thrust::optional<Formula<A>*> interpret_disjunction(const F& f, const F& g) {
+    return interpret_binary_logical_connector<F, Disjunction>(f, g, true);
+  }
+
+  template <bool neg, class F>
+  CUDA thrust::optional<Formula<A>*> interpret_literal(const F& f) {
+    auto x = var_in(f, a->environment());
+    assert(x.has_value());
+    Allocator allocator = props.get_allocator();
+    return new(allocator) DynFormula(VariableLiteral<A, neg>(*x));
+  }
+
+  template <class F>
+  CUDA thrust::optional<Formula<A>*> interpret_formula(const F& f, bool neg_context = false) {
+    assert(f.type() == uid);
+    if(f.is(F::Seq) && f.seq().size() == 2) {
+      Sig sig = f.sig();
+      Allocator allocator = props.get_allocator();
+      switch(sig) {
+        case AND: return interpret_conjunction(f.seq(0), f.seq(1), neg_context);
+        case OR:  return interpret_disjunction(f.seq(0), f.seq(1));
+        // Form of the constraint `T <op> u` with `x <op> u` interpreted in the underlying universe.
+        default:
+          auto u = Universe::interpret(F::make_binary(F::make_avar(0), sig, f.seq(1)));
+          if(u.has_value()) {
+            auto term = interpret_term(f.seq(0));
+            if(term.has_value()) {
+              // In a context where the formula propagator can be asked for its negation, we must interpret the negation of the formula as well.
+              if(neg_context) {
+                auto nf_ = negate(f);
+                if(nf_.has_value()) {
+                  auto nf = interpret_formula(*nf_);
+                  if(nf.has_value()) {
+                    return new(allocator) DynFormula(
+                      LatticeOrderPredicate<Term<A>*, Formula<A>*>(std::move(*term), std::move(*u), std::move(*nf)));
+                  }
+                }
+              }
+              else {
+                return new(allocator) DynFormula(
+                  LatticeOrderPredicate<Term<A>*>(std::move(*term), std::move(*u)));
+              }
+            }
+          }
+      }
+    }
+    // Negative literal
+    else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT &&
+      (f.seq(0).is(F::V) || f.seq(0).is(F::LV)))
+    {
+      return interpret_literal<true>(f.seq(0));
+    }
+    // Positive literal
+    else if(f.is(F::V) || f.is(F::LV)) {
+      return interpret_literal<false>(f);
+    }
+    // Logical negation
+    else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT) {
+      return interpret_negation(f, neg_context);
     }
     return {};
   }
@@ -195,7 +263,7 @@ private:
 public:
   struct TellType {
     thrust::optional<typename A::TellType> sub;
-    DArray<Propagator, Allocator> props;
+    DArray<Formula<A>*, Allocator> props;
     TellType(TellType&&) = default;
     TellType& operator=(TellType&&) = default;
     TellType(A::TellType&& sub): sub(std::move(sub)), props() {}
@@ -235,7 +303,7 @@ public:
       TellType res(num_props, props.get_allocator());
       for(int i = 0, p = 0; i < seq.size(); ++i) {
         if(seq[i].type() == uid) {
-          auto prop = interpret_one(seq[i]);
+          auto prop = interpret_formula(seq[i]);
           if(prop.has_value()) {
             res.props[p] = std::move(*prop);
             ++p;
@@ -257,7 +325,7 @@ public:
       return std::move(res);
     }
     else {
-      auto prop = interpret_one(f);
+      auto prop = interpret_formula(f);
       if(prop.has_value()) {
         TellType res(1, props.get_allocator());
         res.props[0] = std::move(*prop);
@@ -269,12 +337,12 @@ public:
 
   CUDA void resize(size_t new_size) {
     if(new_size > props.size()) {
-      using Array = DArray<Propagator, Allocator>;
+      using Array = DArray<Formula<A>*, Allocator>;
       Array props2 = Array(new_size);
       for(int i = 0; i < props.size(); ++i) {
-        props2[i] = std::move(props[i]);
+        swap(props2[i], props[i]);
       }
-      props = props2;
+      props = std::move(props2);
     }
   }
 
@@ -289,17 +357,28 @@ public:
     if(t.sub.has_value()) {
       a->tell(*t.sub, has_changed);
     }
-    // !! Not correct, need to fill the temporary array first.
     if(t.props.size() > 0) {
       has_changed = BInc::top();
     }
     size_t n = props.size();
     resize(n + t.props.size());
     for(int i = 0; i < t.props.size(); ++i) {
-      props[n + i] = std::move(t.props[i]);
-      props[n + i].right.tell(props[n + i].left->project(*a), has_changed);
+      swap(props[n + i], t.props[i]); // swap is necessary to move the ownership of the pointer, otherwise t.props destructor will delete polymorphic pointers.
+      props[n + i]->preprocess(*a, has_changed);
     }
     return *this;
+  }
+
+  CUDA BInc ask(const TellType& t) const {
+    for(int i = 0; t.props.size(); ++i) {
+      if(!t.props[i]->ask(*a).guard()) {
+        return BInc::bot();
+      }
+    }
+    if(t.sub.has_value()) {
+      return a->ask(t.sub);
+    }
+    return BInc::top();
   }
 
   CUDA size_t num_refinements() const {
@@ -308,7 +387,7 @@ public:
 
   CUDA void refine(size_t i, BInc& has_changed) {
     assert(i < num_refinements());
-    props[i].left->tell(*a, props[i].right, has_changed);
+    props[i]->refine(*a, has_changed);
   }
 
   CUDA void refine(BInc& has_changed) {
@@ -344,7 +423,7 @@ public:
 
   /** `true` if the underlying abstract element is bot and there is no refinement function, `false` otherwise. */
   CUDA BInc is_bot() const {
-    return a->is_bot() && props.size() == 0;
+    return BInc(a->is_bot().guard() && props.size() == 0);
   }
 
   CUDA const Universe& project(AVar x) const {

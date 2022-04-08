@@ -7,11 +7,6 @@
 
 namespace lala {
 
-// NOTE: Bitwise OR and AND are necessary to avoid short-circuit of Boolean operators.
-// NOTE: The pointers are shared among terms.
-//       This is because terms have a constant state, that is, terms are read-only once constructed.
-//       Therefore, the copy constructor does not perform a deep copy.
-
 template <class AD>
 class Term {
 public:

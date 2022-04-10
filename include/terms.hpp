@@ -64,6 +64,16 @@ CUDA const typename std::remove_pointer<T>::type& deref(const T& x) {
   }
 }
 
+template <class T>
+CUDA typename std::remove_pointer<T>::type& deref(T& x) {
+  if constexpr(std::is_pointer_v<T>) {
+    return *x;
+  }
+  else {
+    return x;
+  }
+}
+
 template <class AD>
 class Constant {
 public:

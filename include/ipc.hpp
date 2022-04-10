@@ -201,6 +201,11 @@ private:
     return interpret_binary_logical_connector<F, Disjunction>(f, g, true);
   }
 
+  template <class F>
+  CUDA thrust::optional<Formula<A>*> interpret_biconditional(const F& f, const F& g) {
+    return interpret_binary_logical_connector<F, Biconditional>(f, g, true);
+  }
+
   template <bool neg, class F>
   CUDA thrust::optional<Formula<A>*> interpret_literal(const F& f) {
     auto x = var_in(f, a->environment());
@@ -218,6 +223,7 @@ private:
       switch(sig) {
         case AND: return interpret_conjunction(f.seq(0), f.seq(1), neg_context);
         case OR:  return interpret_disjunction(f.seq(0), f.seq(1));
+        case EQUIV:  return interpret_biconditional(f.seq(0), f.seq(1));
         // Form of the constraint `T <op> u` with `x <op> u` interpreted in the underlying universe.
         default:
           auto u = Universe::interpret(F::make_binary(F::make_avar(0), sig, f.seq(1)));

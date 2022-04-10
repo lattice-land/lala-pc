@@ -255,6 +255,11 @@ public:
     deref(not_f).refine(a, has_changed);
   }
 
+  CUDA void preprocess(A& a, BInc& has_changed) {
+    base_type::preprocess(a, has_changed);
+    deref(not_f).preprocess(a, has_changed);
+  }
+
   using term_adapter = FormulaAsTermAdapter<LatticeOrderPredicate<T, NotF>, T>;
   CUDA void tell(A& a, const U& u, BInc& has_changed) const { term_adapter::tell(a, u, has_changed); }
   CUDA U project(const A& a) const { return term_adapter::project(a); }
@@ -300,10 +305,8 @@ public:
   }
 
   CUDA void preprocess(A& a, BInc& has_changed) {
-    if constexpr(std::is_pointer_v<F>) { f_->preprocess(a, has_changed); }
-    else { f_.preprocess(a, has_changed); }
-    if constexpr(std::is_pointer_v<G>) { g_->preprocess(a, has_changed); }
-    else { g_.preprocess(a, has_changed); }
+    deref(f_).preprocess(a, has_changed);
+    deref(g_).preprocess(a, has_changed);
   }
 
   CUDA void refine(A& a, BInc& has_changed) const {
@@ -312,8 +315,8 @@ public:
   }
 
   CUDA void nrefine(A& a, BInc& has_changed) const {
-    if(f().nask(a).guard()) { g().nrefine(a, has_changed); }
-    else if(g().nask(a).guard()) { f().nrefine(a, has_changed); }
+    if(f().ask(a).guard()) { g().nrefine(a, has_changed); }
+    else if(g().ask(a).guard()) { f().nrefine(a, has_changed); }
   }
 
   CUDA BInc is_top(const A& a) const {
@@ -362,10 +365,8 @@ public:
   }
 
   CUDA void preprocess(A& a, BInc& has_changed) {
-    if constexpr(std::is_pointer_v<F>) { f_->preprocess(a, has_changed); }
-    else { f_.preprocess(a, has_changed); }
-    if constexpr(std::is_pointer_v<G>) { g_->preprocess(a, has_changed); }
-    else { g_.preprocess(a, has_changed); }
+    deref(f_).preprocess(a, has_changed);
+    deref(g_).preprocess(a, has_changed);
   }
 
   CUDA void refine(A& a, BInc& has_changed) const {
@@ -385,6 +386,72 @@ public:
   CUDA void print(const A& a) const {
     f().print(a);
     printf(" \\/ ");
+    g().print(a);
+  }
+};
+
+template<class F, class G = F>
+class Biconditional : public FormulaAsTermAdapter<Biconditional<F, G>, F> {
+public:
+  using F_ = typename std::remove_pointer<F>::type;
+  using G_ = typename std::remove_pointer<G>::type;
+  using A = typename F_::A;
+  using U = typename A::Universe;
+  using this_type = Biconditional<F, G>;
+
+private:
+  F f_;
+  G g_;
+
+  CUDA INLINE const F_& f() const { return deref(f_); }
+  CUDA INLINE const G_& g() const { return deref(g_); }
+public:
+  CUDA Biconditional(F&& f, G&& g): f_(f), g_(g) {}
+  CUDA Biconditional(this_type&& other): Biconditional(
+    std::move(other.f_), std::move(other.g_)) {}
+
+  CUDA BInc ask(const A& a) const {
+    return lor(
+      land(f().ask(a), g().ask(a)),
+      land(f().nask(a), g().nask(a))
+    );
+  }
+
+  // note that not(f <=> g) is equivalent to (f <=> not g)
+  CUDA BInc nask(const A& a) const {
+    return lor(
+      land(f().ask(a), g().nask(a)),
+      land(f().nask(a), g().ask(a))
+    );
+  }
+
+  CUDA void preprocess(A& a, BInc& has_changed) {
+    deref(f_).preprocess(a, has_changed);
+    deref(g_).preprocess(a, has_changed);
+  }
+
+  CUDA void refine(A& a, BInc& has_changed) const {
+    if(f().ask(a).guard()) { g().refine(a, has_changed); }
+    else if(f().nask(a).guard()) { g().nrefine(a, has_changed); }
+    else if(g().ask(a).guard()) { f().refine(a, has_changed); }
+    else if(g().nask(a).guard()) { f().nrefine(a, has_changed); }
+  }
+
+  // note that not(f <=> g) is equivalent to (f <=> not g)
+  CUDA void nrefine(A& a, BInc& has_changed) const {
+    if(f().ask(a).guard()) { g().nrefine(a, has_changed); }
+    else if(f().nask(a).guard()) { g().refine(a, has_changed); }
+    else if(g().ask(a).guard()) { f().nrefine(a, has_changed); }
+    else if(g().nask(a).guard()) { f().refine(a, has_changed); }
+  }
+
+  CUDA BInc is_top(const A& a) const {
+    return lor(f().is_top(a), g().is_top(a));
+  }
+
+  CUDA void print(const A& a) const {
+    f().print(a);
+    printf(" <=> ");
     g().print(a);
   }
 };

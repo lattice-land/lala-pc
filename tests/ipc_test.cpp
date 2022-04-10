@@ -17,6 +17,7 @@ using F = TFormula<StandardAllocator>;
 static LVar<StandardAllocator> var_x = "x";
 static LVar<StandardAllocator> var_y = "y";
 static LVar<StandardAllocator> var_z = "z";
+static LVar<StandardAllocator> var_b = "b";
 
 #define EXPECT_EQ2(a,b) EXPECT_EQ(unwrap(a), unwrap(b))
 #define EXPECT_TRUE2(a) EXPECT_TRUE(unwrap(a))
@@ -442,4 +443,96 @@ TEST(IPCTest, NegationOp7) {
   IIPC ipc = unop_constraint(NEG, -4, 3, GEQ, 5, true);
   AVar var = *(ipc.environment().to_avar(var_x));
   EXPECT_TRUE2(ipc.project(var).is_top());
+}
+
+// Create a constraint of the form "b <=> (x - y <= k1 /\ y - x <= k2)".
+IIPC make_resource_cons(int lbx, int ubx, int lby, int uby, int k1, int k2) {
+  IStore* istore = new IStore(IStore::bot(sty));
+  IIPC ipc(pty, istore);
+  F::Sequence doms(9);
+  doms[0] = F::make_exists(sty, var_x, Int);
+  doms[1] = F::make_exists(sty, var_y, Int);
+  doms[2] = make_v_op_z(var_x, LEQ, ubx);
+  doms[3] = make_v_op_z(var_y, LEQ, uby);
+  doms[4] = make_v_op_z(var_x, GEQ, lbx);
+  doms[5] = make_v_op_z(var_y, GEQ, lby);
+  doms[6] = F::make_exists(sty, var_b, Int);
+  doms[7] = make_v_op_z(var_b, LEQ, 1);
+  doms[8] = make_v_op_z(var_b, GEQ, 0);
+
+  F::Sequence right(2);
+  right[0] = F::make_binary(F::make_binary(F::make_lvar(sty, var_x), SUB, F::make_lvar(sty, var_y), pty), LEQ, F::make_z(k1), pty);
+  right[1] = F::make_binary(F::make_binary(F::make_lvar(sty, var_y), SUB, F::make_lvar(sty, var_x), pty), LEQ, F::make_z(k2), pty);
+
+  F::Sequence all(2);
+  all[0] = F::make_nary(AND, doms, sty);
+  all[1] = F::make_binary(F::make_lvar(pty, var_b), EQUIV,
+    F::make_nary(AND, right, pty), pty);
+  auto f = F::make_nary(AND, all, pty);
+
+  thrust::optional<IIPC::TellType> res(ipc.interpret(f));
+  EXPECT_TRUE(res.has_value());
+  BInc has_changed = BInc::bot();
+  ipc.tell(std::move(*res), has_changed);
+  EXPECT_TRUE2(has_changed.is_top());
+  EXPECT_EQ(ipc.num_refinements(), 1);
+
+  // Projection tests
+  AVar vars[2];
+  vars2_of(ipc, vars);
+  EXPECT_EQ2(ipc.project(vars[0]), Itv(lbx, ubx));
+  EXPECT_EQ2(ipc.project(vars[1]), Itv(lby, uby));
+  return std::move(ipc);
+}
+
+TEST(IPCTest, ResourceConstraint1) {
+  IIPC ipc = make_resource_cons(5, 10, 9, 15, 0, 2);
+
+  BInc has_changed = BInc::bot();
+  ipc.refine(has_changed);
+  EXPECT_FALSE2(has_changed.is_top());
+
+  // Add b = true in the abstract element
+  thrust::optional<IIPC::TellType> res(ipc.interpret(F::make_binary(F::make_lvar(sty, var_b), EQ, F::make_z(1), sty)));
+  EXPECT_TRUE(res.has_value());
+  ipc.tell(std::move(*res), has_changed);
+  EXPECT_TRUE2(has_changed);
+  EXPECT_EQ(ipc.num_refinements(), 1);
+  AVar b = *(ipc.environment().to_avar(var_b));
+  EXPECT_EQ2(ipc.project(b), Itv(1, 1));
+
+  // Run the refinement operator.
+  has_changed.dtell(BInc::bot());
+  ipc.refine(has_changed);
+  EXPECT_TRUE2(has_changed);
+  AVar vars[2];
+  vars2_of(ipc, vars);
+  EXPECT_EQ2(ipc.project(vars[0]), Itv(7, 10));
+  EXPECT_EQ2(ipc.project(vars[1]), Itv(9, 12));
+}
+
+TEST(IPCTest, ResourceConstraint2) {
+  IIPC ipc = make_resource_cons(1, 2, 0, 2, 2, -1);
+
+  BInc has_changed = BInc::bot();
+  ipc.refine(has_changed);
+  EXPECT_FALSE2(has_changed.is_top());
+
+  // Add b = false in the abstract element
+  thrust::optional<IIPC::TellType> res(ipc.interpret(F::make_binary(F::make_lvar(sty, var_b), EQ, F::make_z(0), sty)));
+  EXPECT_TRUE(res.has_value());
+  ipc.tell(std::move(*res), has_changed);
+  EXPECT_TRUE2(has_changed);
+  EXPECT_EQ(ipc.num_refinements(), 1);
+  AVar b = *(ipc.environment().to_avar(var_b));
+  EXPECT_EQ2(ipc.project(b), Itv(0, 0));
+
+  // Run the refinement operator.
+  has_changed.dtell(BInc::bot());
+  ipc.refine(has_changed);
+  EXPECT_TRUE2(has_changed);
+  AVar vars[2];
+  vars2_of(ipc, vars);
+  EXPECT_EQ2(ipc.project(vars[0]), Itv(1, 2));
+  EXPECT_EQ2(ipc.project(vars[1]), Itv(1, 2));
 }

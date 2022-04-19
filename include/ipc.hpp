@@ -9,6 +9,10 @@
 #include "rewritting.hpp"
 #include "z.hpp"
 
+#include "vector.hpp"
+#include "unique_ptr.hpp"
+#include "shared_ptr.hpp"
+
 namespace lala {
 
 struct gpu_tag_t {} gpu_tag;
@@ -26,87 +30,72 @@ public:
   using this_type = IPC<A, Allocator>;
   using Env = typename A::Env;
 
+  using SubPtr = battery::shared_ptr<A, Allocator>;
 private:
   AType uid;
-  A* a;
-  DArray<Formula<A>*, Allocator> props;
+  SubPtr a;
+  using FormulaPtr = battery::unique_ptr<Formula<A>, Allocator>;
+  using TermPtr = battery::unique_ptr<Term<A>, Allocator>;
+  battery::vector<FormulaPtr, Allocator> props;
 
 public:
-  CUDA IPC(AType uid, A* a,
-    Allocator alloc = Allocator()): a(a), props(alloc), uid(uid)  {}
+  CUDA IPC(AType uid, SubPtr a,
+    const Allocator& alloc = Allocator()): a(std::move(a)), props(alloc), uid(uid)  {}
 
   CUDA IPC(IPC&& other): props(std::move(other.props)), uid(other.uid) {
-    swap(a, other.a);
+    ::battery::swap(a, other.a);
   }
 
   CUDA static this_type bot(AType uid = UNTYPED) {
-    Allocator allocator;
-    A* a = new(allocator) A::bot();
-    return IPC(uid, a);
+    return IPC(uid, battery::make_shared(std::move(A::bot())));
   }
 
   /** A special symbolic element representing top. */
   CUDA static this_type top(AType uid = UNTYPED) {
-    Allocator allocator;
-    A* a = new(allocator) A::top();
-    return IPC(uid, a);
+    return IPC(uid, battery::make_shared(std::move(A::top())));
   }
 
 private:
-  CUDA thrust::optional<Term<A>*> interpret_unary(Sig sig, Term<A>* a) {
-    Allocator alloc = props.get_allocator();
+  using TermOpt = thrust::optional<TermPtr>;
+
+  template<class Arg>
+  CUDA TermPtr make_ptr(Arg&& arg) {
+    return battery::allocate_unique<DynTerm<Arg>>(props.get_allocator(), std::move(arg));
+  }
+
+  CUDA TermOpt interpret_unary(Sig sig, TermPtr&& a) {
     switch(sig) {
-      case NEG:
-        return new(alloc) DynTerm(Neg<Term<A>*>(std::move(a)));
-      default:
-        return {};
+      case NEG: return make_ptr(Neg<TermPtr>(std::move(a)));
+      default:  return {};
     }
   }
 
-  CUDA thrust::optional<Term<A>*> interpret_binary(Sig sig,
-    Term<A>* x, Term<A>* y)
+  CUDA TermOpt interpret_binary(Sig sig, TermPtr&& x, TermPtr&& y)
   {
-    Allocator alloc = props.get_allocator();
     switch(sig) {
-      case ADD:
-        return new(alloc) DynTerm(
-          Add<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
-      case SUB:
-        return new(alloc) DynTerm(
-          Sub<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
-      case MUL:
-        return new(alloc) DynTerm(
-          Mul<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
-      case DIV:
-        return new(alloc) DynTerm(
-          Div<Term<A>*, Term<A>*>(std::move(x), std::move(y)));
-      default:
-        return {};
+      case ADD: return make_ptr(Add<TermPtr, TermPtr>(std::move(x), std::move(y)));
+      case SUB: return make_ptr(Sub<TermPtr, TermPtr>(std::move(x), std::move(y)));
+      case MUL: return make_ptr(Mul<TermPtr, TermPtr>(std::move(x), std::move(y)));
+      case DIV: return make_ptr(Div<TermPtr, TermPtr>(std::move(x), std::move(y)));
+      default:  return {};
     }
   }
 
-  CUDA thrust::optional<Term<A>*> interpret_nary(Sig sig,
-    DArray<Term<A>*, Allocator> subterms)
+  CUDA TermOpt interpret_nary(Sig sig, battery::vector<TermPtr, Allocator>&& subterms)
   {
-    Allocator alloc = props.get_allocator();
     switch(sig) {
-      case ADD:
-        return new(alloc) DynTerm(
-          NaryAdd<Term<A>*, Allocator>(std::move(subterms)));
-      case MUL:
-        return new(alloc) DynTerm(
-          NaryMul<Term<A>*, Allocator>(std::move(subterms)));
-      default:
-        return {};
+      case ADD: return make_ptr(NaryAdd<TermPtr, Allocator>(std::move(subterms)));
+      case MUL: return make_ptr(NaryMul<TermPtr, Allocator>(std::move(subterms)));
+      default:  return {};
     }
   }
 
   template <class F>
-  CUDA thrust::optional<Term<A>*> interpret_sequence(Sig sig,
-    const typename F::Sequence& seq)
+  CUDA TermOpt interpret_sequence(Sig sig, const typename F::Sequence& seq)
   {
-    DArray<Term<A>*, Allocator> subterms(seq.size());
-    for(int i = 0; i < subterms.size(); ++i) {
+    battery::vector<TermPtr, Allocator> subterms;
+    subterms.reserve(seq.size());
+    for(int i = 0; i < seq.size(); ++i) {
       auto t = interpret_term(seq[i]);
       if(!t.has_value()) {
         t = interpret_formula(seq[i], true);
@@ -114,21 +103,13 @@ private:
           return {};
         }
       }
-      subterms[i] = std::move(*t);
+      subterms.push_back(std::move(*t));
     }
     if(subterms.size() == 1) {
-      Term<A>* x = subterms[0];
-      subterms[0] = nullptr;
-      return interpret_unary(sig, x);
+      return interpret_unary(sig, std::move(subterms[0]));
     }
     else if(subterms.size() == 2) {
-      // This code is not very good, it is necessary to set subterms[i] to nullptr, otherwsie DArray will free the pointers because DArray owns polymorphic objects.
-      // I'm not sure about what would be a better solution at the moment.
-      Term<A>* x = subterms[0];
-      Term<A>* y = subterms[1];
-      subterms[0] = nullptr;
-      subterms[1] = nullptr;
-      return interpret_binary(sig, x, y);
+      return interpret_binary(sig, std::move(subterms[0]), std::move(subterms[1]));
     }
     else {
       return interpret_nary(sig, std::move(subterms));
@@ -136,12 +117,11 @@ private:
   }
 
   template <class F>
-  CUDA thrust::optional<Term<A>*> interpret_term(const F& f) {
-    Allocator alloc = props.get_allocator();
+  CUDA TermOpt interpret_term(const F& f) {
     if(f.is(F::V)) {
       // need to check that this variable is defined in the domain?
       // or should we just suppose it is?
-      return new(alloc) DynTerm(Variable<A>(f.v()));
+      return make_ptr(Variable<A>(f.v()));
     }
     else if(f.is(F::LV)) {
       auto v = a->environment().to_avar(f.lv());
@@ -149,7 +129,7 @@ private:
         return {};
       }
       else {
-        return new(alloc) DynTerm(Variable<A>(*v));
+        return make_ptr(Variable<A>(*v));
       }
     }
     else if(f.is(F::Z)) {
@@ -158,7 +138,7 @@ private:
         return {};
       }
       else {
-        return new(alloc) DynTerm(Constant<A>(std::move(*k)));
+        return make_ptr(Constant<A>(std::move(*k)));
       }
     }
     else if(f.is(F::Seq)) {
@@ -167,8 +147,15 @@ private:
     return {};
   }
 
+  using FormulaOpt = thrust::optional<FormulaPtr>;
+
+  template<class Arg>
+  CUDA FormulaPtr make_fptr(Arg&& arg) {
+    return battery::allocate_unique<DynFormula<Arg>>(props.get_allocator(), std::move(arg));
+  }
+
   template <class F>
-  CUDA thrust::optional<Formula<A>*> interpret_negation(const F& f, bool neg_context) {
+  CUDA FormulaOpt interpret_negation(const F& f, bool neg_context) {
     auto nf = negate(f);
     if(nf.has_value()) {
       return interpret_formula(*nf, neg_context);
@@ -176,50 +163,45 @@ private:
     return {};
   }
 
-  template<class F,
-    template<class> class LogicalConnector>
-  CUDA thrust::optional<Formula<A>*> interpret_binary_logical_connector(const F& f, const F& g, bool neg_context) {
+  template<class F, template<class> class LogicalConnector>
+  CUDA FormulaOpt interpret_binary_logical_connector(const F& f, const F& g, bool neg_context) {
     auto l = interpret_formula(f, neg_context);
     if(l.has_value()) {
       auto k = interpret_formula(g, neg_context);
       if(k.has_value()) {
-        Allocator allocator = props.get_allocator();
-        return new(allocator) DynFormula(
-          LogicalConnector<Formula<A>*>(std::move(*l), std::move(*k)));
+        return make_fptr(LogicalConnector<FormulaPtr>(std::move(*l), std::move(*k)));
       }
     }
     return {};
   }
 
   template <class F>
-  CUDA thrust::optional<Formula<A>*> interpret_conjunction(const F& f, const F& g, bool neg_context) {
+  CUDA FormulaOpt interpret_conjunction(const F& f, const F& g, bool neg_context) {
     return interpret_binary_logical_connector<F, Conjunction>(f, g, neg_context);
   }
 
   template <class F>
-  CUDA thrust::optional<Formula<A>*> interpret_disjunction(const F& f, const F& g) {
+  CUDA FormulaOpt interpret_disjunction(const F& f, const F& g) {
     return interpret_binary_logical_connector<F, Disjunction>(f, g, true);
   }
 
   template <class F>
-  CUDA thrust::optional<Formula<A>*> interpret_biconditional(const F& f, const F& g) {
+  CUDA FormulaOpt interpret_biconditional(const F& f, const F& g) {
     return interpret_binary_logical_connector<F, Biconditional>(f, g, true);
   }
 
   template <bool neg, class F>
-  CUDA thrust::optional<Formula<A>*> interpret_literal(const F& f) {
+  CUDA FormulaOpt interpret_literal(const F& f) {
     auto x = var_in(f, a->environment());
     assert(x.has_value());
-    Allocator allocator = props.get_allocator();
-    return new(allocator) DynFormula(VariableLiteral<A, neg>(*x));
+    return make_fptr(VariableLiteral<A, neg>(std::move(*x)));
   }
 
   template <class F>
-  CUDA thrust::optional<Formula<A>*> interpret_formula(const F& f, bool neg_context = false) {
-    assert(f.type() == uid);
+  CUDA FormulaOpt interpret_formula(const F& f, bool neg_context = false) {
+    assert(f.type() == uid || f.type() == UNTYPED);
     if(f.is(F::Seq) && f.seq().size() == 2) {
       Sig sig = f.sig();
-      Allocator allocator = props.get_allocator();
       switch(sig) {
         case AND: return interpret_conjunction(f.seq(0), f.seq(1), neg_context);
         case OR:  return interpret_disjunction(f.seq(0), f.seq(1));
@@ -236,14 +218,12 @@ private:
                 if(nf_.has_value()) {
                   auto nf = interpret_formula(*nf_);
                   if(nf.has_value()) {
-                    return new(allocator) DynFormula(
-                      LatticeOrderPredicate<Term<A>*, Formula<A>*>(std::move(*term), std::move(*u), std::move(*nf)));
+                    return make_fptr(LatticeOrderPredicate<TermPtr, FormulaPtr>(std::move(*term), std::move(*u), std::move(*nf)));
                   }
                 }
               }
               else {
-                return new(allocator) DynFormula(
-                  LatticeOrderPredicate<Term<A>*>(std::move(*term), std::move(*u)));
+                return make_fptr(LatticeOrderPredicate<TermPtr>(std::move(*term), std::move(*u)));
               }
             }
           }
@@ -269,11 +249,13 @@ private:
 public:
   struct TellType {
     thrust::optional<typename A::TellType> sub;
-    DArray<Formula<A>*, Allocator> props;
+    battery::vector<FormulaPtr, Allocator> props;
     TellType(TellType&&) = default;
     TellType& operator=(TellType&&) = default;
-    TellType(A::TellType&& sub): sub(std::move(sub)), props() {}
-    TellType(size_t n, const Allocator& alloc): sub(), props(n, alloc) {}
+    TellType(A::TellType&& sub, const Allocator& alloc): sub(std::move(sub)), props(alloc) {}
+    TellType(size_t n, const Allocator& alloc): sub(), props(alloc) {
+      props.reserve(n);
+    }
   };
 
   /** IPC expects a conjunction of the form \f$ \varphi \land c_1 \land \ldots \land c_n \f$ where \f$ \varphi \f$ can be interpret in the sub-domain `A` (and is possibly a conjunction), and \f$ c_i \f$ can be interpreted in the current domain.
@@ -283,15 +265,18 @@ public:
     \f$ T \f$ is an arithmetic term, containing function symbols supported in `terms.hpp`. */
   template <class F>
   CUDA thrust::optional<TellType> interpret(const F& f) {
-    if(f.type() != uid) {
+    // If the formula is untyped, we first try to interpret it in the sub-domain.
+    if(f.type() == UNTYPED || f.type() != uid) {
       auto r = a->interpret(f);
       if(r.has_value()) {
-        return TellType(std::move(*r));
+        return TellType(std::move(*r), props.get_allocator());
       }
-      return {}; // Reason: The formula `f` could not be interpreted in the sub-domain `A`.
+      if(f.type() != UNTYPED) {
+        return {}; // Reason: The formula `f` could not be interpreted in the sub-domain `A`.
+      }
     }
     // Conjunction
-    else if(f.is(F::Seq) && f.sig() == AND) {
+    if(f.is(F::Seq) && f.sig() == AND) {
       const typename F::Sequence& seq = f.seq();
       size_t num_props = 0;
       size_t num_sub = 0;
@@ -307,12 +292,11 @@ public:
         return {}; // Reason: More than one formula that needs to be interpreted in the sub-domain. They must be grouped together in a conjunction.
       }
       TellType res(num_props, props.get_allocator());
-      for(int i = 0, p = 0; i < seq.size(); ++i) {
+      for(int i = 0; i < seq.size(); ++i) {
         if(seq[i].type() == uid) {
           auto prop = interpret_formula(seq[i]);
           if(prop.has_value()) {
-            res.props[p] = std::move(*prop);
-            ++p;
+            res.props.push_back(std::move(*prop));
           }
           else {
             return {}; // Reason: A formula could not be interpreted as a propagator.
@@ -334,21 +318,10 @@ public:
       auto prop = interpret_formula(f);
       if(prop.has_value()) {
         TellType res(1, props.get_allocator());
-        res.props[0] = std::move(*prop);
+        res.props.push_back(std::move(*prop));
         return std::move(res);
       }
       return {}; // Reason: The formula `f` could not be interpreted as a propagator.
-    }
-  }
-
-  CUDA void resize(size_t new_size) {
-    if(new_size > props.size()) {
-      using Array = DArray<Formula<A>*, Allocator>;
-      Array props2 = Array(new_size);
-      for(int i = 0; i < props.size(); ++i) {
-        swap(props2[i], props[i]);
-      }
-      props = std::move(props2);
     }
   }
 
@@ -367,9 +340,9 @@ public:
       has_changed = BInc::top();
     }
     size_t n = props.size();
-    resize(n + t.props.size());
+    props.reserve(n + t.props.size());
     for(int i = 0; i < t.props.size(); ++i) {
-      swap(props[n + i], t.props[i]); // swap is necessary to move the ownership of the pointer, otherwise t.props destructor will delete polymorphic pointers.
+      props.push_back(std::move(t.props[i]));
       props[n + i]->preprocess(*a, has_changed);
     }
     return *this;

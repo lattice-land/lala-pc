@@ -4,6 +4,8 @@
 #define TERMS_HPP
 
 #include "arithmetic.hpp"
+#include "ptr_utility.hpp"
+#include "vector.hpp"
 
 namespace lala {
 
@@ -50,30 +52,6 @@ public:
   CUDA ~DynTerm() {}
 };
 
-// This function is used to dereference the attribute if T is a pointer.
-// The rational behind that, is to be able to manipulate a type T as a pointer or a reference.
-// In the following code, our term AST is either static (only with template) or dynamic (with virtual function call).
-// But we did not want to duplicate the code to handle both.
-template <class T>
-CUDA const typename std::remove_pointer<T>::type& deref(const T& x) {
-  if constexpr(std::is_pointer_v<T>) {
-    return *x;
-  }
-  else {
-    return x;
-  }
-}
-
-template <class T>
-CUDA typename std::remove_pointer<T>::type& deref(T& x) {
-  if constexpr(std::is_pointer_v<T>) {
-    return *x;
-  }
-  else {
-    return x;
-  }
-}
-
 template <class AD>
 class Constant {
 public:
@@ -89,7 +67,7 @@ public:
   CUDA void tell(A&, const U&, BInc&) const {}
   CUDA U project(const A&) const { return k; }
   CUDA BInc is_top(const A&) const { return BInc::bot(); }
-  CUDA void print(const A&) const { ::print(k); }
+  CUDA void print(const A&) const { ::battery::print(k); }
 };
 
 template<class T>
@@ -148,7 +126,7 @@ struct NegOp {
 template <class UnaryOp, class TermX>
 class Unary {
 public:
-  using TermX_ = typename std::remove_pointer<TermX>::type;
+  using TermX_ = typename remove_ptr<TermX>::type;
   using A = typename TermX_::A;
   using U = typename A::Universe;
   using this_type = Unary<UnaryOp, TermX>;
@@ -160,7 +138,7 @@ private:
   }
 
 public:
-  CUDA Unary(TermX&& x_term): x_term(x_term) {}
+  CUDA Unary(TermX&& x_term): x_term(std::move(x_term)) {}
   CUDA Unary(this_type&& other): Unary(std::move(other.x_term)) {}
 
   CUDA void tell(A& a, const U& u, BInc& has_changed) const {
@@ -184,7 +162,7 @@ public:
 
 template <class TermX, Approx appx = EXACT>
 using Neg = Unary<
-  NegOp<typename std::remove_pointer<TermX>::type::U, appx>,
+  NegOp<typename remove_ptr<TermX>::type::U, appx>,
   TermX>;
 
 template<class Universe, Approx appx = EXACT>
@@ -270,8 +248,8 @@ struct GroupDiv {
 template <class Group, class TermX, class TermY>
 class Binary {
 public:
-  using TermX_ = typename std::remove_pointer<TermX>::type;
-  using TermY_ = typename std::remove_pointer<TermY>::type;
+  using TermX_ = typename remove_ptr<TermX>::type;
+  using TermY_ = typename remove_ptr<TermY>::type;
 
   using A = typename TermX_::A;
   using U = typename Group::U;
@@ -291,7 +269,7 @@ private:
   }
 
 public:
-  CUDA Binary(TermX&& x_term, TermY&& y_term): x_term(x_term), y_term(y_term) {}
+  CUDA Binary(TermX&& x_term, TermY&& y_term): x_term(std::move(x_term)), y_term(std::move(y_term)) {}
   CUDA Binary(this_type&& other): Binary(std::move(other.x_term), std::move(other.y_term)) {}
 
   /** Enforce `x <op> y >= u` where >= is the lattice order of the underlying abstract universe.
@@ -325,34 +303,34 @@ public:
 
 template <class TermX, class TermY, Approx appx = EXACT>
 using Add = Binary<
-  GroupAdd<typename std::remove_pointer<TermX>::type::U, appx>,
+  GroupAdd<typename remove_ptr<TermX>::type::U, appx>,
   TermX,
   TermY>;
 
 template <class TermX, class TermY, Approx appx = EXACT>
 using Sub = Binary<
-  GroupSub<typename std::remove_pointer<TermX>::type::U, appx>,
+  GroupSub<typename remove_ptr<TermX>::type::U, appx>,
   TermX,
   TermY>;
 
 template <class TermX, class TermY, Approx appx = OVER>
 using Mul = Binary<
-  GroupMul<typename std::remove_pointer<TermX>::type::U, appx>,
+  GroupMul<typename remove_ptr<TermX>::type::U, appx>,
   TermX,
   TermY>;
 
 template <class TermX, class TermY, Approx appx = OVER>
 using Div = Binary<
-  GroupDiv<typename std::remove_pointer<TermX>::type::U, appx>,
+  GroupDiv<typename remove_ptr<TermX>::type::U, appx>,
   TermX,
   TermY>;
 
 // Nary is only valid for commutative group (e.g., addition and multiplication).
 template <class T, class Combinator, class Allocator>
 class Nary {
-  DArray<T, Allocator> terms;
+  battery::vector<T, Allocator> terms;
 
-  using T_ = typename std::remove_pointer<T>::type;
+  using T_ = typename remove_ptr<T>::type;
   CUDA INLINE const T_& t(size_t i) const {
     return deref(terms[i]);
   }
@@ -363,7 +341,7 @@ public:
   using U = typename Combinator::U;
   using G = typename Combinator::G;
 
-  CUDA Nary(DArray<T, Allocator>&& terms): terms(std::move(terms)) {}
+  CUDA Nary(battery::vector<T, Allocator>&& terms): terms(std::move(terms)) {}
   CUDA Nary(this_type&& other): Nary(std::move(other.terms)) {}
 
   CUDA U project(const A& a) const {

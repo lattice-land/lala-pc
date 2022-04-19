@@ -4,6 +4,7 @@
 #define FORMULA_HPP
 
 #include "arithmetic.hpp"
+#include "ptr_utility.hpp"
 
 namespace lala {
 
@@ -96,7 +97,7 @@ public:
  *    - Consists of the values \f$\{[\![x = 0]\!]_U \sqcap [\![x = 1]\!]_U, [\![x = 0]\!]_U, [\![x = 1]\!]_U, \top_U \}\f$.
  *    - With \f$\{[\![x = 0]\!]_U \sqcap [\![x = 1]\!]_U \f$ meaning neither true or false yet (e.g., unknown), \f$\{[\![x = 0]\!]_U \f$ modelling falsity, \f$ [\![x = 1]\!]_U \f$ modelling truth, and \f$ \top_U \f$ a logical statement both true and false (i.e., one of the variable is top). */
 template<class CRTP, class F,
-  class A = typename std::remove_pointer<F>::type::A>
+  class A = typename remove_ptr<F>::type::A>
 struct FormulaAsTermAdapter {
   using U = typename A::Universe;
 
@@ -179,7 +180,7 @@ class LatticeOrderPredicate;
 template<class T>
 class LatticeOrderPredicate<T, void> {
 public:
-  using T_ = typename std::remove_pointer<T>::type;
+  using T_ = typename remove_ptr<T>::type;
   using A = typename T_::A;
   using U = typename A::Universe;
   using this_type = LatticeOrderPredicate<T, void>;
@@ -193,7 +194,7 @@ protected:
   }
 
 public:
-  CUDA LatticeOrderPredicate(T&& left, U&& right): left(left), right(right) {}
+  CUDA LatticeOrderPredicate(T&& left, U&& right): left(std::move(left)), right(std::move(right)) {}
   CUDA LatticeOrderPredicate(this_type&& other): LatticeOrderPredicate(std::move(other.left), std::move(other.right)) {}
 
   CUDA BInc ask(const A& a) const {
@@ -234,7 +235,7 @@ class LatticeOrderPredicate :
   public FormulaAsTermAdapter<LatticeOrderPredicate<T, NotF>, T>
 {
 public:
-  using T_ = typename std::remove_pointer<T>::type;
+  using T_ = typename remove_ptr<T>::type;
   using A = typename T_::A;
   using U = typename A::Universe;
   using this_type = LatticeOrderPredicate<T, NotF>;
@@ -244,8 +245,11 @@ private:
   NotF not_f;
 
 public:
-  CUDA LatticeOrderPredicate(T&& left, U&& right, NotF&& not_f): base_type(std::move(left), std::move(right)), not_f(not_f) {}
-  CUDA LatticeOrderPredicate(this_type&& other): LatticeOrderPredicate(std::move(other.left), std::move(other.right), std::move(other.not_f)) {}
+  CUDA LatticeOrderPredicate(T&& left, U&& right, NotF&& not_f)
+   : base_type(std::move(left), std::move(right)), not_f(std::move(not_f)) {}
+
+  CUDA LatticeOrderPredicate(this_type&& other)
+   : LatticeOrderPredicate(std::move(other.left), std::move(other.right), std::move(other.not_f)) {}
 
   CUDA BInc nask(const A& a) const {
     return deref(not_f).ask(a);
@@ -268,8 +272,8 @@ public:
 template<class F, class G = F>
 class Conjunction : public FormulaAsTermAdapter<Conjunction<F, G>, F> {
 public:
-  using F_ = typename std::remove_pointer<F>::type;
-  using G_ = typename std::remove_pointer<G>::type;
+  using F_ = typename remove_ptr<F>::type;
+  using G_ = typename remove_ptr<G>::type;
   using A = typename F_::A;
   using U = typename A::Universe;
   using this_type = Conjunction<F, G>;
@@ -287,7 +291,7 @@ private:
   }
 
 public:
-  CUDA Conjunction(F&& f, G&& g): f_(f), g_(g) {}
+  CUDA Conjunction(F&& f, G&& g): f_(std::move(f)), g_(std::move(g)) {}
   CUDA Conjunction(this_type&& other): Conjunction(std::move(other.f_), std::move(other.g_)) {}
 
   CUDA BInc ask(const A& a) const {
@@ -333,8 +337,8 @@ public:
 template<class F, class G = F>
 class Disjunction : public FormulaAsTermAdapter<Disjunction<F, G>, F> {
 public:
-  using F_ = typename std::remove_pointer<F>::type;
-  using G_ = typename std::remove_pointer<G>::type;
+  using F_ = typename remove_ptr<F>::type;
+  using G_ = typename remove_ptr<G>::type;
   using A = typename F_::A;
   using U = typename A::Universe;
   using this_type = Disjunction<F, G>;
@@ -346,7 +350,7 @@ private:
   CUDA INLINE const F_& f() const { return deref(f_); }
   CUDA INLINE const G_& g() const { return deref(g_); }
 public:
-  CUDA Disjunction(F&& f, G&& g): f_(f), g_(g) {}
+  CUDA Disjunction(F&& f, G&& g): f_(std::move(f)), g_(std::move(g)) {}
   CUDA Disjunction(this_type&& other): Disjunction(
     std::move(other.f_), std::move(other.g_)) {}
 
@@ -393,8 +397,8 @@ public:
 template<class F, class G = F>
 class Biconditional : public FormulaAsTermAdapter<Biconditional<F, G>, F> {
 public:
-  using F_ = typename std::remove_pointer<F>::type;
-  using G_ = typename std::remove_pointer<G>::type;
+  using F_ = typename remove_ptr<F>::type;
+  using G_ = typename remove_ptr<G>::type;
   using A = typename F_::A;
   using U = typename A::Universe;
   using this_type = Biconditional<F, G>;
@@ -406,7 +410,7 @@ private:
   CUDA INLINE const F_& f() const { return deref(f_); }
   CUDA INLINE const G_& g() const { return deref(g_); }
 public:
-  CUDA Biconditional(F&& f, G&& g): f_(f), g_(g) {}
+  CUDA Biconditional(F&& f, G&& g): f_(std::move(f)), g_(std::move(g)) {}
   CUDA Biconditional(this_type&& other): Biconditional(
     std::move(other.f_), std::move(other.g_)) {}
 

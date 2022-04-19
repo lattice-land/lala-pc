@@ -9,8 +9,11 @@
 #include "vstore.hpp"
 #include "ipc.hpp"
 #include "terms.hpp"
+#include "vector.hpp"
+#include "shared_ptr.hpp"
 
 using namespace lala;
+using namespace battery;
 
 using F = TFormula<StandardAllocator>;
 
@@ -75,7 +78,7 @@ IStore xyz_store(int lb, int ub) {
 
 TEST(TermTest, AddTerm) {
   IStore store = xy_store(0, 10);
-  DArray<Variable<IStore>, StandardAllocator> vars(2);
+  vector<Variable<IStore>, StandardAllocator> vars(2);
   vars[0] = Variable<IStore>(make_var(sty, 0));
   vars[1] = Variable<IStore>(make_var(sty, 1));
   NaryAdd<Variable<IStore>, StandardAllocator> x_plus_y(std::move(vars));
@@ -105,8 +108,7 @@ void vars2_of(const A& a, AVar vars[2]) {
 }
 
 IIPC binary_op(Sig sig, int lb, int ub, Sig comparator, int k, bool has_changed_expect) {
-  IStore* istore = new IStore(IStore::bot(sty));
-  IIPC ipc(pty, istore);
+  IIPC ipc(pty, make_shared<IStore, StandardAllocator>(std::move(IStore::bot(sty))));
   F::Sequence doms(6);
   doms[0] = F::make_exists(sty, var_x, Int);
   doms[1] = F::make_exists(sty, var_y, Int);
@@ -226,8 +228,7 @@ void vars3_of(const A& a, AVar vars[3]) {
 }
 
 IIPC ternary_op(Sig sig, int lb, int ub, int k) {
-  IStore* store = new IStore(std::move(xyz_store(lb, ub)));
-  IIPC ipc(pty, store);
+  IIPC ipc(pty, make_shared<IStore, StandardAllocator>(std::move(xyz_store(lb, ub))));
   F::Sequence terms(3);
   EXPECT_EQ(terms.size(), 3);
   terms[0] = F::make_lvar(sty, var_x);
@@ -300,8 +301,7 @@ TEST(IPCTest, TernaryAdd4) {
 
 // Constraint of the form k1 * x + k2 * y + k3 * z <= k, with x,y,z in [0..1].
 IIPC pseudo_boolean(int k1, int k2, int k3, int k, bool expect_changed) {
-  IStore* store = new IStore(std::move(xyz_store(0,1)));
-  IIPC ipc(pty, store);
+  IIPC ipc(pty, make_shared<IStore, StandardAllocator>(std::move(xyz_store(0,1))));
   F::Sequence terms(3);
   EXPECT_EQ(terms.size(), 3);
   terms[0] = F::make_binary(F::make_z(k1), MUL, F::make_lvar(sty, var_x));
@@ -372,8 +372,7 @@ TEST(IPCTest, PseudoBoolean4) {
 
 // Constraint of the form <unop> x <op> k.
 IIPC unop_constraint(Sig unop, int lb, int ub, Sig binop, int k, bool expect_changed) {
-  IStore* store = new IStore(std::move(x_store(lb, ub)));
-  IIPC ipc(pty, store);
+  IIPC ipc(pty, make_shared<IStore, StandardAllocator>(std::move(x_store(lb, ub))));
   auto cons = F::make_binary(
     F::make_unary(unop, F::make_lvar(sty, var_x), pty),
     binop,
@@ -447,8 +446,7 @@ TEST(IPCTest, NegationOp7) {
 
 // Create a constraint of the form "b <=> (x - y <= k1 /\ y - x <= k2)".
 IIPC make_resource_cons(int lbx, int ubx, int lby, int uby, int k1, int k2) {
-  IStore* istore = new IStore(IStore::bot(sty));
-  IIPC ipc(pty, istore);
+  IIPC ipc(pty, make_shared<IStore, StandardAllocator>(std::move(IStore::bot(sty))));
   F::Sequence doms(9);
   doms[0] = F::make_exists(sty, var_x, Int);
   doms[1] = F::make_exists(sty, var_y, Int);

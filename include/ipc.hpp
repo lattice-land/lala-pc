@@ -344,7 +344,7 @@ public:
   }
 
   CUDA BInc ask(const TellType& t) const {
-    for(int i = 0; t.props.size(); ++i) {
+    for(int i = 0; i < t.props.size(); ++i) {
       if(!t.props[i]->ask(*a).guard()) {
         return BInc::bot();
       }

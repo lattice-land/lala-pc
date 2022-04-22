@@ -67,18 +67,35 @@ CUDA bool is_predicate(const F& f) {
   return false;
 }
 
+CUDA Sig inv(Sig s) {
+  switch(s) {
+    case LEQ: return GEQ;
+    case GEQ: return LEQ;
+    case LT:  return GT;
+    case GT:  return LT;
+    case EQ:  return EQ;
+    case NEQ: return NEQ;
+    default: assert(false); return s;
+  }
+}
+
 /** Given a predicate of the form `t <op> u` (e.g., `x + y <= z + 4`), it transforms it into an equivalent predicate of the form `s <op> k` where `k` is a constant (e.g., `x + y - (z + 4) <= 0`.
 If the formula is not a predicate, it is returned unchanged. */
 template <class F>
 CUDA F move_constants_on_rhs(const F& f) {
-  if(is_predicate(f)) {
+  if(is_predicate(f) && !f.seq(1).is(F::Z)) {
     AType aty = f.type();
     Approx appx = f.approx();
-    return F::make_binary(
-      F::make_binary(f.seq(0), SUB, f.seq(1), aty, appx),
-      f.sig(),
-      F::make_z(0),
-      aty, appx);
+    if(f.seq(0).is(F::Z)) {
+      return F::make_binary(f.seq(1), inv(f.sig()), f.seq(0), aty, appx);
+    }
+    else {
+      return F::make_binary(
+        F::make_binary(f.seq(0), SUB, f.seq(1), aty, appx),
+        f.sig(),
+        F::make_z(0),
+        aty, appx);
+    }
   }
   return f;
 }

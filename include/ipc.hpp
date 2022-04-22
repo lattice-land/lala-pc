@@ -244,6 +244,10 @@ private:
     else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT) {
       return interpret_negation(f, neg_context);
     }
+    // Singleton formula
+    else if(f.is(F::Seq) && f.seq().size() == 1) {
+      return interpret_formula(f.seq(0), neg_context);
+    }
     return {};
   }
 
@@ -259,11 +263,9 @@ public:
     }
   };
 
-  /** IPC expects a conjunction of the form \f$ \varphi \land c_1 \land \ldots \land c_n \f$ where \f$ \varphi \f$ can be interpret in the sub-domain `A` (and is possibly a conjunction), and \f$ c_i \f$ can be interpreted in the current domain.
+  /** IPC expects a conjunction of the form \f$ c_1 \land \ldots \land c_n \f$ where sub-formulas \f$ c_i \f$ can either be interpreted in the sub-domain `A` or in the current domain.
     Moreover, we only treat exact conjunction (no under- or over-approximation of the conjunction).
-    Each constraint \f$ c_i \f$ must be of the form \f$ T \leq k \f$, \f$ T < k \f$, \f$ T \geq k \f$, \f$ T > k \f$ or \f$ T = k \f$.
-    For now, \f$ T \neq k \f$ is not supported.
-    \f$ T \f$ is an arithmetic term, containing function symbols supported in `terms.hpp`. */
+    For now, \f$ T \neq k \f$ is not supported where \f$ T \f$ is an arithmetic term, containing function symbols supported in `terms.hpp`. */
   template <class F>
   CUDA thrust::optional<TellType> interpret(const F& f) {
     // If the formula is untyped, we first try to interpret it in the sub-domain.
@@ -276,35 +278,17 @@ public:
         return {}; // Reason: The formula `f` could not be interpreted in the sub-domain `A`.
       }
     }
-    // Conjunction
-    if(f.is(F::Seq) && f.sig() == AND) {
-      const typename F::Sequence& seq = f.seq();
-      size_t num_props = 0;
-      size_t num_sub = 0;
-      for(int i = 0; i < seq.size(); ++i) {
-        if(seq[i].type() == uid) {
-          num_props++;
-        }
-        else {
-          num_sub++;
-        }
-      }
-      if(num_sub > 1) {
-        return {}; // Reason: More than one formula that needs to be interpreted in the sub-domain. They must be grouped together in a conjunction.
-      }
-      TellType res(num_props, props.get_allocator());
-      for(int i = 0; i < seq.size(); ++i) {
-        if(seq[i].type() == uid) {
-          auto prop = interpret_formula(seq[i]);
-          if(prop.has_value()) {
-            res.props.push_back(std::move(*prop));
-          }
-          else {
-            return {}; // Reason: A formula could not be interpreted as a propagator.
-          }
-        }
-        else {
-          auto sub = a->interpret(seq[i]);
+    if(f.type() == UNTYPED || f.type() == uid) {
+      // Conjunction
+      if(f.is(F::Seq) && f.sig() == AND) {
+        auto split_formula = extract_ty(f, uid);
+        const auto& sub_ipc_ = battery::get<0>(split_formula);
+        const auto& sub_ipc = sub_ipc_.seq();
+        const auto& sub_a = battery::get<1>(split_formula);
+        TellType res(sub_ipc.size(), props.get_allocator());
+        // We need to interpret the formulas in the sub-domain first because it might handle existential quantifiers needed by formulas interpreted in this domain.
+        if(sub_a.seq().size() > 0) {
+          auto sub = a->interpret(sub_a);
           if(sub.has_value()) {
             res.sub = std::move(sub);
           }
@@ -312,18 +296,28 @@ public:
             return {}; // Reason: A formula could not be interpreted in the sub-domain `A`.
           }
         }
-      }
-      return std::move(res);
-    }
-    else {
-      auto prop = interpret_formula(f);
-      if(prop.has_value()) {
-        TellType res(1, props.get_allocator());
-        res.props.push_back(std::move(*prop));
+        for(int i = 0; i < sub_ipc.size(); ++i) {
+          auto prop = interpret_formula(sub_ipc[i]);
+          if(prop.has_value()) {
+            res.props.push_back(std::move(*prop));
+          }
+          else {
+            return {}; // Reason: A formula could not be interpreted as a propagator.
+          }
+        }
         return std::move(res);
       }
-      return {}; // Reason: The formula `f` could not be interpreted as a propagator.
+      else {
+        auto prop = interpret_formula(f);
+        if(prop.has_value()) {
+          TellType res(1, props.get_allocator());
+          res.props.push_back(std::move(*prop));
+          return std::move(res);
+        }
+        return {}; // Reason: The formula `f` could not be interpreted as a propagator.
+      }
     }
+    return {};
   }
 
   /** Note that we cannot add propagators in parallel (but modifying the underlying domain is ok).

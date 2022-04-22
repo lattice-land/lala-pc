@@ -350,7 +350,7 @@ public:
       }
     }
     if(t.sub.has_value()) {
-      return a->ask(t.sub);
+      return a->ask(*(t.sub));
     }
     return BInc::top();
   }

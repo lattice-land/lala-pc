@@ -220,6 +220,50 @@ TEST(IPCTest, TemporalConstraint9) {
   EXPECT_EQ2(ipc.project(vars[1]), Itv(5, 10));
 }
 
+// x <= -5 + y (x,y in [0..10])
+TEST(IPCTest, TemporalConstraint10) {
+  int lb = 0;
+  int ub = 10;
+  IIPC ipc(pty, make_shared<IStore, StandardAllocator>(std::move(IStore::bot(sty))));
+  F::Sequence doms(6);
+  doms[0] = F::make_exists(sty, var_x, Int);
+  doms[1] = F::make_exists(sty, var_y, Int);
+  doms[2] = make_v_op_z(var_x, LEQ, ub);
+  doms[3] = make_v_op_z(var_y, LEQ, ub);
+  doms[4] = make_v_op_z(var_x, GEQ, lb);
+  doms[5] = make_v_op_z(var_y, GEQ, lb);
+  F::Sequence all(2);
+  all[0] = F::make_nary(AND, doms, sty);
+  all[1] = F::make_binary(
+    F::make_lvar(sty, var_x),
+    LEQ,
+    F::make_binary(
+      F::make_z(-5),
+      ADD,
+      F::make_lvar(sty, var_y), pty),
+    pty);
+  auto f = F::make_nary(AND, all, pty);
+  thrust::optional<IIPC::TellType> res(ipc.interpret(f));
+  EXPECT_TRUE(res.has_value());
+  BInc has_changed = BInc::bot();
+  ipc.tell(std::move(*res), has_changed);
+  EXPECT_TRUE2(has_changed.is_top());
+  EXPECT_EQ(ipc.num_refinements(), 1);
+
+  // Propagation tests
+  AVar vars[2];
+  vars2_of(ipc, vars);
+  EXPECT_EQ2(ipc.project(vars[0]), Itv(lb, ub));
+  EXPECT_EQ2(ipc.project(vars[1]), Itv(lb, ub));
+
+  BInc has_changed2 = BInc::bot();
+  ipc.refine(has_changed2);
+  EXPECT_EQ2(has_changed2.is_top(), true);
+  EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 5));
+  EXPECT_EQ2(ipc.project(vars[1]), Itv(5, 10));
+}
+
+
 template <class A>
 void vars3_of(const A& a, AVar vars[3]) {
   vars[0] = *(a.environment().to_avar(var_x));

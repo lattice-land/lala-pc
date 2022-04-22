@@ -51,6 +51,38 @@ CUDA thrust::optional<F> negate(const F& f) {
   return {};
 }
 
+template <class F>
+CUDA bool is_predicate(const F& f) {
+  if(f.is(F::Seq)) {
+    switch(f.sig()) {
+      case LEQ:
+      case GEQ:
+      case LT:
+      case GT:
+      case EQ:
+      case NEQ:
+        return true;
+    }
+  }
+  return false;
+}
+
+/** Given a predicate of the form `t <op> u` (e.g., `x + y <= z + 4`), it transforms it into an equivalent predicate of the form `s <op> k` where `k` is a constant (e.g., `x + y - (z + 4) <= 0`.
+If the formula is not a predicate, it is returned unchanged. */
+template <class F>
+CUDA F move_constants_on_rhs(const F& f) {
+  if(is_predicate(f)) {
+    AType aty = f.type();
+    Approx appx = f.approx();
+    return F::make_binary(
+      F::make_binary(f.seq(0), SUB, f.seq(1), aty, appx),
+      f.sig(),
+      F::make_z(0),
+      aty, appx);
+  }
+  return f;
+}
+
 } // namespace lala
 
 #endif

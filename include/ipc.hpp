@@ -208,13 +208,14 @@ private:
         case EQUIV:  return interpret_biconditional(f.seq(0), f.seq(1));
         // Form of the constraint `T <op> u` with `x <op> u` interpreted in the underlying universe.
         default:
-          auto u = Universe::interpret(F::make_binary(F::make_avar(0), sig, f.seq(1)));
+          auto fn = move_constants_on_rhs(f);
+          auto u = Universe::interpret(F::make_binary(F::make_avar(0), fn.sig(), fn.seq(1)));
           if(u.has_value()) {
-            auto term = interpret_term(f.seq(0));
+            auto term = interpret_term(fn.seq(0));
             if(term.has_value()) {
               // In a context where the formula propagator can be asked for its negation, we must interpret the negation of the formula as well.
               if(neg_context) {
-                auto nf_ = negate(f);
+                auto nf_ = negate(fn);
                 if(nf_.has_value()) {
                   auto nf = interpret_formula(*nf_);
                   if(nf.has_value()) {

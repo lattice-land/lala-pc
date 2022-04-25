@@ -12,7 +12,7 @@ void seq_fixpoint(A& a, BInc& has_changed) {
   BInc changed = BInc::top();
   while(changed.guard()) {
     changed.dtell(BInc::bot());
-    ipc.refine(changed);
+    a.refine(changed);
     has_changed.tell(changed);
   }
 }

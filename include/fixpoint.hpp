@@ -8,10 +8,12 @@
 namespace lala {
 
 template <class A>
-BInc seq_fixpoint(A& a, BInc& has_changed) {
-  while(has_changed.guard()) {
-    has_changed.dtell(BInc::bot());
-    ipc.refine(has_changed);
+void seq_fixpoint(A& a, BInc& has_changed) {
+  BInc changed = BInc::top();
+  while(changed.guard()) {
+    changed.dtell(BInc::bot());
+    ipc.refine(changed);
+    has_changed.tell(changed);
   }
 }
 

@@ -370,24 +370,6 @@ public:
     }
   }
 
-#ifdef __NVCC__
-
-  DEVICE void refine(BInc& has_changed, gpu_tag_t) {
-    int tid = threadIdx.x;
-    int stride = blockDim.x;
-    __shared__ BInc changed[3] = {BInc::bot(), BInc::bot(), BInc::bot()};
-    for(int i = 1; a->is_top().guard() && changed[(i-1)%3]; ++i) {
-      for (int t = tid; t < num_refinements(); t += stride) {
-        refine(t, changed[i%3]);
-      }
-      changed[(i+1)%3].dtell(BInc::bot());
-      has_changed.tell(changed[i%3]);
-      __syncthreads();
-    }
-  }
-
-#endif
-
   // Functions forwarded to the sub-domain `A`.
 
   /** `true` if the underlying abstract element is top, `false` otherwise. */

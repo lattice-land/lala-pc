@@ -31,19 +31,37 @@ public:
   using Env = typename A::Env;
 
   using SubPtr = battery::shared_ptr<A, Allocator>;
+
+  using Snapshot = typename A::Snapshot;
 private:
-  AType uid;
+  using FormulaPtr = battery::shared_ptr<Formula<A>, Allocator>;
+  using TermPtr = battery::shared_ptr<Term<A>, Allocator>;
+
+  AType uid_;
   SubPtr a;
-  using FormulaPtr = battery::unique_ptr<Formula<A>, Allocator>;
-  using TermPtr = battery::unique_ptr<Term<A>, Allocator>;
   battery::vector<FormulaPtr, Allocator> props;
 
 public:
   CUDA IPC(AType uid, SubPtr a,
-    const Allocator& alloc = Allocator()): a(std::move(a)), props(alloc), uid(uid)  {}
+    const Allocator& alloc = Allocator()): a(std::move(a)), props(alloc), uid_(uid)  {}
 
-  CUDA IPC(IPC&& other): props(std::move(other.props)), uid(other.uid) {
+  CUDA IPC(IPC&& other): props(std::move(other.props)), uid_(other.uid_) {
     ::battery::swap(a, other.a);
+  }
+
+  /** The propagators are shared among IPC, it currently works because propagators are stateless.
+   * This could be changed later on by adding a method clone in `Term`. */
+  template<class Alloc2>
+  CUDA IPC(const IPC<A, Alloc2>& other, AbstractDeps<Allocator>& deps)
+   : uid_(other.uid_), a(deps.clone(other.a)), props(other.props, deps.get_allocator())
+  {}
+
+  CUDA Allocator get_allocator() const {
+    return a->get_allocator();
+  }
+
+  CUDA AType uid() const {
+    return uid_;
   }
 
   CUDA static this_type bot(AType uid = UNTYPED) {
@@ -60,7 +78,7 @@ private:
 
   template<class Arg>
   CUDA TermPtr make_ptr(Arg&& arg) {
-    return battery::allocate_unique<DynTerm<Arg>>(props.get_allocator(), std::move(arg));
+    return battery::allocate_shared<DynTerm<Arg>>(props.get_allocator(), std::move(arg));
   }
 
   CUDA TermOpt interpret_unary(Sig sig, TermPtr&& a) {
@@ -151,7 +169,7 @@ private:
 
   template<class Arg>
   CUDA FormulaPtr make_fptr(Arg&& arg) {
-    return battery::allocate_unique<DynFormula<Arg>>(props.get_allocator(), std::move(arg));
+    return battery::allocate_shared<DynFormula<Arg>>(props.get_allocator(), std::move(arg));
   }
 
   template <class F>
@@ -199,7 +217,7 @@ private:
 
   template <class F>
   CUDA FormulaOpt interpret_formula(const F& f, bool neg_context = false) {
-    assert(f.type() == uid || f.type() == UNTYPED);
+    assert(f.type() == uid() || f.type() == UNTYPED);
     if(f.is(F::Seq) && f.seq().size() == 2) {
       Sig sig = f.sig();
       switch(sig) {
@@ -269,7 +287,7 @@ public:
   template <class F>
   CUDA thrust::optional<TellType> interpret(const F& f) {
     // If the formula is untyped, we first try to interpret it in the sub-domain.
-    if(f.type() == UNTYPED || f.type() != uid) {
+    if(f.type() == UNTYPED || f.type() != uid()) {
       auto r = a->interpret(f);
       if(r.has_value()) {
         return TellType(std::move(*r), props.get_allocator());
@@ -278,10 +296,10 @@ public:
         return {}; // Reason: The formula `f` could not be interpreted in the sub-domain `A`.
       }
     }
-    if(f.type() == UNTYPED || f.type() == uid) {
+    if(f.type() == UNTYPED || f.type() == uid()) {
       // Conjunction
       if(f.is(F::Seq) && f.sig() == AND) {
-        auto split_formula = extract_ty(f, uid);
+        auto split_formula = extract_ty(f, uid());
         const auto& sub_ipc_ = battery::get<0>(split_formula);
         const auto& sub_ipc = sub_ipc_.seq();
         const auto& sub_a = battery::get<1>(split_formula);
@@ -325,8 +343,7 @@ public:
       Notes for later:
         * To implement "telling of propagators", we would need to check if a propagator has already been added or not (for idempotency).
         * 1. Walk through the existing propagators to check which ones are already in.
-        * 2. If a propagator has the same shape but different constant `U`, join them in place.
-        * 3. See paper notes for a technique to deal with copy. */
+        * 2. If a propagator has the same shape but different constant `U`, join them in place.  */
   CUDA this_type& tell(TellType&& t, BInc& has_changed) {
     if(t.sub.has_value()) {
       a->tell(*t.sub, has_changed);
@@ -378,8 +395,8 @@ public:
   }
 
   /** `true` if the underlying abstract element is bot and there is no refinement function, `false` otherwise. */
-  CUDA BInc is_bot() const {
-    return BInc(a->is_bot().guard() && props.size() == 0);
+  CUDA BDec is_bot() const {
+    return BDec(a->is_bot().value() && props.size() == 0);
   }
 
   CUDA const Universe& project(AVar x) const {
@@ -391,7 +408,35 @@ public:
   }
 
   CUDA ZPInc<int> vars() const {
-    return a->size();
+    return a->vars();
+  }
+
+  CUDA Snapshot snapshot() const {
+    return battery::make_tuple(props.size(), a->snapshot());
+  }
+
+  CUDA void restore(const Snapshot& snap) {
+    int n = props.size();
+    for(int i = battery::get<0>(snap); i < n; ++i) {
+      props.pop_back();
+    }
+    a->restore(battery::get<1>(snap));
+  }
+
+  /** Extract an under-approximation of `this` in `ua` when all propagators are entailed.
+   * In all other cases, returns `false`.
+   * For efficiency reason, the propagators are not copied in `ua` (it is OK, since they are entailed, so don't bring information anymore). */
+  template <class A2, class Alloc2>
+  CUDA bool extract(IPC<A2, Alloc2>& ua) const {
+    if(is_top().guard()) {
+      return false;
+    }
+    for(int i = 0; i < props.size(); ++i) {
+      if(!props[i]->ask(*a).guard()) {
+        return false;
+      }
+    }
+    return a->extract(*ua.a);
   }
 };
 

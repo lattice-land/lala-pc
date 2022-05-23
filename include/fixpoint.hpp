@@ -10,9 +10,18 @@ namespace lala {
 template <class A>
 void seq_fixpoint(A& a, BInc& has_changed) {
   BInc changed = BInc::top();
-  while(changed.guard()) {
+  while(neg(a.is_top()).guard() && changed.guard()) {
     changed.dtell(BInc::bot());
-    a.refine(changed);
+    if constexpr(std::is_same_v<void, decltype(std::declval<A>().refine(std::declval<BInc&>()))>)
+    {
+      a.refine(changed);
+    }
+    else {
+      int n = a.num_refinements();
+      for(int i = 0; neg(a.is_top()).guard() && i < n; ++i) {
+        a.refine(i, changed);
+      }
+    }
     has_changed.tell(changed);
   }
 }

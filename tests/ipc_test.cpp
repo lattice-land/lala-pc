@@ -139,6 +139,19 @@ IIPC binary_op(Sig sig, int lb, int ub, Sig comparator, int k, bool has_changed_
   return std::move(ipc);
 }
 
+void test_underapproximation(const IIPC& ipc, bool expect) {
+  AbstractDeps<StandardAllocator> deps;
+  IIPC copy1(ipc, deps);
+  EXPECT_EQ(ipc.extract(copy1), expect);
+  const auto& env = ipc.environment();
+  for(int i = 0; i < ipc.vars().value(); ++i) {
+    auto v = *(env.to_avar(env[i]));
+    EXPECT_EQ2(ipc.project(v), copy1.project(v));
+    EXPECT_EQ2(ipc.is_top(), copy1.is_top());
+    EXPECT_EQ2(ipc.is_bot(), copy1.is_bot());
+  }
+}
+
 // x + y <= 5
 TEST(IPCTest, TemporalConstraint1) {
   IIPC ipc = binary_op(ADD, 0, 10, LEQ, 5, true);
@@ -146,6 +159,7 @@ TEST(IPCTest, TemporalConstraint1) {
   vars2_of(ipc, vars);
   EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 5));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(0, 5));
+  test_underapproximation(ipc, false);
 }
 
 // x + y > 5 (x,y in [0..10])
@@ -155,6 +169,7 @@ TEST(IPCTest, TemporalConstraint2) {
   vars2_of(ipc, vars);
   EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 10));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(0, 10));
+  test_underapproximation(ipc, false);
 }
 
 // x + y > 5 (x,y in [0..3])
@@ -164,6 +179,7 @@ TEST(IPCTest, TemporalConstraint3) {
   vars2_of(ipc, vars);
   EXPECT_EQ2(ipc.project(vars[0]), Itv(3, 3));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(3, 3));
+  test_underapproximation(ipc, true);
 }
 
 // x + y >= 5 (x,y in [0..3])
@@ -182,6 +198,7 @@ TEST(IPCTest, TemporalConstraint5) {
   vars2_of(ipc, vars);
   EXPECT_EQ2(ipc.project(vars[0]), Itv(1, 4));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(1, 4));
+  test_underapproximation(ipc, false);
 }
 
 // x - y <= 5 (x,y in [0..10])
@@ -191,6 +208,7 @@ TEST(IPCTest, TemporalConstraint6) {
   vars2_of(ipc, vars);
   EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 10));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(0, 10));
+  test_underapproximation(ipc, false);
 }
 
 // x - y <= -10 (x,y in [0..10])
@@ -200,6 +218,7 @@ TEST(IPCTest, TemporalConstraint7) {
   vars2_of(ipc, vars);
   EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 0));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(10, 10));
+  test_underapproximation(ipc, true);
 }
 
 // x - y >= 5 (x,y in [0..10])
@@ -209,6 +228,7 @@ TEST(IPCTest, TemporalConstraint8) {
   vars2_of(ipc, vars);
   EXPECT_EQ2(ipc.project(vars[0]), Itv(5, 10));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(0, 5));
+  test_underapproximation(ipc, false);
 }
 
 // x - y <= -5 (x,y in [0..10])
@@ -218,6 +238,7 @@ TEST(IPCTest, TemporalConstraint9) {
   vars2_of(ipc, vars);
   EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 5));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(5, 10));
+  test_underapproximation(ipc, false);
 }
 
 // x <= -5 + y (x,y in [0..10])
@@ -311,6 +332,7 @@ TEST(IPCTest, TopProp) {
   EXPECT_TRUE2(ipc.project(vars[0]).is_top());
   EXPECT_TRUE2(ipc.project(vars[1]).is_top());
   EXPECT_TRUE2(ipc.project(vars[2]).is_top());
+  test_underapproximation(ipc, false);
 }
 
 // x,y,z in [3..10] /\ x + y + z <= 9
@@ -321,6 +343,7 @@ TEST(IPCTest, TernaryAdd2) {
   for(int i = 0; i < 3; ++i) {
     EXPECT_EQ2(ipc.project(vars[i]), Itv(3, 3));
   }
+  test_underapproximation(ipc, true);
 }
 
 // x,y,z in [3..10] /\ x + y + z <= 10
@@ -331,6 +354,7 @@ TEST(IPCTest, TernaryAdd3) {
   for(int i = 0; i < 3; ++i) {
     EXPECT_EQ2(ipc.project(vars[i]), Itv(3, 4));
   }
+  test_underapproximation(ipc, false);
 }
 
 // x,y,z in [-2..2] /\ x + y + z <= -5
@@ -341,6 +365,7 @@ TEST(IPCTest, TernaryAdd4) {
   for(int i = 0; i < 3; ++i) {
     EXPECT_EQ2(ipc.project(vars[i]), Itv(-2, -1));
   }
+  test_underapproximation(ipc, false);
 }
 
 // Constraint of the form k1 * x + k2 * y + k3 * z <= k, with x,y,z in [0..1].
@@ -382,6 +407,7 @@ TEST(IPCTest, PseudoBoolean1) {
   EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 1));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(0, 1));
   EXPECT_EQ2(ipc.project(vars[2]), Itv(0, 0));
+  test_underapproximation(ipc, false);
 }
 
 // x,y,z in [0..1] /\ 2x + 5y + 3z <= 2
@@ -392,6 +418,7 @@ TEST(IPCTest, PseudoBoolean2) {
   EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 1));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(0, 0));
   EXPECT_EQ2(ipc.project(vars[2]), Itv(0, 0));
+  test_underapproximation(ipc, true);
 }
 
 // x,y,z in [0..1] /\ 3x + 5y + 3z <= 2
@@ -402,6 +429,7 @@ TEST(IPCTest, PseudoBoolean3) {
   EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 0));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(0, 0));
   EXPECT_EQ2(ipc.project(vars[2]), Itv(0, 0));
+  test_underapproximation(ipc, true);
 }
 
 // x,y,z in [0..1] /\ -x + y + 3z <= 2
@@ -412,6 +440,7 @@ TEST(IPCTest, PseudoBoolean4) {
   EXPECT_EQ2(ipc.project(vars[0]), Itv(0, 1));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(0, 1));
   EXPECT_EQ2(ipc.project(vars[2]), Itv(0, 1));
+  test_underapproximation(ipc, false);
 }
 
 // Constraint of the form <unop> x <op> k.
@@ -444,6 +473,7 @@ TEST(IPCTest, NegationOp1) {
   IIPC ipc = unop_constraint(NEG, -4, 3, LEQ, 2, true);
   AVar var = *(ipc.environment().to_avar(var_x));
   EXPECT_EQ2(ipc.project(var), Itv(-2, 3));
+  test_underapproximation(ipc, true);
 }
 
 // x in [-4..3], -x <= -2
@@ -451,6 +481,7 @@ TEST(IPCTest, NegationOp2) {
   IIPC ipc = unop_constraint(NEG, -4, 3, LEQ, -2, true);
   AVar var = *(ipc.environment().to_avar(var_x));
   EXPECT_EQ2(ipc.project(var), Itv(2, 3));
+  test_underapproximation(ipc, true);
 }
 
 // x in [0..3], -x <= -2
@@ -458,6 +489,7 @@ TEST(IPCTest, NegationOp3) {
   IIPC ipc = unop_constraint(NEG, 0, 3, LEQ, -2, true);
   AVar var = *(ipc.environment().to_avar(var_x));
   EXPECT_EQ2(ipc.project(var), Itv(2, 3));
+  test_underapproximation(ipc, true);
 }
 
 // x in [-4..-3], -x <= 4
@@ -465,6 +497,7 @@ TEST(IPCTest, NegationOp4) {
   IIPC ipc = unop_constraint(NEG, -4, -3, LEQ, 4, false);
   AVar var = *(ipc.environment().to_avar(var_x));
   EXPECT_EQ2(ipc.project(var), Itv(-4, -3));
+  test_underapproximation(ipc, true);
 }
 
 // x in [-4..3], -x >= -2
@@ -472,6 +505,7 @@ TEST(IPCTest, NegationOp5) {
   IIPC ipc = unop_constraint(NEG, -4, 3, GEQ, -2, true);
   AVar var = *(ipc.environment().to_avar(var_x));
   EXPECT_EQ2(ipc.project(var), Itv(-4, 2));
+  test_underapproximation(ipc, true);
 }
 
 // x in [-4..3], -x > 2
@@ -479,6 +513,7 @@ TEST(IPCTest, NegationOp6) {
   IIPC ipc = unop_constraint(NEG, -4, 3, GT, 2, true);
   AVar var = *(ipc.environment().to_avar(var_x));
   EXPECT_EQ2(ipc.project(var), Itv(-4, -3));
+  test_underapproximation(ipc, true);
 }
 
 // x in [-4..3], -x >= 5
@@ -486,6 +521,7 @@ TEST(IPCTest, NegationOp7) {
   IIPC ipc = unop_constraint(NEG, -4, 3, GEQ, 5, true);
   AVar var = *(ipc.environment().to_avar(var_x));
   EXPECT_TRUE2(ipc.project(var).is_top());
+  test_underapproximation(ipc, false);
 }
 
 // Create a constraint of the form "b <=> (x - y <= k1 /\ y - x <= k2)".
@@ -551,6 +587,7 @@ TEST(IPCTest, ResourceConstraint1) {
   vars2_of(ipc, vars);
   EXPECT_EQ2(ipc.project(vars[0]), Itv(7, 10));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(9, 12));
+  test_underapproximation(ipc, false);
 }
 
 TEST(IPCTest, ResourceConstraint2) {
@@ -577,4 +614,21 @@ TEST(IPCTest, ResourceConstraint2) {
   vars2_of(ipc, vars);
   EXPECT_EQ2(ipc.project(vars[0]), Itv(1, 2));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(1, 2));
+  test_underapproximation(ipc, false);
+}
+
+TEST(IPCTest, CloneIPC) {
+  IIPC ipc = binary_op(ADD, 0, 10, LEQ, 5, true);
+  AbstractDeps<StandardAllocator> deps;
+  IIPC copy1(ipc, deps);
+  EXPECT_EQ(deps.size(), 1);
+  AVar vars[2];
+  vars2_of(copy1, vars);
+  EXPECT_EQ2(copy1.project(vars[0]), Itv(0, 5));
+  EXPECT_EQ2(copy1.project(vars[1]), Itv(0, 5));
+  IIPC copy2(ipc, deps);
+  EXPECT_EQ(deps.size(), 1);
+  vars2_of(copy2, vars);
+  EXPECT_EQ2(copy2.project(vars[0]), Itv(0, 5));
+  EXPECT_EQ2(copy2.project(vars[1]), Itv(0, 5));
 }

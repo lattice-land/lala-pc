@@ -4,6 +4,7 @@
 #define PTR_UTILITY_HPP
 
 #include "unique_ptr.hpp"
+#include "shared_ptr.hpp"
 
 // This function is used to dereference the attribute if T is a unique pointer.
 // The rational behind that, is to be able to manipulate a type T as a pointer or a reference.
@@ -29,10 +30,23 @@ CUDA T& deref(battery::unique_ptr<T, Alloc>& x) {
   return *x;
 }
 
+template <class T, class Alloc>
+CUDA const T& deref(const battery::shared_ptr<T, Alloc>& x) {
+  return *x;
+}
+
+template <class T, class Alloc>
+CUDA T& deref(battery::shared_ptr<T, Alloc>& x) {
+  return *x;
+}
+
 template<class T>
 struct remove_ptr { using type = T; };
 
 template<class T, class Alloc>
 struct remove_ptr<battery::unique_ptr<T, Alloc>> { using type = T; };
+
+template<class T, class Alloc>
+struct remove_ptr<battery::shared_ptr<T, Alloc>> { using type = T; };
 
 #endif

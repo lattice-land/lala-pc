@@ -32,7 +32,7 @@ public:
 
   using SubPtr = battery::shared_ptr<A, Allocator>;
 
-  using Snapshot = typename A::Snapshot;
+  using Snapshot = battery::tuple<size_t, typename A::Snapshot>;
 private:
   using FormulaPtr = battery::shared_ptr<Formula<A>, Allocator>;
   using TermPtr = battery::shared_ptr<Term<A>, Allocator>;
@@ -42,11 +42,11 @@ private:
   battery::vector<FormulaPtr, Allocator> props;
 
 public:
-  CUDA IPC(AType uid, SubPtr a,
-    const Allocator& alloc = Allocator()): a(std::move(a)), props(alloc), uid_(uid)  {}
+  CUDA IPC(AType uid, SubPtr a, const Allocator& alloc = Allocator())
+   : uid_(uid), a(std::move(a)), props(alloc)  {}
 
-  CUDA IPC(IPC&& other): props(std::move(other.props)), uid_(other.uid_) {
-    ::battery::swap(a, other.a);
+  CUDA IPC(IPC&& other): uid_(other.uid_), props(std::move(other.props)) {
+    a.swap(other.a);
   }
 
   /** The propagators are shared among IPC, it currently works because propagators are stateless.
@@ -64,13 +64,13 @@ public:
     return uid_;
   }
 
-  CUDA static this_type bot(AType uid = UNTYPED) {
-    return IPC(uid, battery::make_shared(std::move(A::bot())));
+  CUDA static this_type bot(AType uid = UNTYPED, const Allocator& alloc = Allocator()) {
+    return IPC(uid, battery::allocate_shared(alloc, std::move(A::bot(UNTYPED, alloc))), alloc);
   }
 
   /** A special symbolic element representing top. */
-  CUDA static this_type top(AType uid = UNTYPED) {
-    return IPC(uid, battery::make_shared(std::move(A::top())));
+  CUDA static this_type top(AType uid = UNTYPED, const Allocator& alloc = Allocator()) {
+    return IPC(uid, battery::allocate_shared(alloc, std::move(A::top(UNTYPED, alloc))), alloc);
   }
 
 private:

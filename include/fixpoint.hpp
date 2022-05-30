@@ -8,20 +8,25 @@
 namespace lala {
 
 template <class A>
+void seq_refine(A& a, BInc& has_changed) {
+  if constexpr(std::is_same_v<void, decltype(std::declval<A>().refine(std::declval<BInc&>()))>)
+  {
+    a.refine(changed);
+  }
+  else {
+    int n = a.num_refinements();
+    for(int i = 0; !(a.is_top().guard()) && i < n; ++i) {
+      a.refine(i, changed);
+    }
+  }
+}
+
+template <class A>
 void seq_fixpoint(A& a, BInc& has_changed) {
   BInc changed = BInc::top();
-  while(neg(a.is_top()).guard() && changed.guard()) {
+  while(!(a.is_top().guard()) && changed.guard()) {
     changed.dtell(BInc::bot());
-    if constexpr(std::is_same_v<void, decltype(std::declval<A>().refine(std::declval<BInc&>()))>)
-    {
-      a.refine(changed);
-    }
-    else {
-      int n = a.num_refinements();
-      for(int i = 0; neg(a.is_top()).guard() && i < n; ++i) {
-        a.refine(i, changed);
-      }
-    }
+    seq_refine(a, changed);
     has_changed.tell(changed);
   }
 }
@@ -41,7 +46,7 @@ DEVICE void gpu_fixpoint(A& a, BInc& has_changed) {
   int stride = blockDim.x;
   __shared__ BInc changed[3] = {BInc::top(), BInc::bot(), BInc::bot()};
   int i;
-  for(i = 1; neg(a.is_top()).guard() && changed[(i-1)%3].guard(); ++i) {
+  for(i = 1; !(a.is_top().guard()) && changed[(i-1)%3].guard(); ++i) {
     for (int t = tid; t < a.num_refinements(); t += stride) {
       a.refine(t, changed[i%3]);
     }

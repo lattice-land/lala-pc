@@ -9,15 +9,9 @@ namespace lala {
 
 template <class A>
 void seq_refine(A& a, BInc& has_changed) {
-  if constexpr(std::is_same_v<void, decltype(std::declval<A>().refine(std::declval<BInc&>()))>)
-  {
-    a.refine(changed);
-  }
-  else {
-    int n = a.num_refinements();
-    for(int i = 0; !(a.is_top().guard()) && i < n; ++i) {
-      a.refine(i, changed);
-    }
+  int n = a.num_refinements();
+  for(int i = 0; !(a.is_top().guard()) && i < n; ++i) {
+    a.refine(i, has_changed);
   }
 }
 

@@ -201,7 +201,7 @@ public:
     return geq<U>(t().project(a), right.value());
   }
 
-  CUDA BInc nask(const A&) const { assert(false); }
+  CUDA BInc nask(const A&) const { assert(false); return BInc::bot(); }
   CUDA void nrefine(A&, BInc&) const { assert(false); }
   CUDA void tell(A&, const U&, BInc&) const { assert(false); }
   CUDA U project(const A&) const { assert(false); return U::top(); }

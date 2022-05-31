@@ -5,6 +5,7 @@ include(CMakePrintHelpers)
 
 project(lala-ipc LANGUAGES CUDA CXX)
 option(GPU "GPU" ON)
+option(LALAIPC_BUILD_TESTS "LALAIPC_BUILD_TESTS" OFF)
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 20)
@@ -42,16 +43,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(lala_core)
 
-# Google Test dependency
-
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip
-)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
-
 # Thrust dependency
 
 FetchContent_Declare(
@@ -82,6 +73,18 @@ target_compile_options(lala_ipc INTERFACE
     $<$<CONFIG:LDebug>:-g -DTRACE>
 )
 
+if(LALAIPC_BUILD_TESTS)
+
+# Google Test dependency
+
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
 enable_testing()
 include(GoogleTest)
 
@@ -89,6 +92,8 @@ add_executable(ipc_test tests/ipc_test.cpp)
 target_link_libraries(ipc_test cuda_battery lala_core lala_ipc gtest_main)
 target_include_directories(ipc_test PRIVATE ${cuda_battery_SOURCE_DIR}/include ${thrust_SOURCE_DIR})
 gtest_discover_tests(ipc_test)
+
+endif()
 
 # Documentation
 

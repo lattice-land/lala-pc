@@ -134,7 +134,7 @@ IIPC binary_op(Sig sig, int lb, int ub, Sig comparator, int k, bool has_changed_
   EXPECT_EQ2(ipc.project(vars[0]), Itv(lb, ub));
   EXPECT_EQ2(ipc.project(vars[1]), Itv(lb, ub));
 
-  BInc has_changed2 = seq_fixpoint(ipc);
+  BInc has_changed2 = GaussSeidelIteration::fixpoint(ipc);
   EXPECT_EQ2(has_changed2.is_top(), has_changed_expect);
   return std::move(ipc);
 }

@@ -95,10 +95,10 @@ private:
 public:
   CUDA Variable() {}
   CUDA Variable(AVar avar) : avar(avar) {}
-  CUDA Variable(Variable<A>&& other) = default;
-  CUDA Variable(const Variable<A>& other) = default;
-  CUDA Variable<A>& operator=(Variable<A>&&) = default;
-  CUDA Variable<A>& operator=(const Variable<A>&) = default;
+  Variable(Variable<A>&& other) = default;
+  Variable(const Variable<A>& other) = default;
+  Variable<A>& operator=(Variable<A>&&) = default;
+  Variable<A>& operator=(const Variable<A>&) = default;
 
   CUDA void tell(A& a, const U& u, BInc& has_changed) const {
     a.tell(avar, u, has_changed);

@@ -276,8 +276,8 @@ public:
     TellType(TellType&&) = default;
     TellType& operator=(TellType&&) = default;
     TellType(const TellType&) = default;
-    TellType(A::TellType&& sub, const Allocator& alloc): sub(std::move(sub)), props(alloc) {}
-    TellType(size_t n, const Allocator& alloc): sub(), props(alloc) {
+    CUDA TellType(typename A::TellType&& sub, const Allocator& alloc): sub(std::move(sub)), props(alloc) {}
+    CUDA TellType(size_t n, const Allocator& alloc): sub(), props(alloc) {
       props.reserve(n);
     }
   };

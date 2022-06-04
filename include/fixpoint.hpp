@@ -68,18 +68,28 @@ struct AsynchronousIterationGPU {
     #ifndef __CUDA_ARCH__
       assert(0);
     #else
-      __shared__ BInc changed[3];
-      __shared__ BInc is_top[3];
+      __shared__ int shared_mem[sizeof(BInc) * 6];
+      BInc& changed[3];
+      BInc& is_top[3];
       if(threadIdx.x == 0) {
-        for(int i = 0; i < 3; ++i) {
-          is_top[i] = BInc::bot();
-          changed[i] = BInc::bot();
+        PoolAllocator alloc(shared_mem, sizeof(shared_mem));
+        changed[0] = *(new(alloc) BInc(BInc::top()));
+        for(int i = 1; i < 3; ++i) {
+          changed[i] = *(new(alloc) BInc(BInc::bot()));
         }
-        changed[0] = BInc::top();
+        for(int i = 0; i < 3; ++i) {
+          is_top[i] = *(new(alloc) BInc(BInc::bot()));
+        }
       }
       barrier();
+      int i = 0;
+      for(; i < 3; ++i) {
+        changed[i] = *(static_cast<BInc*>(shared_mem[i]));
+      }
+      for(; i < 6; ++i) {
+        is_top[i] = *(static_cast<BInc*>(shared_mem[i]));
+      }
       int n = a.num_refinements();
-      int i;
       for(i = 1; !(is_top[(i-1)%3].guard()) && changed[(i-1)%3].guard(); ++i) {
         for (int t = threadIdx.x; t < n; t += blockDim.x) {
           a.refine(t, changed[i%3]);

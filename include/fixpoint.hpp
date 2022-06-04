@@ -73,7 +73,7 @@ struct AsynchronousIterationGPU {
       BInc* changed[3];
       BInc* is_top[3];
       if(threadIdx.x == 0) {
-        PoolAllocator alloc(shared_mem, sizeof(shared_mem));
+        battery::PoolAllocator alloc(shared_mem, sizeof(shared_mem));
         changed[0] = new(alloc) BInc(BInc::top());
         for(int i = 1; i < 3; ++i) {
           changed[i] = new(alloc) BInc(BInc::bot());
@@ -84,9 +84,10 @@ struct AsynchronousIterationGPU {
       }
       barrier();
       int n = a.num_refinements();
+      int i;
       for(i = 1; !(is_top[(i-1)%3]->guard()) && changed[(i-1)%3]->guard(); ++i) {
         for (int t = threadIdx.x; t < n; t += blockDim.x) {
-          a.refine(t, changed[i%3]);
+          a.refine(t, *(changed[i%3]));
         }
         changed[(i+1)%3]->dtell(BInc::bot());
         is_top[i%3]->tell(a.is_top());

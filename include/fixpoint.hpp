@@ -4,6 +4,7 @@
 #define FIXPOINT_HPP
 
 #include "z.hpp"
+#include "allocator.hpp"
 
 namespace lala {
 
@@ -69,33 +70,26 @@ struct AsynchronousIterationGPU {
       assert(0);
     #else
       __shared__ int shared_mem[sizeof(BInc) * 6];
-      BInc& changed[3];
-      BInc& is_top[3];
+      BInc* changed[3];
+      BInc* is_top[3];
       if(threadIdx.x == 0) {
         PoolAllocator alloc(shared_mem, sizeof(shared_mem));
-        changed[0] = *(new(alloc) BInc(BInc::top()));
+        changed[0] = new(alloc) BInc(BInc::top());
         for(int i = 1; i < 3; ++i) {
-          changed[i] = *(new(alloc) BInc(BInc::bot()));
+          changed[i] = new(alloc) BInc(BInc::bot());
         }
         for(int i = 0; i < 3; ++i) {
-          is_top[i] = *(new(alloc) BInc(BInc::bot()));
+          is_top[i] = new(alloc) BInc(BInc::bot());
         }
       }
       barrier();
-      int i = 0;
-      for(; i < 3; ++i) {
-        changed[i] = *(static_cast<BInc*>(shared_mem[i]));
-      }
-      for(; i < 6; ++i) {
-        is_top[i] = *(static_cast<BInc*>(shared_mem[i]));
-      }
       int n = a.num_refinements();
-      for(i = 1; !(is_top[(i-1)%3].guard()) && changed[(i-1)%3].guard(); ++i) {
+      for(i = 1; !(is_top[(i-1)%3]->guard()) && changed[(i-1)%3]->guard(); ++i) {
         for (int t = threadIdx.x; t < n; t += blockDim.x) {
           a.refine(t, changed[i%3]);
         }
-        changed[(i+1)%3].dtell(BInc::bot());
-        is_top[i%3].tell(a.is_top());
+        changed[(i+1)%3]->dtell(BInc::bot());
+        is_top[i%3]->tell(a.is_top());
         barrier();
       }
       // If i == 1, we did not iterate at all, so has_changed remains unchanged.

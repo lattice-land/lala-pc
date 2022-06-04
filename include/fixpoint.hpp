@@ -68,8 +68,16 @@ struct AsynchronousIterationGPU {
     #ifndef __CUDA_ARCH__
       assert(0);
     #else
-      __shared__ BInc changed[3] = {BInc::top(), BInc::bot(), BInc::bot()};
-      __shared__ BInc is_top = BInc::bot();
+      __shared__ BInc changed[3];
+      __shared__ BInc is_top[3];
+      if(threadIdx.x == 0) {
+        for(int i = 0; i < 3; ++i) {
+          is_top[i] = BInc::bot();
+          changed[i] = BInc::bot();
+        }
+        changed[0] = BInc::top();
+      }
+      barrier();
       int n = a.num_refinements();
       int i;
       for(i = 1; !(is_top[(i-1)%3].guard()) && changed[(i-1)%3].guard(); ++i) {
@@ -78,7 +86,7 @@ struct AsynchronousIterationGPU {
         }
         changed[(i+1)%3].dtell(BInc::bot());
         is_top[i%3].tell(a.is_top());
-        __syncthreads();
+        barrier();
       }
       // If i == 1, we did not iterate at all, so has_changed remains unchanged.
       // If i == 2, we did only one iteration and if we did not reach top in `a`, then `a` did not change.
@@ -87,17 +95,6 @@ struct AsynchronousIterationGPU {
         has_changed.tell(BInc::top());
       }
     #endif
-  }
-
-  template <class A>
-  CUDA BInc fixpoint(A& a) {
-    BInc has_changed = BInc::bot();
-    #ifndef __CUDA_ARCH__
-      assert(0);
-    #else
-      fixpoint(a, has_changed);
-    #endif
-    return has_changed;
   }
 };
 

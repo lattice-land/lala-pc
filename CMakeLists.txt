@@ -3,6 +3,12 @@ cmake_minimum_required(VERSION 3.20)
 include(FetchContent)
 include(CMakePrintHelpers)
 
+# Avoid warning about DOWNLOAD_EXTRACT_TIMESTAMP in CMake 3.24:
+# Fix found at https://github.com/ethereum/solidity/pull/13429
+if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
+  cmake_policy(SET CMP0135 NEW)
+endif()
+
 project(lala-ipc LANGUAGES CUDA CXX)
 option(GPU "GPU" ON)
 option(LALAIPC_BUILD_TESTS "LALAIPC_BUILD_TESTS" OFF)
@@ -32,15 +38,25 @@ endif()
 FetchContent_Declare(
   cuda_battery
   GIT_REPOSITORY "https://github.com/lattice-land/cuda-battery.git"
-  GIT_TAG        main
+  GIT_TAG        develop
 )
 FetchContent_MakeAvailable(cuda_battery)
 
 FetchContent_Declare(
   lala_core
   GIT_REPOSITORY "https://github.com/lattice-land/lala-core.git"
-  GIT_TAG        main
+  GIT_TAG        develop
 )
+
+# FetchContent_GetProperties(lala_core)
+# if(NOT lala_core_POPULATED)
+#   FetchContent_Populate(lala_core)
+#   if(LALAIPC_BUILD_TESTS)
+#     add_subdirectory(${lala_core_SOURCE_DIR}/tests ${lala_core_BINARY_DIR}/tests)
+#   endif()
+#   add_subdirectory(${lala_core_SOURCE_DIR} ${lala_core_BINARY_DIR})
+# endif()
+
 FetchContent_MakeAvailable(lala_core)
 
 # Thrust dependency
@@ -88,9 +104,16 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 include(GoogleTest)
 
+FetchContent_Declare(
+  lala_parsing
+  GIT_REPOSITORY "https://github.com/lattice-land/lala-parsing.git"
+  GIT_TAG        develop
+)
+FetchContent_MakeAvailable(lala_parsing)
+
 add_executable(ipc_test tests/ipc_test.cpp)
-target_link_libraries(ipc_test cuda_battery lala_core lala_ipc gtest_main)
-target_include_directories(ipc_test PRIVATE ${cuda_battery_SOURCE_DIR}/include ${thrust_SOURCE_DIR})
+target_link_libraries(ipc_test cuda_battery lala_core lala_parsing lala_ipc gtest_main)
+target_include_directories(ipc_test PRIVATE ${cuda_battery_SOURCE_DIR}/include ${lala_core_SOURCE_DIR}/include ${lala_core_SOURCE_DIR}/tests/include ${lala_parsing_SOURCE_DIR}/include ${thrust_SOURCE_DIR} ${cpp-peglib_SOURCE_DIR})
 gtest_discover_tests(ipc_test)
 
 endif()

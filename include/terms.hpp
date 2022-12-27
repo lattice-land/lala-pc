@@ -3,7 +3,7 @@
 #ifndef TERMS_HPP
 #define TERMS_HPP
 
-#include "arithmetic.hpp"
+#include "universes/upset_universe.hpp"
 #include "ptr_utility.hpp"
 #include "vector.hpp"
 
@@ -13,11 +13,11 @@ template <class AD>
 class Term {
 public:
   using A = AD;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
   CUDA virtual ~Term() {}
-  CUDA virtual void tell(A&, const U&, BInc&) const = 0;
+  CUDA virtual void tell(A&, const U&, local::BInc&) const = 0;
   CUDA virtual U project(const A&) const = 0;
-  CUDA virtual BInc is_top(const A&) const = 0;
+  CUDA virtual local::BInc is_top(const A&) const = 0;
   CUDA virtual void print(const A&) const = 0;
 };
 
@@ -28,12 +28,12 @@ class DynTerm: public Term<typename BaseTerm::A> {
   BaseTerm t;
 public:
   using A = typename BaseTerm::A;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
 
   CUDA DynTerm(BaseTerm&& t): t(std::move(t)) {}
   CUDA DynTerm(DynTerm<BaseTerm>&& other): DynTerm(std::move(other.t)) {}
 
-  CUDA void tell(A& a, const U& u, BInc& has_changed) const override {
+  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const override {
     t.tell(a, u, has_changed);
   }
 
@@ -41,7 +41,7 @@ public:
     return t.project(a);
   }
 
-  CUDA BInc is_top(const A& a) const override {
+  CUDA local::BInc is_top(const A& a) const override {
     return t.is_top(a);
   }
 
@@ -56,7 +56,7 @@ template <class AD>
 class Constant {
 public:
   using A = AD;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
 
 private:
   U k;
@@ -64,9 +64,9 @@ private:
 public:
   CUDA Constant(U&& k) : k(k) {}
   CUDA Constant(Constant<A>&& other): k(std::move(other.k)) {}
-  CUDA void tell(A&, const U&, BInc&) const {}
+  CUDA void tell(A&, const U&, local::BInc&) const {}
   CUDA U project(const A&) const { return k; }
-  CUDA BInc is_top(const A&) const { return BInc::bot(); }
+  CUDA local::BInc is_top(const A&) const { return local::BInc::bot(); }
   CUDA void print(const A&) const { ::battery::print(k); }
 };
 
@@ -87,7 +87,7 @@ template <class AD>
 class Variable {
 public:
   using A = AD;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
 
 private:
   AVar avar;
@@ -100,7 +100,7 @@ public:
   Variable<A>& operator=(Variable<A>&&) = default;
   Variable<A>& operator=(const Variable<A>&) = default;
 
-  CUDA void tell(A& a, const U& u, BInc& has_changed) const {
+  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
     a.tell(avar, u, has_changed);
   }
 
@@ -108,8 +108,8 @@ public:
     return a.project(avar);
   }
 
-  CUDA BInc is_top(const A& a) const { return project(a).is_top(); }
-  CUDA void print(const A& a) const { a.environment().to_lvar(avar).print(); }
+  CUDA local::BInc is_top(const A& a) const { return project(a).is_top(); }
+  CUDA void print(const A& a) const { printf("(%d,%d)", avar.aty(), avar.vid()); }
 };
 
 template<class Universe, Approx appx = EXACT>
@@ -117,7 +117,7 @@ struct NegOp {
   using U = Universe;
 
   CUDA static U op(const U& a) {
-    return neg<appx>(a);
+    return U::template fun<appx, NEG>(a);
   }
 
   CUDA static char symbol() { return '-'; }
@@ -128,7 +128,7 @@ class Unary {
 public:
   using TermX_ = typename remove_ptr<TermX>::type;
   using A = typename TermX_::A;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
   using this_type = Unary<UnaryOp, TermX>;
 private:
   TermX x_term;
@@ -141,8 +141,8 @@ public:
   CUDA Unary(TermX&& x_term): x_term(std::move(x_term)) {}
   CUDA Unary(this_type&& other): Unary(std::move(other.x_term)) {}
 
-  CUDA void tell(A& a, const U& u, BInc& has_changed) const {
-    if(x().is_top(a).guard()) { return; }
+  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
+    if(x().is_top(a)) { return; }
     x().tell(a, UnaryOp::op(u), has_changed);
   }
 
@@ -150,7 +150,7 @@ public:
     return UnaryOp::op(x().project(a));
   }
 
-  CUDA BInc is_top(const A& a) const {
+  CUDA local::BInc is_top(const A& a) const {
     return x().is_top(a);
   }
 
@@ -169,15 +169,15 @@ template<class Universe, Approx appx = EXACT>
 struct GroupAdd {
   using U = Universe;
   CUDA static U op(const U& a, const U& b) {
-    return add<appx>(a, b);
+    return U::template fun<appx, ADD>(a, b);
   }
 
   CUDA static U rev_op(const U& a, const U& b) {
-    return rev_add<appx>(a, b);
+    return op(a, U::additive_inverse(b));
   }
 
   CUDA static U inv1(const U& a, const U& b) {
-    return sub<appx>(a, b);
+    return U::template fun<appx, SUB>(a, b);
   }
 
   CUDA static U inv2(const U& a, const U& b) {
@@ -191,33 +191,34 @@ template<class Universe, Approx appx = EXACT>
 struct GroupSub {
   using U = Universe;
   CUDA static U op(const U& a, const U& b) {
-    return sub<appx>(a, b);
+    return U::template fun<appx, SUB>(a, b);
   }
 
   CUDA static U inv1(const U& a, const U& b) {
-    return add<appx>(a, b);
+    return U::template fun<appx, ADD>(a, b);
   }
 
   CUDA static U inv2(const U& a, const U& b) {
-    return neg<appx>(sub<appx>(a, b));
+    return U::template fun<appx, NEG>(
+      U::template fun<appx, SUB>(a, b));
   }
 
   CUDA static char symbol() { return '-'; }
 };
 
-template<class Universe, Approx appx = OVER>
+template<class Universe, Sig divsig, Approx appx = OVER>
 struct GroupMul {
   using U = Universe;
   CUDA static U op(const U& a, const U& b) {
-    return mul<appx>(a, b);
+    return U::template fun<appx, MUL>(a, b);
   }
 
   CUDA static U rev_op(const U& a, const U& b) {
-    return div<appx>(a, b); // probably not ideal? Could think more about that.
+    return U::template fun<appx, divsig>(a, b); // probably not ideal? Could think more about that.
   }
 
   CUDA static U inv1(const U& a, const U& b) {
-    return div<appx>(a, b);
+    return U::template fun<appx, divsig>(a, b);
   }
 
   CUDA static U inv2(const U& a, const U& b) {
@@ -227,19 +228,19 @@ struct GroupMul {
   CUDA static char symbol() { return '*'; }
 };
 
-template<class Universe, Approx appx = OVER>
+template<class Universe, Sig divsig, Approx appx = OVER>
 struct GroupDiv {
   using U = Universe;
   CUDA static U op(const U& a, const U& b) {
-    return div<appx>(a, b);
+    return U::template fun<appx, divsig>(a, b);
   }
 
   CUDA static U inv1(const U& a, const U& b) {
-    return mul<appx>(a, b);
+    return U::template fun<appx, MUL>(a, b);
   }
 
   CUDA static U inv2(const U& a, const U& b) {
-    return div<appx>(b, a);
+    return U::template fun<appx, divsig>(b, a);
   }
 
   CUDA static char symbol() { return '/'; }
@@ -274,10 +275,10 @@ public:
 
   /** Enforce `x <op> y >= u` where >= is the lattice order of the underlying abstract universe.
       For instance, over the interval abstract universe, `x + y >= [2..5]` will ensure that `x + y` is eventually at least `2` and at most `5`. */
-  CUDA void tell(A& a, const U& u, BInc& has_changed) const {
+  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
     auto xt = x().project(a);
     auto yt = y().project(a);
-    if(lor(xt.is_top(), yt.is_top()).guard()) { return; }
+    if(xt.is_top() || yt.is_top()) { return; }
     if constexpr(!is_constant_term_v<TermX>) {
       x().tell(a, G::inv1(u, yt), has_changed);   // x <- u <inv> y
     }
@@ -290,8 +291,8 @@ public:
     return G::op(x().project(a), y().project(a));
   }
 
-  CUDA BInc is_top(const A& a) const {
-    return lor(x().is_top(a), y().is_top(a));
+  CUDA local::BInc is_top(const A& a) const {
+    return x().is_top(a) || y().is_top(a);
   }
 
   CUDA void print(const A& a) const {
@@ -313,15 +314,15 @@ using Sub = Binary<
   TermX,
   TermY>;
 
-template <class TermX, class TermY, Approx appx = OVER>
+template <class TermX, class TermY, Sig divsig = EDIV, Approx appx = OVER>
 using Mul = Binary<
-  GroupMul<typename remove_ptr<TermX>::type::U, appx>,
+  GroupMul<typename remove_ptr<TermX>::type::U, divsig, appx>,
   TermX,
   TermY>;
 
-template <class TermX, class TermY, Approx appx = OVER>
+template <class TermX, class TermY, Sig divsig = EDIV, Approx appx = OVER>
 using Div = Binary<
-  GroupDiv<typename remove_ptr<TermX>::type::U, appx>,
+  GroupDiv<typename remove_ptr<TermX>::type::U, divsig, appx>,
   TermX,
   TermY>;
 
@@ -352,20 +353,20 @@ public:
     return accu;
   }
 
-  CUDA void tell(A& a, const U& u, BInc& has_changed) const {
+  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
     U all = project(a);
     for(int i = 0; i < terms.size(); ++i) {
       t(i).tell(a, G::inv1(u, G::rev_op(all, t(i).project(a))), has_changed);
     }
   }
 
-  CUDA BInc is_top(const A& a) const {
+  CUDA local::BInc is_top(const A& a) const {
     for(int i = 0; i < terms.size(); ++i) {
-      if(t(i).is_top(a).guard()) {
-        return BInc::top();
+      if(t(i).is_top(a)) {
+        return local::BInc::top();
       }
     }
-    return BInc::bot();
+    return local::BInc::bot();
   }
 
   CUDA void print(const A& a) const {
@@ -380,8 +381,8 @@ public:
 template<class T, class Allocator, Approx appx = EXACT>
 using NaryAdd = Nary<T, Add<T, T, appx>, Allocator>;
 
-template<class T, class Allocator, Approx appx = OVER>
-using NaryMul = Nary<T, Mul<T, T, appx>, Allocator>;
+template<class T, class Allocator, Sig divsig = EDIV, Approx appx = OVER>
+using NaryMul = Nary<T, Mul<T, T, divsig, appx>, Allocator>;
 
 } // namespace lala
 

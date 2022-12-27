@@ -3,7 +3,7 @@
 #ifndef FORMULA_HPP
 #define FORMULA_HPP
 
-#include "arithmetic.hpp"
+#include "universes/upset_universe.hpp"
 #include "ptr_utility.hpp"
 
 namespace lala {
@@ -18,28 +18,28 @@ template <class AD>
 class Formula: public Term<AD> {
 public:
   using A = AD;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
   CUDA virtual ~Formula() {}
 
   /** Given a formula \f$ \varphi \f$, the ask operation \f$ a \vDash \varphi \f$ holds whenever we can deduce \f$ \varphi \f$ from \f$ a \f$.
-      More precisely, if \f$ \gamma(a) \subseteq [\![\varphi]\!]^\flat \f$, which implies that \f$ \varphi \f$ cannot remove further refine \f$ a \f$ since \f$ a \f$ is already more precised than \f$ \varphi \f$. */
-  CUDA virtual BInc ask(const A&) const = 0;
+      More precisely, if \f$ \gamma(a) \subseteq [\![\varphi]\!]^\flat \f$, which implies that \f$ \varphi \f$ cannot remove further refine \f$ a \f$ since \f$ a \f$ is already more precise than \f$ \varphi \f$. */
+  CUDA virtual local::BInc ask(const A&) const = 0;
 
   /** Similar to `ask` but for \f$ \lnot{\varphi} \f$. */
-  CUDA virtual BInc nask(const A&) const = 0;
+  CUDA virtual local::BInc nask(const A&) const = 0;
 
   /** An optional preprocessing operator that is only called at the root node.
    * This is because refinement operators are supposed to be stateless, hence are never backtracked.
    * It prepares the data of the formula to improve the refinement of subsequent calls to `refine`. */
-  CUDA virtual void preprocess(A&, BInc&) = 0;
+  CUDA virtual void preprocess(A&, local::BInc&) = 0;
 
   /** Refine the formula by supposing it must be true. */
-  CUDA virtual void refine(A&, BInc&) const = 0;
+  CUDA virtual void refine(A&, local::BInc&) const = 0;
 
   /** Refine the negation of the formula, hence we suppose the original formula needs to be false. */
-  CUDA virtual void nrefine(A&, BInc&) const = 0;
+  CUDA virtual void nrefine(A&, local::BInc&) const = 0;
 
-  CUDA virtual void tell(A&, const U&, BInc&) const = 0;
+  CUDA virtual void tell(A&, const U&, local::BInc&) const = 0;
 };
 
 /** `DynFormula` wraps a term and inherits from Formula.
@@ -49,28 +49,28 @@ class DynFormula: public Formula<typename BaseFormula::A> {
   BaseFormula f;
 public:
   using A = typename BaseFormula::A;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
 
   CUDA DynFormula(BaseFormula&& f): f(std::move(f)) {}
   CUDA DynFormula(DynFormula<BaseFormula>&& other): DynFormula(std::move(other.f)) {}
 
-  CUDA BInc ask(const A& a) const {
+  CUDA local::BInc ask(const A& a) const {
     return f.ask(a);
   }
 
-  CUDA BInc nask(const A& a) const {
+  CUDA local::BInc nask(const A& a) const {
     return f.nask(a);
   }
 
-  CUDA void preprocess(A& a, BInc& has_changed) {
+  CUDA void preprocess(A& a, local::BInc& has_changed) {
     f.preprocess(a, has_changed);
   }
 
-  CUDA void refine(A& a, BInc& has_changed) const {
+  CUDA void refine(A& a, local::BInc& has_changed) const {
     f.refine(a, has_changed);
   }
 
-  CUDA void nrefine(A& a, BInc& has_changed) const {
+  CUDA void nrefine(A& a, local::BInc& has_changed) const {
     f.nrefine(a, has_changed);
   }
 
@@ -78,7 +78,7 @@ public:
     f.print(a);
   }
 
-  CUDA void tell(A& a, const U& u, BInc& has_changed) const {
+  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
     f.tell(a, u, has_changed);
   }
 
@@ -86,7 +86,7 @@ public:
     return f.project(a);
   }
 
-  CUDA BInc is_top(const A& a) const {
+  CUDA local::BInc is_top(const A& a) const {
     return f.is_top(a);
   }
 
@@ -99,19 +99,19 @@ public:
 template<class CRTP, class F,
   class A = typename remove_ptr<F>::type::A>
 struct FormulaAsTermAdapter {
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
 
   /** Call `refine` iff \f$ u \geq  [\![x = 1]\!]_U \f$ and `nrefine` iff \f$ u \geq  [\![x = 0]\!] \f$. */
-  CUDA void tell(A& a, const U& u, BInc& has_changed) const {
-    if(geq<U>(u, U(1).value()).guard()) { static_cast<const CRTP*>(this)->refine(a, has_changed); }
-    else if(geq<U>(u, U(0).value()).guard()) { static_cast<const CRTP*>(this)->nrefine(a, has_changed); }
+  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
+    if(u >= U::one) { static_cast<const CRTP*>(this)->refine(a, has_changed); }
+    else if(u >= U::zero) { static_cast<const CRTP*>(this)->nrefine(a, has_changed); }
   }
 
   /** Maps the truth value of \f$ \varphi \f$ to the Boolean sublattice of `U` (see above). */
   CUDA U project(const A& a) const {
-    if(static_cast<const CRTP*>(this)->is_top(a).guard()) { return U::top(); }
-    if(static_cast<const CRTP*>(this)->ask(a).guard()) { return U(1); }
-    if(static_cast<const CRTP*>(this)->nask(a).guard()) { return U(0); }
+    if(static_cast<const CRTP*>(this)->is_top(a)) { return U::top(); }
+    if(static_cast<const CRTP*>(this)->ask(a)) { return U(1); }
+    if(static_cast<const CRTP*>(this)->nask(a)) { return U(0); }
     return meet(U(0), U(1));
   }
 };
@@ -122,7 +122,7 @@ class VariableLiteral:
   public FormulaAsTermAdapter<VariableLiteral<AD, neg>, void, AD> {
 public:
   using A = AD;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
 
 private:
   AVar avar;
@@ -132,12 +132,12 @@ public:
 
 private:
   template<bool negate>
-  CUDA BInc ask_impl(const A& a) const {
+  CUDA local::BInc ask_impl(const A& a) const {
     if constexpr(negate) {
-      return geq<U>(a.project(avar), U(0).value());
+      return a.project(avar) >= U::zero;
     }
     else {
-      return lnot(leq<U>(a.project(avar), U(0).value()));
+      return !(a.project(avar) <= U::zero);
     }
   }
 
@@ -145,32 +145,32 @@ public:
   /** Given a variable `x` taking a value in a universe `U` denoted by \f$ a(x) \f$.
    *   - \f$ a \vDash x \f$ holds iff \f$ \lnot (a(x) \leq [\![x = 0]\!]_U) \f$.
    *   - \f$ a \vDash \lnot{x} \f$ holds iff \f$ a(x) \geq [\![x = 0]\!]_U \f$. */
-  CUDA BInc ask(const A& a) const {
+  CUDA local::BInc ask(const A& a) const {
     return ask_impl<neg>(a);
   }
 
   /** Similar to `ask` where \f$ \lnot{\lnot{x}} = x \f$. */
-  CUDA BInc nask(const A& a) const {
+  CUDA local::BInc nask(const A& a) const {
     return ask_impl<!neg>(a);
   }
 
-  CUDA void preprocess(A&, BInc&) {}
+  CUDA void preprocess(A&, local::BInc&) {}
 
   /** Perform \f$ x = a(x) \sqcup [\![x = 1]\!]_U \f$. */
-  CUDA void refine(A& a, BInc& has_changed) const {
+  CUDA void refine(A& a, local::BInc& has_changed) const {
     a.tell(avar, U(1), has_changed);
   }
 
   /** Perform \f$ x = a(x) \sqcup [\![x = 0]\!]_U \f$. */
-  CUDA void nrefine(A& a, BInc& has_changed) const {
+  CUDA void nrefine(A& a, local::BInc& has_changed) const {
     a.tell(avar, U(0), has_changed);
   }
 
-  CUDA BInc is_top(const A& a) const { return a.project(avar).is_top(); }
+  CUDA local::BInc is_top(const A& a) const { return a.project(avar).is_top(); }
 
   CUDA void print(const A& a) const {
     if constexpr(neg) { printf("not "); }
-    a.environment().to_lvar(avar).print();
+    printf("(%d,%d)", avar.aty(), avar.vid());
   }
 };
 
@@ -182,7 +182,7 @@ class LatticeOrderPredicate<T, void> {
 public:
   using T_ = typename remove_ptr<T>::type;
   using A = typename T_::A;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
   using this_type = LatticeOrderPredicate<T, void>;
 
 protected:
@@ -197,24 +197,24 @@ public:
   CUDA LatticeOrderPredicate(T&& left, U&& right): left(std::move(left)), right(std::move(right)) {}
   CUDA LatticeOrderPredicate(this_type&& other): LatticeOrderPredicate(std::move(other.left), std::move(other.right)) {}
 
-  CUDA BInc ask(const A& a) const {
-    return geq<U>(t().project(a), right.value());
+  CUDA local::BInc ask(const A& a) const {
+    return t().project(a) >= right;
   }
 
-  CUDA BInc nask(const A&) const { assert(false); return BInc::bot(); }
-  CUDA void nrefine(A&, BInc&) const { assert(false); }
-  CUDA void tell(A&, const U&, BInc&) const { assert(false); }
+  CUDA local::BInc nask(const A&) const { assert(false); return local::BInc::bot(); }
+  CUDA void nrefine(A&, local::BInc&) const { assert(false); }
+  CUDA void tell(A&, const U&, local::BInc&) const { assert(false); }
   CUDA U project(const A&) const { assert(false); return U::top(); }
 
-  CUDA BInc is_top(const A& a) const {
+  CUDA local::BInc is_top(const A& a) const {
     return t().is_top(a);
   }
 
-  CUDA void preprocess(A& a, BInc& has_changed) {
+  CUDA void preprocess(A& a, local::BInc& has_changed) {
     right.tell(t().project(a), has_changed);
   }
 
-  CUDA void refine(A& a, BInc& has_changed) const {
+  CUDA void refine(A& a, local::BInc& has_changed) const {
     t().tell(a, right, has_changed);
   }
 
@@ -237,7 +237,7 @@ class LatticeOrderPredicate :
 public:
   using T_ = typename remove_ptr<T>::type;
   using A = typename T_::A;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
   using this_type = LatticeOrderPredicate<T, NotF>;
 
 private:
@@ -251,21 +251,21 @@ public:
   CUDA LatticeOrderPredicate(this_type&& other)
    : LatticeOrderPredicate(std::move(other.left), std::move(other.right), std::move(other.not_f)) {}
 
-  CUDA BInc nask(const A& a) const {
+  CUDA local::BInc nask(const A& a) const {
     return deref(not_f).ask(a);
   }
 
-  CUDA void nrefine(A& a, BInc& has_changed) const {
+  CUDA void nrefine(A& a, local::BInc& has_changed) const {
     deref(not_f).refine(a, has_changed);
   }
 
-  CUDA void preprocess(A& a, BInc& has_changed) {
+  CUDA void preprocess(A& a, local::BInc& has_changed) {
     base_type::preprocess(a, has_changed);
     deref(not_f).preprocess(a, has_changed);
   }
 
   using term_adapter = FormulaAsTermAdapter<LatticeOrderPredicate<T, NotF>, T>;
-  CUDA void tell(A& a, const U& u, BInc& has_changed) const { term_adapter::tell(a, u, has_changed); }
+  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const { term_adapter::tell(a, u, has_changed); }
   CUDA U project(const A& a) const { return term_adapter::project(a); }
 };
 
@@ -275,7 +275,7 @@ public:
   using F_ = typename remove_ptr<F>::type;
   using G_ = typename remove_ptr<G>::type;
   using A = typename F_::A;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
   using this_type = Conjunction<F, G>;
 
 private:
@@ -294,37 +294,31 @@ public:
   CUDA Conjunction(F&& f, G&& g): f_(std::move(f)), g_(std::move(g)) {}
   CUDA Conjunction(this_type&& other): Conjunction(std::move(other.f_), std::move(other.g_)) {}
 
-  CUDA BInc ask(const A& a) const {
-    return land(
-      f().ask(a),
-      g().ask(a)
-    );
+  CUDA local::BInc ask(const A& a) const {
+    return f().ask(a) && g().ask(a);
   }
 
-  CUDA BInc nask(const A& a) const {
-    return lor(
-      f().nask(a),
-      g().nask(a)
-    );
+  CUDA local::BInc nask(const A& a) const {
+    return f().nask(a) || g().nask(a);
   }
 
-  CUDA void preprocess(A& a, BInc& has_changed) {
+  CUDA void preprocess(A& a, local::BInc& has_changed) {
     deref(f_).preprocess(a, has_changed);
     deref(g_).preprocess(a, has_changed);
   }
 
-  CUDA void refine(A& a, BInc& has_changed) const {
+  CUDA void refine(A& a, local::BInc& has_changed) const {
     f().refine(a, has_changed);
     g().refine(a, has_changed);
   }
 
-  CUDA void nrefine(A& a, BInc& has_changed) const {
-    if(f().ask(a).guard()) { g().nrefine(a, has_changed); }
-    else if(g().ask(a).guard()) { f().nrefine(a, has_changed); }
+  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+    if(f().ask(a)) { g().nrefine(a, has_changed); }
+    else if(g().ask(a)) { f().nrefine(a, has_changed); }
   }
 
-  CUDA BInc is_top(const A& a) const {
-    return lor(f().is_top(a), g().is_top(a));
+  CUDA local::BInc is_top(const A& a) const {
+    return f().is_top(a) || g().is_top(a);
   }
 
   CUDA void print(const A& a) const {
@@ -340,7 +334,7 @@ public:
   using F_ = typename remove_ptr<F>::type;
   using G_ = typename remove_ptr<G>::type;
   using A = typename F_::A;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
   using this_type = Disjunction<F, G>;
 
 private:
@@ -354,37 +348,31 @@ public:
   CUDA Disjunction(this_type&& other): Disjunction(
     std::move(other.f_), std::move(other.g_)) {}
 
-  CUDA BInc ask(const A& a) const {
-    return lor(
-      f().ask(a),
-      g().ask(a)
-    );
+  CUDA local::BInc ask(const A& a) const {
+    return f().ask(a) || g().ask(a);
   }
 
-  CUDA BInc nask(const A& a) const {
-    return land(
-      f().nask(a),
-      g().nask(a)
-    );
+  CUDA local::BInc nask(const A& a) const {
+    return f().nask(a) && g().nask(a);
   }
 
-  CUDA void preprocess(A& a, BInc& has_changed) {
+  CUDA void preprocess(A& a, local::BInc& has_changed) {
     deref(f_).preprocess(a, has_changed);
     deref(g_).preprocess(a, has_changed);
   }
 
-  CUDA void refine(A& a, BInc& has_changed) const {
-    if(f().nask(a).guard()) { g().refine(a, has_changed); }
-    else if(g().nask(a).guard()) { f().refine(a, has_changed); }
+  CUDA void refine(A& a, local::BInc& has_changed) const {
+    if(f().nask(a)) { g().refine(a, has_changed); }
+    else if(g().nask(a)) { f().refine(a, has_changed); }
   }
 
-  CUDA void nrefine(A& a, BInc& has_changed) const {
+  CUDA void nrefine(A& a, local::BInc& has_changed) const {
     f().nrefine(a, has_changed);
     g().nrefine(a, has_changed);
   }
 
-  CUDA BInc is_top(const A& a) const {
-    return lor(f().is_top(a), g().is_top(a));
+  CUDA local::BInc is_top(const A& a) const {
+    return f().is_top(a) || g().is_top(a);
   }
 
   CUDA void print(const A& a) const {
@@ -400,7 +388,7 @@ public:
   using F_ = typename remove_ptr<F>::type;
   using G_ = typename remove_ptr<G>::type;
   using A = typename F_::A;
-  using U = typename A::Universe;
+  using U = typename A::universe_type;
   using this_type = Biconditional<F, G>;
 
 private:
@@ -414,43 +402,41 @@ public:
   CUDA Biconditional(this_type&& other): Biconditional(
     std::move(other.f_), std::move(other.g_)) {}
 
-  CUDA BInc ask(const A& a) const {
-    return lor(
-      land(f().ask(a), g().ask(a)),
-      land(f().nask(a), g().nask(a))
-    );
+  CUDA local::BInc ask(const A& a) const {
+    return
+      (f().ask(a) && g().ask(a)) ||
+      (f().nask(a) && g().nask(a));
   }
 
   // note that not(f <=> g) is equivalent to (f <=> not g)
-  CUDA BInc nask(const A& a) const {
-    return lor(
-      land(f().ask(a), g().nask(a)),
-      land(f().nask(a), g().ask(a))
-    );
+  CUDA local::BInc nask(const A& a) const {
+    return
+      (f().ask(a) && g().nask(a)) ||
+      (f().nask(a) && g().ask(a));
   }
 
-  CUDA void preprocess(A& a, BInc& has_changed) {
+  CUDA void preprocess(A& a, local::BInc& has_changed) {
     deref(f_).preprocess(a, has_changed);
     deref(g_).preprocess(a, has_changed);
   }
 
-  CUDA void refine(A& a, BInc& has_changed) const {
-    if(f().ask(a).guard()) { g().refine(a, has_changed); }
-    else if(f().nask(a).guard()) { g().nrefine(a, has_changed); }
-    else if(g().ask(a).guard()) { f().refine(a, has_changed); }
-    else if(g().nask(a).guard()) { f().nrefine(a, has_changed); }
+  CUDA void refine(A& a, local::BInc& has_changed) const {
+    if(f().ask(a)) { g().refine(a, has_changed); }
+    else if(f().nask(a)) { g().nrefine(a, has_changed); }
+    else if(g().ask(a)) { f().refine(a, has_changed); }
+    else if(g().nask(a)) { f().nrefine(a, has_changed); }
   }
 
   // note that not(f <=> g) is equivalent to (f <=> not g)
-  CUDA void nrefine(A& a, BInc& has_changed) const {
-    if(f().ask(a).guard()) { g().nrefine(a, has_changed); }
-    else if(f().nask(a).guard()) { g().refine(a, has_changed); }
-    else if(g().ask(a).guard()) { f().nrefine(a, has_changed); }
-    else if(g().nask(a).guard()) { f().refine(a, has_changed); }
+  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+    if(f().ask(a)) { g().nrefine(a, has_changed); }
+    else if(f().nask(a)) { g().refine(a, has_changed); }
+    else if(g().ask(a)) { f().nrefine(a, has_changed); }
+    else if(g().nask(a)) { f().refine(a, has_changed); }
   }
 
-  CUDA BInc is_top(const A& a) const {
-    return lor(f().is_top(a), g().is_top(a));
+  CUDA local::BInc is_top(const A& a) const {
+    return f().is_top(a) || g().is_top(a);
   }
 
   CUDA void print(const A& a) const {

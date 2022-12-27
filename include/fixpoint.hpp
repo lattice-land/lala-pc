@@ -3,7 +3,8 @@
 #ifndef FIXPOINT_HPP
 #define FIXPOINT_HPP
 
-#include "z.hpp"
+#include "logic/logic.hpp"
+#include "universes/upset_universe.hpp"
 #include "allocator.hpp"
 
 namespace lala {

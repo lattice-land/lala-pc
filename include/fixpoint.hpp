@@ -16,26 +16,26 @@ struct GaussSeidelIteration {
   CUDA static void barrier() {}
 
   template <class A>
-  CUDA static void iterate(A& a, BInc& has_changed) {
+  CUDA static void iterate(A& a, local::BInc& has_changed) {
     int n = a.num_refinements();
-    for(int i = 0; !(a.is_top().guard()) && i < n; ++i) {
+    for(int i = 0; !a.is_top() && i < n; ++i) {
       a.refine(i, has_changed);
     }
   }
 
   template <class A>
-  CUDA static void fixpoint(A& a, BInc& has_changed) {
-    BInc changed = BInc::top();
-    while(!(a.is_top().guard()) && changed.guard()) {
-      changed.dtell(BInc::bot());
+  CUDA static void fixpoint(A& a, local::BInc& has_changed) {
+    local::BInc changed(true);
+    while(!(a.is_top()) && changed) {
+      changed.dtell_bot();
       iterate(a, changed);
       has_changed.tell(changed);
     }
   }
 
   template <class A>
-  CUDA static BInc fixpoint(A& a) {
-    BInc has_changed = BInc::bot();
+  CUDA static local::BInc fixpoint(A& a) {
+    local::BInc has_changed(false);
     fixpoint(a, has_changed);
     return has_changed;
   }
@@ -54,7 +54,7 @@ struct AsynchronousIterationGPU {
   }
 
   template <class A>
-  CUDA static void iterate(A& a, BInc& has_changed) {
+  CUDA static void iterate(A& a, local::BInc& has_changed) {
     #ifndef __CUDA_ARCH__
       assert(0);
     #else
@@ -66,39 +66,39 @@ struct AsynchronousIterationGPU {
   }
 
   template <class A>
-  CUDA static void fixpoint(A& a, BInc& has_changed) {
+  CUDA static void fixpoint(A& a, local::BInc& has_changed) {
     #ifndef __CUDA_ARCH__
       assert(0);
     #else
-      __shared__ unsigned char shared_mem[sizeof(BInc) * 6];
-      BInc* changed[3];
-      BInc* is_top[3];
+      __shared__ unsigned char shared_mem[sizeof(local::BInc) * 6];
+      local::BInc* changed[3];
+      local::BInc* is_top[3];
       if(threadIdx.x == 0) {
-        battery::PoolAllocator alloc(shared_mem, sizeof(BInc) * 6);
-        changed[0] = new(alloc) BInc(BInc::top());
+        battery::PoolAllocator alloc(shared_mem, sizeof(local::BInc) * 6);
+        changed[0] = new(alloc) local::BInc(true);
         for(int i = 1; i < 3; ++i) {
-          changed[i] = new(alloc) BInc(BInc::bot());
+          changed[i] = new(alloc) local::BInc(false);
         }
         for(int i = 0; i < 3; ++i) {
-          is_top[i] = new(alloc) BInc(BInc::bot());
+          is_top[i] = new(alloc) local::BInc(false);
         }
       }
       barrier();
       int n = a.num_refinements();
       int i = 1;
-      for(; !(is_top[(i-1)%3]->guard()) && changed[(i-1)%3]->guard(); ++i) {
+      for(; !(*is_top[(i-1)%3]) && *changed[(i-1)%3]; ++i) {
         for (int t = threadIdx.x; t < n; t += blockDim.x) {
           a.refine(t, *(changed[i%3]));
         }
-        changed[(i+1)%3]->dtell(BInc::bot());
+        changed[(i+1)%3]->dtell_bot();
         is_top[i%3]->tell(a.is_top());
         barrier();
       }
       // If i == 1, we did not iterate at all, so has_changed remains unchanged.
       // If i == 2, we did only one iteration and if we did not reach top in `a`, then `a` did not change.
       // In all other cases, `a` was changed at least once.
-      if((i == 2 && a.is_top().guard()) || i > 2) {
-        has_changed.tell(BInc::top());
+      if((i == 2 && a.is_top()) || i > 2) {
+        has_changed.tell_top();
       }
     #endif
   }

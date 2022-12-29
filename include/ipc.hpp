@@ -281,7 +281,8 @@ private:
         // Form of the constraint `T <op> u` with `x <op> u` interpreted in the underlying universe.
         default:
           auto fn = move_constants_on_rhs(f);
-          auto u = universe_type::interpret(F::make_binary(F::make_avar(AVar()), fn.sig(), fn.seq(1)), env);
+          auto fu = F::make_binary(F::make_avar(AVar()), fn.sig(), fn.seq(1));
+          auto u = universe_type::interpret(fu, env);
           if(u.has_value()) {
             auto term = interpret_term(fn.seq(0), env);
             if(term.has_value()) {
@@ -390,9 +391,9 @@ public:
     // Conjunction
     if(f.is(F::Seq) && f.sig() == AND) {
       auto split_formula = extract_ty(f, aty());
-      const auto& ipc_formulas = battery::get<0>(split_formula).seq();
+      const auto& ipc_formulas = battery::get<0>(split_formula);
       const auto& other_formulas = battery::get<1>(split_formula);
-      iresult<F, Env> res(tell_t(ipc_formulas.size(), env.get_allocator()));
+      iresult<F, Env> res(tell_t(ipc_formulas.seq().size(), env.get_allocator()));
       // We need to interpret the formulas in the sub-domain first because it might handle existential quantifiers needed by formulas interpreted in this domain.
       for(int i = 0; i < other_formulas.seq().size(); ++i) {
         typename sub_type::iresult<F, Env> sub_tell = sub->interpret_in(other_formulas.seq(i), env);
@@ -413,8 +414,8 @@ public:
             .join_errors(std::move(sub_tell)));
         }
       }
-      for(int i = 0; i < ipc_formulas.size(); ++i) {
-        interpret_formula2(other_formulas.seq(i), env, res);
+      for(int i = 0; i < ipc_formulas.seq().size(); ++i) {
+        interpret_formula2(ipc_formulas.seq(i), env, res);
         if(!res.has_value()) {
           return std::move(res);
         }
@@ -438,7 +439,7 @@ public:
     iresult<F, Env> r = ipc.interpret_in(f, env);
     if(r.has_value()) {
       ipc.tell(std::move(r.value()));
-      return std::move(IResult<this_type, F>(std::move(ipc)).join_errors(std::move(r)));
+      return std::move(IResult<this_type, F>(std::move(ipc)).join_warnings(std::move(r)));
     }
     else {
       return std::move(r).template map_error<this_type>();

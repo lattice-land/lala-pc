@@ -9,7 +9,7 @@
 #include "interval.hpp"
 #include "ipc.hpp"
 #include "terms.hpp"
-// #include "fixpoint.hpp"
+#include "fixpoint.hpp"
 #include "vector.hpp"
 #include "shared_ptr.hpp"
 
@@ -58,85 +58,73 @@ TEST(TermTest, AddTermNary) {
   EXPECT_EQ(sum_xyz.project(store), Itv(0,15));
 }
 
+template <class L>
+void test_extract(const L& ipc, bool is_ua) {
+  AbstractDeps<StandardAllocator> deps;
+  L copy1(ipc, deps);
+  EXPECT_EQ(ipc.extract(copy1), is_ua);
+  EXPECT_EQ(ipc.is_top(), copy1.is_top());
+  EXPECT_EQ(ipc.is_bot(), copy1.is_bot());
+  for(int i = 0; i < ipc.vars(); ++i) {
+    EXPECT_EQ(ipc[i], copy1[i]);
+  }
+}
+
+
+template<class L>
+void refine_and_test(L& ipc, int num_refine, const std::vector<Itv>& before, const std::vector<Itv>& after, bool is_ua, bool expect_changed = true) {
+  EXPECT_EQ(ipc.num_refinements(), num_refine);
+  for(int i = 0; i < before.size(); ++i) {
+    EXPECT_EQ(ipc[i], before[i]);
+  }
+  local::BInc has_changed = GaussSeidelIteration::fixpoint(ipc);
+  EXPECT_EQ(has_changed, expect_changed);
+  for(int i = 0; i < after.size(); ++i) {
+    EXPECT_EQ(ipc[i], after[i]);
+  }
+  test_extract(ipc, is_ua);
+}
+
+template<class L>
+void refine_and_test(L& ipc, int num_refine, const std::vector<Itv>& before_after, bool is_ua = false) {
+  refine_and_test(ipc, num_refine, before_after, before_after, is_ua, false);
+}
+
 // x + y = 5
 TEST(IPCTest, AddEquality) {
   IIPC ipc = interpret_to2<IIPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_plus(x, y, 5);");
-  EXPECT_EQ(ipc[0], Itv(0, 5));
-  EXPECT_EQ(ipc[1], Itv(0, 5));
+  refine_and_test(ipc, 1, {Itv(0,10), Itv(0,10)}, {Itv(0,5), Itv(0,5)}, false);
 }
 
-// template <class A>
-// void vars2_of(const A& a, AVar vars[2]) {
-//   vars[0] = *(a.environment().to_avar(var_x));
-//   vars[1] = *(a.environment().to_avar(var_y));
-// }
+// x + y = z, z <= 5
+TEST(IPCTest, TemporalConstraint1Flat) {
+  IIPC ipc = interpret_to2<IIPC>("var int: x; var int: y; var int: z;\
+    constraint int_ge(x, 0); constraint int_le(x, 10);\
+    constraint int_ge(y, 0); constraint int_le(y, 10);\
+    constraint int_le(z, 5);\
+    constraint int_plus(x, y, z);");
+  refine_and_test(ipc, 1, {Itv(0,10), Itv(0,10), Itv(zi::bot(), zd(5))}, {Itv(0,5), Itv(0,5), Itv(0,5)}, false);
+}
 
-// IIPC binary_op(Sig sig, int lb, int ub, Sig comparator, int k, bool has_changed_expect) {
-//   IIPC ipc(pty, make_shared<IStore, StandardAllocator>(std::move(IStore::bot(sty))));
-//   F::Sequence doms(6);
-//   doms[0] = F::make_exists(sty, var_x, Int);
-//   doms[1] = F::make_exists(sty, var_y, Int);
-//   doms[2] = make_v_op_z(var_x, LEQ, ub);
-//   doms[3] = make_v_op_z(var_y, LEQ, ub);
-//   doms[4] = make_v_op_z(var_x, GEQ, lb);
-//   doms[5] = make_v_op_z(var_y, GEQ, lb);
-//   F::Sequence all(2);
-//   all[0] = F::make_nary(AND, doms, sty);
-//   all[1] = F::make_binary(F::make_binary(F::make_lvar(sty, var_x), sig, F::make_lvar(sty, var_y), pty), comparator, F::make_z(k), pty);
-//   auto f = F::make_nary(AND, all, pty);
-//   thrust::optional<IIPC::TellType> res(ipc.interpret(f));
-//   EXPECT_TRUE(res.has_value());
-//   BInc has_changed = BInc::bot();
-//   ipc.tell(std::move(*res), has_changed);
-//   EXPECT_TRUE(has_changed.is_top());
-//   EXPECT_EQ(ipc.num_refinements(), 1);
+TEST(IPCTest, TemporalConstraint1) {
+  IIPC ipc = interpret_to2<IIPC>("var int: x; var int: y;\
+    constraint int_ge(x, 0); constraint int_le(x, 10);\
+    constraint int_ge(y, 0); constraint int_le(y, 10);\
+    constraint int_le(int_plus(x, y), 5);");
+  refine_and_test(ipc, 1, {Itv(0,10), Itv(0,10)}, {Itv(0,5), Itv(0,5)}, false);
+}
 
-//   // Propagation tests
-//   AVar vars[2];
-//   vars2_of(ipc, vars);
-//   EXPECT_EQ(ipc.project(vars[0]), Itv(lb, ub));
-//   EXPECT_EQ(ipc.project(vars[1]), Itv(lb, ub));
-
-//   BInc has_changed2 = GaussSeidelIteration::fixpoint(ipc);
-//   EXPECT_EQ(has_changed2.is_top(), has_changed_expect);
-//   return std::move(ipc);
-// }
-
-// void test_underapproximation(const IIPC& ipc, bool expect) {
-//   AbstractDeps<StandardAllocator> deps;
-//   IIPC copy1(ipc, deps);
-//   EXPECT_EQ(ipc.extract(copy1), expect);
-//   const auto& env = ipc.environment();
-//   for(int i = 0; i < ipc.vars().value(); ++i) {
-//     auto v = *(env.to_avar(env[i]));
-//     EXPECT_EQ(ipc.project(v), copy1.project(v));
-//     EXPECT_EQ(ipc.is_top(), copy1.is_top());
-//     EXPECT_EQ(ipc.is_bot(), copy1.is_bot());
-//   }
-// }
-
-// // x + y <= 5
-// TEST(IPCTest, TemporalConstraint1) {
-//   IIPC ipc = binary_op(ADD, 0, 10, LEQ, 5, true);
-//   AVar vars[2];
-//   vars2_of(ipc, vars);
-//   EXPECT_EQ(ipc.project(vars[0]), Itv(0, 5));
-//   EXPECT_EQ(ipc.project(vars[1]), Itv(0, 5));
-//   test_underapproximation(ipc, false);
-// }
-
-// // x + y > 5 (x,y in [0..10])
-// TEST(IPCTest, TemporalConstraint2) {
-//   IIPC ipc = binary_op(ADD, 0, 10, GT, 5, false);
-//   AVar vars[2];
-//   vars2_of(ipc, vars);
-//   EXPECT_EQ(ipc.project(vars[0]), Itv(0, 10));
-//   EXPECT_EQ(ipc.project(vars[1]), Itv(0, 10));
-//   test_underapproximation(ipc, false);
-// }
+// x + y > 5 (x,y in [0..10])
+TEST(IPCTest, TemporalConstraint2) {
+  IIPC ipc = interpret_to2<IIPC>("var int: x; var int: y;\
+    constraint int_ge(x, 0); constraint int_le(x, 10);\
+    constraint int_ge(y, 0); constraint int_le(y, 10);\
+    constraint int_gt(int_plus(x, y), 5);");
+  refine_and_test(ipc, 1, {Itv(0,10), Itv(0,10)}, false);
+}
 
 // // x + y > 5 (x,y in [0..3])
 // TEST(IPCTest, TemporalConstraint3) {

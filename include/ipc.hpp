@@ -277,7 +277,11 @@ private:
       switch(sig) {
         case AND: return interpret_conjunction(f.seq(0), f.seq(1), env, neg_context);
         case OR:  return interpret_disjunction(f.seq(0), f.seq(1), env);
-        case EQUIV:  return interpret_biconditional(f.seq(0), f.seq(1), env);
+        case EQUIV: return interpret_biconditional(f.seq(0), f.seq(1), env);
+        case EQ: // Whenever an operand of `=` is a formula with logical connectors, we interpret `=` as `<=>`.
+          if(f.seq(0).is_logical() || f.seq(1).is_logical()) {
+            return interpret_biconditional(f.seq(0), f.seq(1), env);
+          }
         // Form of the constraint `T <op> u` with `x <op> u` interpreted in the underlying universe.
         default:
           auto fn = move_constants_on_rhs(f);

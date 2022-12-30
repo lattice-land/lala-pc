@@ -16,24 +16,24 @@
 
 namespace lala {
 
-/** IPC is an abstract transformer built on top of an abstract domain `A`.
+/** PC is an abstract transformer built on top of an abstract domain `A`.
     It is expected that `A` has a projection function `u = project(x)`.
     We also expect a `tell(x, u, has_changed)` function to join the abstract universe `u` in the domain of the variable `x`.
     An example of abstract domain satisfying these requirements is `VStore<Interval<ZInc>>`. */
 template <class A, class Alloc = typename A::allocator_type>
-class IPC {
+class PC {
 public:
   using sub_type = A;
   using universe_type = typename A::universe_type;
   using allocator_type = Alloc;
-  using this_type = IPC<A, allocator_type>;
+  using this_type = PC<A, allocator_type>;
 
   template <class Alloc2>
   using snapshot_type = battery::tuple<size_t, typename A::snapshot_type<Alloc2>>;
 
   using sub_ptr = battery::shared_ptr<A, allocator_type>;
 
-  constexpr static const char* name = "IPC";
+  constexpr static const char* name = "PC";
 
 private:
   using formula_type = battery::shared_ptr<Formula<A>, allocator_type>;
@@ -64,17 +64,17 @@ public:
   using iresult = IResult<tell_type<typename Env::allocator_type>, F>;
 
 public:
-  CUDA IPC(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type())
+  CUDA PC(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type())
    : atype(atype), sub(std::move(sub)), props(alloc)  {}
 
-  CUDA IPC(IPC&& other): atype(other.atype), props(std::move(other.props)) {
+  CUDA PC(PC&& other): atype(other.atype), props(std::move(other.props)) {
     sub.swap(other.sub);
   }
 
-  /** The propagators are shared among IPC, it currently works because propagators are stateless.
+  /** The propagators are shared among PC, it currently works because propagators are stateless.
    * This could be changed later on by adding a method clone in `Term`. */
   template<class Alloc2, class Alloc3>
-  CUDA IPC(const IPC<A, Alloc2>& other, AbstractDeps<allocator_type, Alloc3>& deps)
+  CUDA PC(const PC<A, Alloc2>& other, AbstractDeps<allocator_type, Alloc3>& deps)
    : atype(other.atype), sub(deps.clone(other.sub)), props(other.props, deps.get_allocator())
   {}
 
@@ -87,12 +87,12 @@ public:
   }
 
   CUDA static this_type bot(AType atype = UNTYPED, const allocator_type& alloc = allocator_type()) {
-    return IPC(atype, battery::allocate_shared<sub_type>(alloc, std::move(sub_type::bot(UNTYPED, alloc))), alloc);
+    return PC(atype, battery::allocate_shared<sub_type>(alloc, std::move(sub_type::bot(UNTYPED, alloc))), alloc);
   }
 
   /** A special symbolic element representing top. */
   CUDA static this_type top(AType atype = UNTYPED, const allocator_type& alloc = allocator_type()) {
-    return IPC(atype, battery::allocate_shared<sub_type>(alloc, std::move(sub_type::top(UNTYPED, alloc))), alloc);
+    return PC(atype, battery::allocate_shared<sub_type>(alloc, std::move(sub_type::top(UNTYPED, alloc))), alloc);
   }
 
 private:
@@ -171,7 +171,7 @@ private:
       return IResult<AVar, F>(std::move(*avar));
     }
     else {
-      return IResult<AVar, F>(IError<F>(true, name, "The variable is not declared in the sub abstract domain of IPC, and thus cannot be accessed by the propagator.", f));
+      return IResult<AVar, F>(IError<F>(true, name, "The variable is not declared in the sub abstract domain of PC, and thus cannot be accessed by the propagator.", f));
     }
   }
 
@@ -201,7 +201,7 @@ private:
       return interpret_sequence<F>(f, env);
     }
     else {
-      return tresult<F>(IError<F>(true, name, "The shape of the formula is not supported in IPC, and could not be interpreted as a term.", f));
+      return tresult<F>(IError<F>(true, name, "The shape of the formula is not supported in PC, and could not be interpreted as a term.", f));
     }
   }
 
@@ -323,7 +323,7 @@ private:
               }
             }
             else {
-              return std::move(fresult<F>(IError<F>(true, name, "We cannot interpret the term on the LHS of the formula in IPC.", f))
+              return std::move(fresult<F>(IError<F>(true, name, "We cannot interpret the term on the LHS of the formula in PC.", f))
                 .join_warnings(std::move(u))
                 .join_errors(std::move(term)));
             }
@@ -366,14 +366,14 @@ private:
     }
     else {
       res = std::move(iresult<F, Env>(IError<F>(true, name,
-          "A formula typed in IPC (or untyped) could not be interpreted.", f))
+          "A formula typed in PC (or untyped) could not be interpreted.", f))
         .join_warnings(std::move(res))
         .join_errors(std::move(ipc_tell)));
     }
   }
 
 public:
-  /** IPC expects a conjunction of the form \f$ c_1 \land \ldots \land c_n \f$ where sub-formulas \f$ c_i \f$ can either be interpreted in the sub-domain `A` or in the current domain.
+  /** PC expects a conjunction of the form \f$ c_1 \land \ldots \land c_n \f$ where sub-formulas \f$ c_i \f$ can either be interpreted in the sub-domain `A` or in the current domain.
     Moreover, we only treat exact conjunction (no under- or over-approximation of the conjunction).
     For now, \f$ T \neq k \f$ is not supported where \f$ T \f$ is an arithmetic term, containing function symbols supported in `terms.hpp`. */
   template <class F, class Env>
@@ -547,7 +547,7 @@ public:
    * In all other cases, returns `false`.
    * For efficiency reason, the propagators are not copied in `ua` (it is OK, since they are entailed, so don't bring information anymore). */
   template <class A2, class Alloc2>
-  CUDA bool extract(IPC<A2, Alloc2>& ua) const {
+  CUDA bool extract(PC<A2, Alloc2>& ua) const {
     if(is_top()) {
       return false;
     }

@@ -9,9 +9,9 @@ if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-project(lala-ipc LANGUAGES CUDA CXX)
+project(lala-pc LANGUAGES CUDA CXX)
 option(GPU "GPU" ON)
-option(LALAIPC_BUILD_TESTS "LALAIPC_BUILD_TESTS" OFF)
+option(LALAPC_BUILD_TESTS "LALAPC_BUILD_TESTS" OFF)
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)
     set(CMAKE_CXX_STANDARD 20)
@@ -51,7 +51,7 @@ FetchContent_Declare(
 # FetchContent_GetProperties(lala_core)
 # if(NOT lala_core_POPULATED)
 #   FetchContent_Populate(lala_core)
-#   if(LALAIPC_BUILD_TESTS)
+#   if(LALAPC_BUILD_TESTS)
 #     add_subdirectory(${lala_core_SOURCE_DIR}/tests ${lala_core_BINARY_DIR}/tests)
 #   endif()
 #   add_subdirectory(${lala_core_SOURCE_DIR} ${lala_core_BINARY_DIR})
@@ -73,15 +73,15 @@ endif()
 
 # Preparing the library
 
-add_library(lala_ipc INTERFACE)
-target_include_directories(lala_ipc INTERFACE include)
+add_library(lala_pc INTERFACE)
+target_include_directories(lala_pc INTERFACE include)
 
 if(GPU)
-    set_property(TARGET lala_ipc PROPERTY CUDA_ARCHITECTURES 75)
-    set_property(TARGET lala_ipc APPEND PROPERTY CUDA_SEPARABLE_COMPILATION ON)
+    set_property(TARGET lala_pc PROPERTY CUDA_ARCHITECTURES 75)
+    set_property(TARGET lala_pc APPEND PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 endif()
 
-target_compile_options(lala_ipc INTERFACE
+target_compile_options(lala_pc INTERFACE
     $<$<COMPILE_LANGUAGE:CUDA>:
         --expt-relaxed-constexpr
         -rdc=true>
@@ -89,7 +89,7 @@ target_compile_options(lala_ipc INTERFACE
     $<$<CONFIG:LDebug>:-g -DTRACE>
 )
 
-if(LALAIPC_BUILD_TESTS)
+if(LALAPC_BUILD_TESTS)
 
 # Google Test dependency
 
@@ -111,10 +111,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(lala_parsing)
 
-add_executable(ipc_test tests/ipc_test.cpp)
-target_link_libraries(ipc_test cuda_battery lala_core lala_parsing lala_ipc gtest_main)
-target_include_directories(ipc_test PRIVATE ${cuda_battery_SOURCE_DIR}/include ${lala_core_SOURCE_DIR}/include ${lala_core_SOURCE_DIR}/tests/include ${lala_parsing_SOURCE_DIR}/include ${thrust_SOURCE_DIR} ${cpp-peglib_SOURCE_DIR})
-gtest_discover_tests(ipc_test)
+add_executable(pc_test tests/pc_test.cpp)
+target_link_libraries(pc_test cuda_battery lala_core lala_parsing lala_pc gtest_main)
+target_include_directories(pc_test PRIVATE ${cuda_battery_SOURCE_DIR}/include ${lala_core_SOURCE_DIR}/include ${lala_core_SOURCE_DIR}/tests/include ${lala_parsing_SOURCE_DIR}/include ${thrust_SOURCE_DIR} ${cpp-peglib_SOURCE_DIR})
+gtest_discover_tests(pc_test)
 
 endif()
 
@@ -123,7 +123,7 @@ endif()
 find_package(Doxygen REQUIRED doxygen)
 
 # Options based on those of Halide: https://github.com/halide/Halide/blob/feb81a2a0f7bc39cfa499e4e1a7dfedbc5250aaa/doc/CMakeLists.txt
-set(DOXYGEN_PROJECT_NAME "Interval propagators completion (IPC)")
+set(DOXYGEN_PROJECT_NAME "Propagators completion (PC)")
 set(DOXYGEN_BUILTIN_STL_SUPPORT YES)
 set(DOXYGEN_CASE_SENSE_NAMES NO)
 set(DOXYGEN_CLASS_DIAGRAMS NO)
@@ -143,7 +143,7 @@ set(DOXYGEN_STRIP_CODE_COMMENTS NO)
 set(DOXYGEN_USE_MATHJAX YES)
 set(DOXYGEN_EXTRA_PACKAGES stmaryrd)
 
-doxygen_add_docs(doc_lalaipc
+doxygen_add_docs(doc_lalapc
                  "include/"
                  ALL
                  COMMENT "Generate HTML documentation")

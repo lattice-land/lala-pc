@@ -442,7 +442,7 @@ public:
       alloc);
     iresult<F, Env> r = ipc.interpret_in(f, env);
     if(r.has_value()) {
-      ipc.tell(std::move(r.value()));
+      ipc.tell(r.value());
       return std::move(IResult<this_type, F>(std::move(ipc)).join_warnings(std::move(r)));
     }
     else {
@@ -458,7 +458,7 @@ public:
         * 1. Walk through the existing propagators to check which ones are already in.
         * 2. If a propagator has the same shape but different constant `U`, join them in place.  */
   template <class Alloc2, class Mem>
-  CUDA this_type& tell(tell_type<Alloc2>&& t, BInc<Mem>& has_changed) {
+  CUDA this_type& tell(const tell_type<Alloc2>& t, BInc<Mem>& has_changed) {
     for(int i = 0; i < t.sub_tells.size(); ++i) {
       sub->tell(t.sub_tells[i], has_changed);
     }
@@ -468,16 +468,16 @@ public:
     size_t n = props.size();
     props.reserve(n + t.props.size());
     for(int i = 0; i < t.props.size(); ++i) {
-      props.push_back(std::move(t.props[i]));
+      props.push_back(t.props[i]);
       props[n + i]->preprocess(*sub, has_changed);
     }
     return *this;
   }
 
   template <class Alloc2>
-  CUDA this_type& tell(tell_type<Alloc2>&& t) {
+  CUDA this_type& tell(const tell_type<Alloc2>& t) {
     local::BInc has_changed;
-    return tell(std::move(t), has_changed);
+    return tell(t, has_changed);
   }
 
   template <class Alloc2>

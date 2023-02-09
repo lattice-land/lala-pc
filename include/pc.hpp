@@ -269,9 +269,28 @@ private:
     }
   }
 
+  /** expr != k is transformed into expr < k \/ expr > k.
+   * `k` needs to be an integer. */
+  template <class F, class Env>
+  CUDA fresult<F> interpret_neq_decomposition(const F& f, Env& env, bool neg_context) {
+    if(f.sig() == NEQ && f.seq(1).is(F::Z)) {
+      return interpret_formula(
+        F::make_binary(
+          F::make_binary(f.seq(0), LT, f.seq(1)),
+          OR,
+          F::make_binary(f.seq(0), GT, f.seq(1))),
+        env,
+        neg_context
+      );
+    }
+    else {
+      return fresult<F>(IError<F>(true, name, "Unsupported predicate in this abstract domain.", f));
+    }
+  }
+
   template <class F, class Env>
   CUDA fresult<F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
-    assert(f.type() == aty() || f.type() == UNTYPED);
+    assert(f.type() == aty() || f.is_untyped());
     if(f.is_binary()) {
       Sig sig = f.sig();
       switch(sig) {
@@ -287,7 +306,10 @@ private:
           auto fn = move_constants_on_rhs(f);
           auto fu = F::make_binary(F::make_avar(AVar()), fn.sig(), fn.seq(1));
           auto u = universe_type::interpret(fu, env);
-          if(u.has_value()) {
+          if(!u.has_value() && fn.sig() == NEQ) {
+            return interpret_neq_decomposition(fn, env, neg_context);
+          }
+          else if(u.has_value()) {
             auto term = interpret_term(fn.seq(0), env);
             if(term.has_value()) {
               // In a context where the formula propagator can be asked for its negation, we must interpret the negation of the formula as well.
@@ -380,7 +402,7 @@ public:
   CUDA iresult<F, Env> interpret_in(const F& f, Env& env) {
     using tell_t = tell_type<typename Env::allocator_type>;
     // If the formula is untyped, we first try to interpret it in the sub-domain.
-    if(f.type() == UNTYPED || f.type() != aty()) {
+    if(f.is_untyped() || f.type() != aty()) {
       auto r = sub->interpret_in(f, env);
       if(r.has_value()) {
         return std::move(r).map(tell_t(std::move(r.value()), env.get_allocator()));
@@ -391,7 +413,7 @@ public:
           .join_errors(std::move(r)));
       }
     }
-    assert(f.type() == UNTYPED || f.type() == aty());
+    assert(f.is_untyped() || f.type() == aty());
     // Conjunction
     if(f.is(F::Seq) && f.sig() == AND) {
       auto split_formula = extract_ty(f, aty());

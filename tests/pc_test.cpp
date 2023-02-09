@@ -361,3 +361,15 @@ TEST(IPCTest, ResourceConstraint2) {
   interpret_and_tell(ipc, "constraint int_eq(b, 0);", env);
   refine_and_test(ipc, 1, {Itv(1,2), Itv(0,2), Itv(0,0)}, {Itv(1,2), Itv(1,2), Itv(0,0)}, false);
 }
+
+TEST(IPCTest, NotEqualConstraint1) {
+  VarEnv<StandardAllocator> env;
+  IPC ipc = interpret_to<IPC>("var 1..10: x; constraint int_ne(x, 10);", env);
+  refine_and_test(ipc, 1, {Itv(1,10)}, {Itv(1,9)}, true);
+}
+
+TEST(IPCTest, NotEqualConstraint2) {
+  VarEnv<StandardAllocator> env;
+  IPC ipc = interpret_to<IPC>("var 1..10: x; var 10..10: y; constraint int_ne(x, y);", env);
+  refine_and_test(ipc, 1, {Itv(1,10), Itv(10,10)}, {Itv(1,9), Itv(10,10)}, true);
+}

@@ -23,16 +23,6 @@ if(NOT DEFINED CMAKE_CUDA_STANDARD)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 endif()
 
-# A new configuration mode "LDebug" for light debug.
-
-if(CMAKE_CONFIGURATION_TYPES)
-  list(APPEND CMAKE_CONFIGURATION_TYPES LDebug)
-  list(REMOVE_DUPLICATES CMAKE_CONFIGURATION_TYPES)
-  set(CMAKE_CONFIGURATION_TYPES "${CMAKE_CONFIGURATION_TYPES}" CACHE STRING
-    "Add a light debug configuration (LDebug)"
-    FORCE)
-endif()
-
 # Cuda-battery dependency
 
 FetchContent_Declare(

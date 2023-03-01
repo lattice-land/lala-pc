@@ -49,9 +49,9 @@ public:
     using sub_tell_type = typename sub_type::tell_type<Alloc2>;
     battery::vector<sub_tell_type, Alloc2> sub_tells;
     battery::vector<formula_type, Alloc2> props;
-    CUDA tell_type(tell_type&&) = default;
-    CUDA tell_type& operator=(tell_type&&) = default;
-    CUDA tell_type(const tell_type&) = default;
+    tell_type(tell_type&&) = default;
+    tell_type& operator=(tell_type&&) = default;
+    tell_type(const tell_type&) = default;
     CUDA tell_type(sub_tell_type&& sub_tell, const Alloc2& alloc): sub_tells(alloc), props(alloc) {
       sub_tells.push_back(std::move(sub_tell));
     }

@@ -19,7 +19,7 @@ if(NOT DEFINED CMAKE_CXX_STANDARD)
 endif()
 
 if(NOT DEFINED CMAKE_CUDA_STANDARD)
-    set(CMAKE_CUDA_STANDARD 17)
+    set(CMAKE_CUDA_STANDARD 20)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 endif()
 
@@ -37,15 +37,6 @@ FetchContent_Declare(
   GIT_REPOSITORY "https://github.com/lattice-land/lala-core.git"
   GIT_TAG        develop
 )
-
-# FetchContent_GetProperties(lala_core)
-# if(NOT lala_core_POPULATED)
-#   FetchContent_Populate(lala_core)
-#   if(LALAPC_BUILD_TESTS)
-#     add_subdirectory(${lala_core_SOURCE_DIR}/tests ${lala_core_BINARY_DIR}/tests)
-#   endif()
-#   add_subdirectory(${lala_core_SOURCE_DIR} ${lala_core_BINARY_DIR})
-# endif()
 
 FetchContent_MakeAvailable(lala_core)
 

@@ -94,7 +94,7 @@ public:
 };
 
 /** Turn a logical formula into a term by mapping their satisfiability to and from a sublattice of `U` representing Boolean values:
- *    - Consists of the values \f$\{[\![x = 0]\!]_U \sqcap [\![x = 1]\!]_U, [\![x = 0]\!]_U, [\![x = 1]\!]_U, \top_U \}\f$.
+ *    - Consists of four distinct values \f$\{[\![x = 0]\!]_U \sqcap [\![x = 1]\!]_U, [\![x = 0]\!]_U, [\![x = 1]\!]_U, \top_U \}\f$.
  *    - With \f$\{[\![x = 0]\!]_U \sqcap [\![x = 1]\!]_U \f$ meaning neither true or false yet (e.g., unknown), \f$\{[\![x = 0]\!]_U \f$ modelling falsity, \f$ [\![x = 1]\!]_U \f$ modelling truth, and \f$ \top_U \f$ a logical statement both true and false (i.e., one of the variable is top). */
 template<class CRTP, class F,
   class A = typename remove_ptr<F>::type::A>
@@ -103,16 +103,17 @@ struct FormulaAsTermAdapter {
 
   /** Call `refine` iff \f$ u \geq  [\![x = 1]\!]_U \f$ and `nrefine` iff \f$ u \geq  [\![x = 0]\!] \f$. */
   CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
-    if(u >= U::one) { static_cast<const CRTP*>(this)->refine(a, has_changed); }
-    else if(u >= U::zero) { static_cast<const CRTP*>(this)->nrefine(a, has_changed); }
+    if(u >= U::eq_one()) { static_cast<const CRTP*>(this)->refine(a, has_changed); }
+    else if(u >= U::eq_zero()) { static_cast<const CRTP*>(this)->nrefine(a, has_changed); }
   }
 
   /** Maps the truth value of \f$ \varphi \f$ to the Boolean sublattice of `U` (see above). */
   CUDA U project(const A& a) const {
     if(static_cast<const CRTP*>(this)->is_top(a)) { return U::top(); }
-    if(static_cast<const CRTP*>(this)->ask(a)) { return U(1); }
-    if(static_cast<const CRTP*>(this)->nask(a)) { return U(0); }
-    return meet(U(0), U(1));
+    if(static_cast<const CRTP*>(this)->ask(a)) { return U::eq_one(); }
+    if(static_cast<const CRTP*>(this)->nask(a)) { return U::eq_zero(); }
+    constexpr auto unknown = meet(U::eq_zero(), U::eq_one());
+    return unknown;
   }
 };
 
@@ -134,10 +135,10 @@ private:
   template<bool negate>
   CUDA local::BInc ask_impl(const A& a) const {
     if constexpr(negate) {
-      return a.project(avar) >= U::zero;
+      return a.project(avar) >= U::eq_zero();
     }
     else {
-      return !(a.project(avar) <= U::zero);
+      return !(a.project(avar) <= U::eq_zero());
     }
   }
 
@@ -158,12 +159,12 @@ public:
 
   /** Perform \f$ x = a(x) \sqcup [\![x = 1]\!]_U \f$. */
   CUDA void refine(A& a, local::BInc& has_changed) const {
-    a.tell(avar, U(1), has_changed);
+    a.tell(avar, U::eq_one(), has_changed);
   }
 
   /** Perform \f$ x = a(x) \sqcup [\![x = 0]\!]_U \f$. */
   CUDA void nrefine(A& a, local::BInc& has_changed) const {
-    a.tell(avar, U(0), has_changed);
+    a.tell(avar, U::eq_zero(), has_changed);
   }
 
   CUDA local::BInc is_top(const A& a) const { return a.project(avar).is_top(); }

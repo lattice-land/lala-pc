@@ -59,15 +59,13 @@ target_include_directories(lala_pc INTERFACE include)
 
 if(GPU)
     set_property(TARGET lala_pc PROPERTY CUDA_ARCHITECTURES 75)
-    set_property(TARGET lala_pc APPEND PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 endif()
 
 target_compile_options(lala_pc INTERFACE
     $<$<COMPILE_LANGUAGE:CUDA>:
         --expt-relaxed-constexpr
-        -rdc=true>
+        $<$<CONFIG:Debug>:-G>>
     $<$<CONFIG:Debug>:-g -DDEBUG>
-    $<$<CONFIG:LDebug>:-g -DTRACE>
 )
 
 if(LALAPC_BUILD_TESTS)

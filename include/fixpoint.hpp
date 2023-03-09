@@ -110,12 +110,9 @@ public:
       is_top[i%3].tell(a.is_top());
       barrier();
     }
-    // i == 1 is not possible.
-    // If i == 2, we did only one iteration and if we did not reach top in `a`, then `a` did not change.
-    // In all other cases, `a` was changed at least once.
-    if((i == 2 && a.is_top()) || i > 2) {
-      has_changed.tell_top();
-    }
+    // It changes if we performed several iteration, or if the first iteration changed the abstract domain.
+    has_changed.tell(changed[1]);
+    has_changed.tell(changed[2]);
   #endif
   }
 };

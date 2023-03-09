@@ -76,7 +76,7 @@ void refine_and_test(L& ipc, int num_refine, const std::vector<Itv>& before, con
   for(int i = 0; i < before.size(); ++i) {
     EXPECT_EQ(ipc[i], before[i]);
   }
-  local::BInc has_changed = GaussSeidelIteration::fixpoint(ipc);
+  local::BInc has_changed = GaussSeidelIteration{}.fixpoint(ipc);
   EXPECT_EQ(has_changed, expect_changed);
   for(int i = 0; i < after.size(); ++i) {
     EXPECT_EQ(ipc[i], after[i]);

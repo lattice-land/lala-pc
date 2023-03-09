@@ -489,10 +489,12 @@ public:
     }
     size_t n = props.size();
     props.reserve(n + t.props.size());
+    local::BInc has_changed2;
     for(int i = 0; i < t.props.size(); ++i) {
       props.push_back(t.props[i]);
-      props[n + i]->preprocess(*sub, has_changed);
+      props[n + i]->preprocess(*sub, has_changed2);
     }
+    has_changed.tell(has_changed2);
     return *this;
   }
 
@@ -524,7 +526,9 @@ public:
   template <class Mem>
   CUDA void refine(size_t i, BInc<Mem>& has_changed) {
     assert(i < num_refinements());
-    props[i]->refine(*sub, has_changed);
+    local::BInc has_changed2; // Due to inheritance, `refine` takes a `local::BInc` (virtual methods cannot be templated).
+    props[i]->refine(*sub, has_changed2);
+    has_changed.tell(has_changed2);
   }
 
   // Functions forwarded to the sub-domain `A`.

@@ -7,7 +7,7 @@
 #include "ptr_utility.hpp"
 
 namespace lala {
-
+namespace pc {
 /**
  * A formula can occur in a term, e.g., `(x = 2) + (y = 2) + (z = 2) >= 2`
  * In that case, the entailment of the formula is mapped onto a sublattice of `U` supporting initialization from `0` and `1`.
@@ -447,6 +447,7 @@ public:
   }
 };
 
+} // namespace pc
 } // namespace lala
 
 #endif

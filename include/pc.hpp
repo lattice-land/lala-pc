@@ -36,8 +36,8 @@ public:
   constexpr static const char* name = "PC";
 
 private:
-  using formula_type = battery::shared_ptr<Formula<A>, allocator_type>;
-  using term_type = battery::shared_ptr<Term<A>, allocator_type>;
+  using formula_type = battery::shared_ptr<pc::Formula<A>, allocator_type>;
+  using term_type = battery::shared_ptr<pc::Term<A>, allocator_type>;
 
   AType atype;
   sub_ptr sub;
@@ -73,9 +73,9 @@ public:
 
   /** The propagators are shared among PC, it currently works because propagators are stateless.
    * This could be changed later on by adding a method clone in `Term`. */
-  template<class Alloc2, class Alloc3>
-  CUDA PC(const PC<A, Alloc2>& other, AbstractDeps<allocator_type, Alloc3>& deps)
-   : atype(other.atype), sub(deps.clone(other.sub)), props(other.props, deps.get_allocator())
+  template<class A2, class Alloc2, class AllocFast>
+  CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<allocator_type, AllocFast>& deps)
+   : atype(other.atype), sub(deps.template clone<A>(other.sub)), props(other.props, deps.get_allocator())
   {}
 
   CUDA allocator_type get_allocator() const {
@@ -102,13 +102,13 @@ private:
 
   template<class Arg>
   CUDA term_type make_ptr(Arg&& arg) {
-    return battery::allocate_shared<DynTerm<Arg>>(get_allocator(), std::move(arg));
+    return battery::allocate_shared<pc::DynTerm<Arg>>(get_allocator(), std::move(arg));
   }
 
   template<class F>
   CUDA tresult<F> interpret_unary(const F& f, term_type&& a) {
     switch(f.sig()) {
-      case NEG: return make_ptr(Neg<term_type>(std::move(a)));
+      case NEG: return make_ptr(pc::Neg<term_type>(std::move(a)));
       default: return tresult<F>(IError<F>(true, name, "Unsupported unary symbol.", f));
     }
   }
@@ -117,10 +117,10 @@ private:
   CUDA tresult<F> interpret_binary(const F& f, term_type&& x, term_type&& y)
   {
     switch(f.sig()) {
-      case ADD: return make_ptr(Add<term_type, term_type>(std::move(x), std::move(y)));
-      case SUB: return make_ptr(Sub<term_type, term_type>(std::move(x), std::move(y)));
-      case MUL: return make_ptr(Mul<term_type, term_type>(std::move(x), std::move(y)));
-      case DIV: return make_ptr(Div<term_type, term_type>(std::move(x), std::move(y)));
+      case ADD: return make_ptr(pc::Add<term_type, term_type>(std::move(x), std::move(y)));
+      case SUB: return make_ptr(pc::Sub<term_type, term_type>(std::move(x), std::move(y)));
+      case MUL: return make_ptr(pc::Mul<term_type, term_type>(std::move(x), std::move(y)));
+      case DIV: return make_ptr(pc::Div<term_type, term_type>(std::move(x), std::move(y)));
       default: return tresult<F>(IError<F>(true, name, "Unsupported binary symbol.", f));
     }
   }
@@ -129,8 +129,8 @@ private:
   CUDA tresult<F> interpret_nary(const F& f, battery::vector<term_type, allocator_type>&& subterms)
   {
     switch(f.sig()) {
-      case ADD: return make_ptr(NaryAdd<term_type, allocator_type>(std::move(subterms)));
-      case MUL: return make_ptr(NaryMul<term_type, allocator_type>(std::move(subterms)));
+      case ADD: return make_ptr(pc::NaryAdd<term_type, allocator_type>(std::move(subterms)));
+      case MUL: return make_ptr(pc::NaryMul<term_type, allocator_type>(std::move(subterms)));
       default: return tresult<F>(IError<F>(true, name, "Unsupported nary symbol.", f));
     }
   }
@@ -180,7 +180,7 @@ private:
     if(f.is_variable()) {
       auto avar = interpret_var(f, env);
       if(avar.has_value()) {
-        return make_ptr(Variable<A>(std::move(avar.value())));
+        return make_ptr(pc::Variable<A>(std::move(avar.value())));
       }
       else {
         return std::move(avar).template map_error<term_type>();
@@ -189,7 +189,7 @@ private:
     else if(f.is_constant()) {
       auto k = universe_type::interpret(F::make_binary(F::make_avar(AVar()), EQ, f), env);
       if(k.has_value()) {
-        return std::move(tresult<F>(make_ptr(Constant<A>(std::move(k.value()))))
+        return std::move(tresult<F>(make_ptr(pc::Constant<A>(std::move(k.value()))))
           .join_warnings(std::move(k)));
       }
       else {
@@ -210,7 +210,7 @@ private:
 
   template<class Arg>
   CUDA formula_type make_fptr(Arg&& arg) {
-    return battery::allocate_shared<DynFormula<Arg>>(props.get_allocator(), std::move(arg));
+    return battery::allocate_shared<pc::DynFormula<Arg>>(props.get_allocator(), std::move(arg));
   }
 
   template <class F, class Env>
@@ -245,24 +245,24 @@ private:
 
   template <class F, class Env>
   CUDA fresult<F> interpret_conjunction(const F& f, const F& g, Env& env, bool neg_context) {
-    return interpret_binary_logical_connector<Conjunction>(f, g, env, neg_context);
+    return interpret_binary_logical_connector<pc::Conjunction>(f, g, env, neg_context);
   }
 
   template <class F, class Env>
   CUDA fresult<F> interpret_disjunction(const F& f, const F& g, Env& env) {
-    return interpret_binary_logical_connector<Disjunction>(f, g, env, true);
+    return interpret_binary_logical_connector<pc::Disjunction>(f, g, env, true);
   }
 
   template <class F, class Env>
   CUDA fresult<F> interpret_biconditional(const F& f, const F& g, Env& env) {
-    return interpret_binary_logical_connector<Biconditional>(f, g, env, true);
+    return interpret_binary_logical_connector<pc::Biconditional>(f, g, env, true);
   }
 
   template <bool neg, class F, class Env>
   CUDA fresult<F> interpret_literal(const F& f, Env& env) {
     auto avar = interpret_var(f, env);
     if(avar.has_value()) {
-      return make_fptr(VariableLiteral<A, neg>(std::move(avar.value())));
+      return make_fptr(pc::VariableLiteral<A, neg>(std::move(avar.value())));
     }
     else {
       return std::move(avar).template map_error<formula_type>();
@@ -318,7 +318,7 @@ private:
                 if(nf_.has_value()) {
                   auto nf = interpret_formula(*nf_, env);
                   if(nf.has_value()) {
-                    auto data = make_fptr(LatticeOrderPredicate<term_type, formula_type>(std::move(term.value()), std::move(u.value()), std::move(nf.value())));
+                    auto data = make_fptr(pc::LatticeOrderPredicate<term_type, formula_type>(std::move(term.value()), std::move(u.value()), std::move(nf.value())));
                     return std::move(fresult<F>(std::move(data))
                       .join_warnings(std::move(nf))
                       .join_warnings(std::move(u))
@@ -338,7 +338,7 @@ private:
                 }
               }
               else {
-                auto data = make_fptr(LatticeOrderPredicate<term_type>(std::move(term.value()), std::move(u.value())));
+                auto data = make_fptr(pc::LatticeOrderPredicate<term_type>(std::move(term.value()), std::move(u.value())));
                 return std::move(fresult<F>(std::move(data))
                   .join_warnings(std::move(u))
                   .join_warnings(std::move(term)));

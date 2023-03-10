@@ -8,6 +8,7 @@
 #include "vector.hpp"
 
 namespace lala {
+namespace pc {
 
 template <class AD>
 class Term {
@@ -384,6 +385,7 @@ using NaryAdd = Nary<T, Add<T, T, appx>, Allocator>;
 template<class T, class Allocator, Sig divsig = EDIV, Approx appx = OVER>
 using NaryMul = Nary<T, Mul<T, T, divsig, appx>, Allocator>;
 
+} // namespace pc
 } // namespace lala
 
 #endif

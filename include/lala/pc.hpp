@@ -3,16 +3,16 @@
 #ifndef IPC_HPP
 #define IPC_HPP
 
-#include "logic/logic.hpp"
-#include "universes/upset_universe.hpp"
-#include "copy_dag_helper.hpp"
+#include "battery/vector.hpp"
+#include "battery/unique_ptr.hpp"
+#include "battery/shared_ptr.hpp"
+
+#include "lala/logic/logic.hpp"
+#include "lala/universes/primitive_upset.hpp"
+#include "lala/copy_dag_helper.hpp"
 
 #include "terms.hpp"
 #include "formula.hpp"
-
-#include "vector.hpp"
-#include "unique_ptr.hpp"
-#include "shared_ptr.hpp"
 
 namespace lala {
 
@@ -44,24 +44,32 @@ private:
   battery::vector<formula_type, allocator_type> props;
 
 public:
-  template <class Alloc2>
-  struct tell_type {
-    using sub_tell_type = typename sub_type::tell_type<Alloc2>;
-    battery::vector<sub_tell_type, Alloc2> sub_tells;
+  template <class Alloc2, class sub_type>
+  struct interpreted_type {
+    battery::vector<sub_type, Alloc2> sub_tells;
     battery::vector<formula_type, Alloc2> props;
-    tell_type(tell_type&&) = default;
-    tell_type& operator=(tell_type&&) = default;
-    tell_type(const tell_type&) = default;
-    CUDA tell_type(sub_tell_type&& sub_tell, const Alloc2& alloc): sub_tells(alloc), props(alloc) {
+    interpreted_type(interpreted_type&&) = default;
+    interpreted_type& operator=(interpreted_type&&) = default;
+    interpreted_type(const interpreted_type&) = default;
+    CUDA interpreted_type(sub_type&& sub_tell, const Alloc2& alloc): sub_tells(alloc), props(alloc) {
       sub_tells.push_back(std::move(sub_tell));
     }
-    CUDA tell_type(size_t n, const Alloc2& alloc): sub_tells(alloc), props(alloc) {
+    CUDA interpreted_type(size_t n, const Alloc2& alloc): sub_tells(alloc), props(alloc) {
       props.reserve(n);
     }
   };
 
+  template <class Alloc2>
+  using tell_type = interpreted_type<Alloc2, typename sub_type::template tell_type<Alloc2>>;
+
+  template <class Alloc2>
+  using ask_type = interpreted_type<Alloc2, typename sub_type::template ask_type<Alloc2>>;
+
   template<class F, class Env>
-  using iresult = IResult<tell_type<typename Env::allocator_type>, F>;
+  using iresult_tell = IResult<tell_type<typename Env::allocator_type>, F>;
+
+  template<class F, class Env>
+  using iresult_ask = IResult<ask_type<typename Env::allocator_type>, F>;
 
 public:
   CUDA PC(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type())
@@ -96,7 +104,6 @@ public:
   }
 
 private:
-
   template<class F>
   using tresult = IResult<term_type, F>;
 
@@ -135,15 +142,15 @@ private:
     }
   }
 
-  template <class F, class Env>
+  template <bool is_tell, class F, class Env>
   CUDA tresult<F> interpret_sequence(const F& f, Env& env)
   {
     battery::vector<term_type, allocator_type> subterms;
     subterms.reserve(f.seq().size());
     for(int i = 0; i < f.seq().size(); ++i) {
-      auto t = interpret_term(f.seq(i), env);
+      auto t = interpret_term<is_tell>(f.seq(i), env);
       if(!t.has_value()) {
-        auto p = interpret_formula(f.seq(i), env, true);
+        auto p = interpret_formula<is_tell>(f.seq(i), env, true);
         if(!p.has_value()) {
           return std::move(t.join_errors(std::move(p)));
         }
@@ -175,7 +182,7 @@ private:
     }
   }
 
-  template <class F, class Env>
+  template <bool is_tell, class F, class Env>
   CUDA tresult<F> interpret_term(const F& f, Env& env) {
     if(f.is_variable()) {
       auto avar = interpret_var(f, env);
@@ -187,7 +194,8 @@ private:
       }
     }
     else if(f.is_constant()) {
-      auto k = universe_type::interpret(F::make_binary(F::make_avar(AVar()), EQ, f), env);
+      auto constant = F::make_binary(F::make_avar(AVar()), EQ, f);
+      auto k = is_tell ? universe_type::interpret_tell(constant, env) : universe_type::interpret_ask(constant, env);
       if(k.has_value()) {
         return std::move(tresult<F>(make_ptr(pc::Constant<A>(std::move(k.value()))))
           .join_warnings(std::move(k)));
@@ -198,7 +206,7 @@ private:
       }
     }
     else if(f.is(F::Seq)) {
-      return interpret_sequence<F>(f, env);
+      return interpret_sequence<is_tell, F>(f, env);
     }
     else {
       return tresult<F>(IError<F>(true, name, "The shape of the formula is not supported in PC, and could not be interpreted as a term.", f));
@@ -213,22 +221,22 @@ private:
     return battery::allocate_shared<pc::DynFormula<Arg>>(props.get_allocator(), std::move(arg));
   }
 
-  template <class F, class Env>
+  template <bool is_tell, class F, class Env>
   CUDA fresult<F> interpret_negation(const F& f, Env& env, bool neg_context) {
     auto nf = negate(f);
     if(nf.has_value()) {
-      return interpret_formula(*nf, env, neg_context);
+      return interpret_formula<is_tell>(*nf, env, neg_context);
     }
     else {
       return fresult<F>(IError<F>(true, name, "We must query this formula for disentailement, but we could not compute its negation.", f));
     }
   }
 
-  template<template<class> class LogicalConnector, class F, class Env>
+  template<bool is_tell, template<class> class LogicalConnector, class F, class Env>
   CUDA fresult<F> interpret_binary_logical_connector(const F& f, const F& g, Env& env, bool neg_context) {
-    auto l = interpret_formula(f, env, neg_context);
+    auto l = interpret_formula<is_tell>(f, env, neg_context);
     if(l.has_value()) {
-      auto k = interpret_formula(g, env, neg_context);
+      auto k = interpret_formula<is_tell>(g, env, neg_context);
       if(k.has_value()) {
         return std::move(fresult<F>(make_fptr(LogicalConnector<formula_type>(std::move(l.value()), std::move(k.value()))))
           .join_warnings(std::move(l))
@@ -243,19 +251,19 @@ private:
     }
   }
 
-  template <class F, class Env>
+  template <bool is_tell, class F, class Env>
   CUDA fresult<F> interpret_conjunction(const F& f, const F& g, Env& env, bool neg_context) {
-    return interpret_binary_logical_connector<pc::Conjunction>(f, g, env, neg_context);
+    return interpret_binary_logical_connector<is_tell, pc::Conjunction>(f, g, env, neg_context);
   }
 
-  template <class F, class Env>
+  template <bool is_tell, class F, class Env>
   CUDA fresult<F> interpret_disjunction(const F& f, const F& g, Env& env) {
-    return interpret_binary_logical_connector<pc::Disjunction>(f, g, env, true);
+    return interpret_binary_logical_connector<is_tell, pc::Disjunction>(f, g, env, true);
   }
 
-  template <class F, class Env>
+  template <bool is_tell, class F, class Env>
   CUDA fresult<F> interpret_biconditional(const F& f, const F& g, Env& env) {
-    return interpret_binary_logical_connector<pc::Biconditional>(f, g, env, true);
+    return interpret_binary_logical_connector<is_tell, pc::Biconditional>(f, g, env, true);
   }
 
   template <bool neg, class F, class Env>
@@ -271,10 +279,10 @@ private:
 
   /** expr != k is transformed into expr < k \/ expr > k.
    * `k` needs to be an integer. */
-  template <class F, class Env>
+  template <bool is_tell, class F, class Env>
   CUDA fresult<F> interpret_neq_decomposition(const F& f, Env& env, bool neg_context) {
     if(f.sig() == NEQ && f.seq(1).is(F::Z)) {
-      return interpret_formula(
+      return interpret_formula<is_tell>(
         F::make_binary(
           F::make_binary(f.seq(0), LT, f.seq(1)),
           OR,
@@ -288,35 +296,35 @@ private:
     }
   }
 
-  template <class F, class Env>
+  template <bool is_tell, class F, class Env>
   CUDA fresult<F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
     assert(f.type() == aty() || f.is_untyped());
     if(f.is_binary()) {
       Sig sig = f.sig();
       switch(sig) {
-        case AND: return interpret_conjunction(f.seq(0), f.seq(1), env, neg_context);
-        case OR:  return interpret_disjunction(f.seq(0), f.seq(1), env);
-        case EQUIV: return interpret_biconditional(f.seq(0), f.seq(1), env);
+        case AND: return interpret_conjunction<is_tell>(f.seq(0), f.seq(1), env, neg_context);
+        case OR:  return interpret_disjunction<is_tell>(f.seq(0), f.seq(1), env);
+        case EQUIV: return interpret_biconditional<is_tell>(f.seq(0), f.seq(1), env);
         case EQ: // Whenever an operand of `=` is a formula with logical connectors, we interpret `=` as `<=>`.
           if(f.seq(0).is_logical() || f.seq(1).is_logical()) {
-            return interpret_biconditional(f.seq(0), f.seq(1), env);
+            return interpret_biconditional<is_tell>(f.seq(0), f.seq(1), env);
           }
         // Form of the constraint `T <op> u` with `x <op> u` interpreted in the underlying universe.
         default:
           auto fn = move_constants_on_rhs(f);
           auto fu = F::make_binary(F::make_avar(AVar()), fn.sig(), fn.seq(1));
-          auto u = universe_type::interpret(fu, env);
+          auto u = is_tell ? universe_type::interpret_tell(fu, env) : universe_type::interpret_ask(fu, env);
           if(!u.has_value() && fn.sig() == NEQ) {
-            return interpret_neq_decomposition(fn, env, neg_context);
+            return interpret_neq_decomposition<is_tell>(fn, env, neg_context);
           }
           else if(u.has_value()) {
-            auto term = interpret_term(fn.seq(0), env);
+            auto term = interpret_term<is_tell>(fn.seq(0), env);
             if(term.has_value()) {
               // In a context where the formula propagator can be asked for its negation, we must interpret the negation of the formula as well.
               if(neg_context) {
                 auto nf_ = negate(fn);
                 if(nf_.has_value()) {
-                  auto nf = interpret_formula(*nf_, env);
+                  auto nf = interpret_formula<is_tell>(*nf_, env);
                   if(nf.has_value()) {
                     auto data = make_fptr(pc::LatticeOrderPredicate<term_type, formula_type>(std::move(term.value()), std::move(u.value()), std::move(nf.value())));
                     return std::move(fresult<F>(std::move(data))
@@ -368,47 +376,43 @@ private:
     }
     // Logical negation
     else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT) {
-      return interpret_negation(f, env, neg_context);
+      return interpret_negation<is_tell>(f, env, neg_context);
     }
     // Singleton formula
     else if(f.is(F::Seq) && f.seq().size() == 1) {
-      return interpret_formula(f.seq(0), env, neg_context);
+      return interpret_formula<is_tell>(f.seq(0), env, neg_context);
     }
     else {
       return fresult<F>(IError<F>(true, name, "The shape of this formula is not supported.", f));
     }
   }
 
-  template <class F, class Env>
-  CUDA void interpret_formula2(const F& f, Env& env, iresult<F, Env>& res) {
-    auto ipc_tell = interpret_formula(f, env);
-    if(ipc_tell.has_value()) {
-      res.value().props.push_back(std::move(ipc_tell.value()));
-      res.join_warnings(std::move(ipc_tell));
+  template <bool is_tell, class R, class F, class Env>
+  CUDA void interpret_formula2(const F& f, Env& env, R& res) {
+    auto interpreted = interpret_formula<is_tell>(f, env);
+    if(interpreted.has_value()) {
+      res.value().props.push_back(std::move(interpreted.value()));
+      res.join_warnings(std::move(interpreted));
     }
     else {
-      res = std::move(iresult<F, Env>(IError<F>(true, name,
+      res = std::move(R(IError<F>(true, name,
           "A formula typed in PC (or untyped) could not be interpreted.", f))
         .join_warnings(std::move(res))
-        .join_errors(std::move(ipc_tell)));
+        .join_errors(std::move(interpreted)));
     }
   }
 
-public:
-  /** PC expects a conjunction of the form \f$ c_1 \land \ldots \land c_n \f$ where sub-formulas \f$ c_i \f$ can either be interpreted in the sub-domain `A` or in the current domain.
-    Moreover, we only treat exact conjunction (no under- or over-approximation of the conjunction).
-    For now, \f$ T \neq k \f$ is not supported where \f$ T \f$ is an arithmetic term, containing function symbols supported in `terms.hpp`. */
-  template <class F, class Env>
-  CUDA iresult<F, Env> interpret_in(const F& f, Env& env) {
-    using tell_t = tell_type<typename Env::allocator_type>;
+  template <class R, bool is_tell, class F, class Env>
+  CUDA R interpret_in(const F& f, Env& env) {
+    using val_t = typename R::value_type;
     // If the formula is untyped, we first try to interpret it in the sub-domain.
     if(f.is_untyped() || f.type() != aty()) {
-      auto r = sub->interpret_in(f, env);
+      auto r = is_tell ? sub->interpret_tell_in(f, env) : sub->interpret_ask_in(f, env);
       if(r.has_value()) {
-        return std::move(r).map(tell_t(std::move(r.value()), env.get_allocator()));
+        return std::move(r).map(val_t(std::move(r.value()), env.get_allocator()));
       }
       if(f.type() != UNTYPED) {
-        return std::move(iresult<F, Env>(IError<F>(true, name,
+        return std::move(R(IError<F>(true, name,
             "The formula could not be interpreted in the sub-domain, and it has an abstract type different from the one of the current element.", f))
           .join_errors(std::move(r)));
       }
@@ -419,29 +423,29 @@ public:
       auto split_formula = extract_ty(f, aty());
       const auto& ipc_formulas = battery::get<0>(split_formula);
       const auto& other_formulas = battery::get<1>(split_formula);
-      iresult<F, Env> res(tell_t(ipc_formulas.seq().size(), env.get_allocator()));
+      R res(val_t(ipc_formulas.seq().size(), env.get_allocator()));
       // We need to interpret the formulas in the sub-domain first because it might handle existential quantifiers needed by formulas interpreted in this domain.
       for(int i = 0; i < other_formulas.seq().size(); ++i) {
-        typename sub_type::iresult<F, Env> sub_tell = sub->interpret_in(other_formulas.seq(i), env);
+        auto sub_tell = is_tell ? sub->interpret_tell_in(other_formulas.seq(i), env) : sub->interpret_ask_in(other_formulas.seq(i), env);
         if(sub_tell.has_value()) {
           res.value().sub_tells.push_back(std::move(sub_tell.value()));
           res.join_warnings(std::move(sub_tell));
         }
         else if(other_formulas.seq(i).type() == UNTYPED) {
-          interpret_formula2(other_formulas.seq(i), env, res);
+          interpret_formula2<is_tell>(other_formulas.seq(i), env, res);
           if(!res.has_value()) {
             res.join_errors(std::move(sub_tell));
             return std::move(res);
           }
         }
         else {
-          return std::move(iresult<F, Env>(IError<F>(true, name,
+          return std::move(R(IError<F>(true, name,
               "The formula could not be interpreted in the sub-domain and it has an abstract type different from the one of the current element.", f))
             .join_errors(std::move(sub_tell)));
         }
       }
       for(int i = 0; i < ipc_formulas.seq().size(); ++i) {
-        interpret_formula2(ipc_formulas.seq(i), env, res);
+        interpret_formula2<is_tell>(ipc_formulas.seq(i), env, res);
         if(!res.has_value()) {
           return std::move(res);
         }
@@ -449,20 +453,29 @@ public:
       return std::move(res);
     }
     else {
-      iresult<F, Env> res(tell_t(1, env.get_allocator()));
-      interpret_formula2(f, env, res);
+      R res(val_t(1, env.get_allocator()));
+      interpret_formula2<is_tell>(f, env, res);
       return std::move(res);
     }
+  }
+
+public:
+  /** PC expects a conjunction of the form \f$ c_1 \land \ldots \land c_n \f$ where sub-formulas \f$ c_i \f$ can either be interpreted in the sub-domain `A` or in the current domain.
+    Moreover, we only treat exact conjunction (no under- or over-approximation of the conjunction).
+    For now, \f$ T \neq k \f$ is not supported where \f$ T \f$ is an arithmetic term, containing function symbols supported in `terms.hpp`. */
+  template <class F, class Env>
+  CUDA iresult_tell<F, Env> interpret_tell_in(const F& f, Env& env) {
+    return interpret_in<iresult_tell<F, Env>, true>(f, env);
   }
 
   /** Create an abstract domain and interpret the formulas `f` in this abstract domain.
    * The sub abstract domain is supposed to be able to represent variables, and its constructor is assumed to take a size, like for `VStore`. */
   template <class F, class Env>
-  CUDA static IResult<this_type, F> interpret(const F& f, Env& env, allocator_type alloc = allocator_type()) {
+  CUDA static IResult<this_type, F> interpret_tell(const F& f, Env& env, allocator_type alloc = allocator_type()) {
     this_type ipc(env.extends_abstract_dom(),
       battery::allocate_shared<sub_type>(alloc, env.extends_abstract_dom(), num_quantified_untyped_vars(f)),
       alloc);
-    iresult<F, Env> r = ipc.interpret_in(f, env);
+    auto r = ipc.interpret_tell_in(f, env);
     if(r.has_value()) {
       ipc.tell(r.value());
       return std::move(IResult<this_type, F>(std::move(ipc)).join_warnings(std::move(r)));
@@ -472,6 +485,10 @@ public:
     }
   }
 
+  template <class F, class Env>
+  CUDA iresult_ask<F, Env> interpret_ask_in(const F& f, const Env& env) const {
+    return interpret_in<iresult_ask<F, Env>, false>(f, env);
+  }
 
   /** Note that we cannot add propagators in parallel (but modifying the underlying domain is ok).
       This is a current limitation that we should fix later on.
@@ -526,6 +543,7 @@ public:
   template <class Mem>
   CUDA void refine(size_t i, BInc<Mem>& has_changed) {
     assert(i < num_refinements());
+    if(is_top()) { return; }
     local::BInc has_changed2; // Due to inheritance, `refine` takes a `local::BInc` (virtual methods cannot be templated).
     props[i]->refine(*sub, has_changed2);
     has_changed.tell(has_changed2);

@@ -3,9 +3,9 @@
 #ifndef TERMS_HPP
 #define TERMS_HPP
 
-#include "universes/upset_universe.hpp"
+#include "battery/vector.hpp"
+#include "lala/universes/primitive_upset.hpp"
 #include "ptr_utility.hpp"
-#include "vector.hpp"
 
 namespace lala {
 namespace pc {
@@ -113,12 +113,12 @@ public:
   CUDA void print(const A& a) const { printf("(%d,%d)", avar.aty(), avar.vid()); }
 };
 
-template<class Universe, Approx appx = EXACT>
+template<class Universe>
 struct NegOp {
   using U = Universe;
 
   CUDA static U op(const U& a) {
-    return U::template fun<appx, NEG>(a);
+    return U::template fun<NEG>(a);
   }
 
   CUDA static char symbol() { return '-'; }
@@ -161,16 +161,16 @@ public:
   }
 };
 
-template <class TermX, Approx appx = EXACT>
+template <class TermX>
 using Neg = Unary<
-  NegOp<typename remove_ptr<TermX>::type::U, appx>,
+  NegOp<typename remove_ptr<TermX>::type::U>,
   TermX>;
 
-template<class Universe, Approx appx = EXACT>
+template<class Universe>
 struct GroupAdd {
   using U = Universe;
   CUDA static U op(const U& a, const U& b) {
-    return U::template fun<appx, ADD>(a, b);
+    return U::template fun<ADD>(a, b);
   }
 
   CUDA static U rev_op(const U& a, const U& b) {
@@ -178,7 +178,7 @@ struct GroupAdd {
   }
 
   CUDA static U inv1(const U& a, const U& b) {
-    return U::template fun<appx, SUB>(a, b);
+    return U::template fun<SUB>(a, b);
   }
 
   CUDA static U inv2(const U& a, const U& b) {
@@ -188,38 +188,38 @@ struct GroupAdd {
   CUDA static char symbol() { return '+'; }
 };
 
-template<class Universe, Approx appx = EXACT>
+template<class Universe>
 struct GroupSub {
   using U = Universe;
   CUDA static U op(const U& a, const U& b) {
-    return U::template fun<appx, SUB>(a, b);
+    return U::template fun<SUB>(a, b);
   }
 
   CUDA static U inv1(const U& a, const U& b) {
-    return U::template fun<appx, ADD>(a, b);
+    return U::template fun<ADD>(a, b);
   }
 
   CUDA static U inv2(const U& a, const U& b) {
-    return U::template fun<appx, NEG>(
-      U::template fun<appx, SUB>(a, b));
+    return U::template fun<NEG>(
+      U::template fun<SUB>(a, b));
   }
 
   CUDA static char symbol() { return '-'; }
 };
 
-template<class Universe, Sig divsig, Approx appx = OVER>
+template<class Universe, Sig divsig>
 struct GroupMul {
   using U = Universe;
   CUDA static U op(const U& a, const U& b) {
-    return U::template fun<appx, MUL>(a, b);
+    return U::template fun<MUL>(a, b);
   }
 
   CUDA static U rev_op(const U& a, const U& b) {
-    return U::template fun<appx, divsig>(a, b); // probably not ideal? Could think more about that.
+    return U::template fun<divsig>(a, b); // probably not ideal? Could think more about that.
   }
 
   CUDA static U inv1(const U& a, const U& b) {
-    return U::template fun<appx, divsig>(a, b);
+    return U::template fun<divsig>(a, b);
   }
 
   CUDA static U inv2(const U& a, const U& b) {
@@ -229,19 +229,19 @@ struct GroupMul {
   CUDA static char symbol() { return '*'; }
 };
 
-template<class Universe, Sig divsig, Approx appx = OVER>
+template<class Universe, Sig divsig>
 struct GroupDiv {
   using U = Universe;
   CUDA static U op(const U& a, const U& b) {
-    return U::template fun<appx, divsig>(a, b);
+    return U::template fun<divsig>(a, b);
   }
 
   CUDA static U inv1(const U& a, const U& b) {
-    return U::template fun<appx, MUL>(a, b);
+    return U::template fun<MUL>(a, b);
   }
 
   CUDA static U inv2(const U& a, const U& b) {
-    return U::template fun<appx, divsig>(b, a);
+    return U::template fun<divsig>(b, a);
   }
 
   CUDA static char symbol() { return '/'; }
@@ -303,27 +303,27 @@ public:
   }
 };
 
-template <class TermX, class TermY, Approx appx = EXACT>
+template <class TermX, class TermY>
 using Add = Binary<
-  GroupAdd<typename remove_ptr<TermX>::type::U, appx>,
+  GroupAdd<typename remove_ptr<TermX>::type::U>,
   TermX,
   TermY>;
 
-template <class TermX, class TermY, Approx appx = EXACT>
+template <class TermX, class TermY>
 using Sub = Binary<
-  GroupSub<typename remove_ptr<TermX>::type::U, appx>,
+  GroupSub<typename remove_ptr<TermX>::type::U>,
   TermX,
   TermY>;
 
-template <class TermX, class TermY, Sig divsig = EDIV, Approx appx = OVER>
+template <class TermX, class TermY, Sig divsig = EDIV>
 using Mul = Binary<
-  GroupMul<typename remove_ptr<TermX>::type::U, divsig, appx>,
+  GroupMul<typename remove_ptr<TermX>::type::U, divsig>,
   TermX,
   TermY>;
 
-template <class TermX, class TermY, Sig divsig = EDIV, Approx appx = OVER>
+template <class TermX, class TermY, Sig divsig = EDIV>
 using Div = Binary<
-  GroupDiv<typename remove_ptr<TermX>::type::U, divsig, appx>,
+  GroupDiv<typename remove_ptr<TermX>::type::U, divsig>,
   TermX,
   TermY>;
 
@@ -379,11 +379,11 @@ public:
   }
 };
 
-template<class T, class Allocator, Approx appx = EXACT>
-using NaryAdd = Nary<T, Add<T, T, appx>, Allocator>;
+template<class T, class Allocator>
+using NaryAdd = Nary<T, Add<T, T>, Allocator>;
 
-template<class T, class Allocator, Sig divsig = EDIV, Approx appx = OVER>
-using NaryMul = Nary<T, Mul<T, T, divsig, appx>, Allocator>;
+template<class T, class Allocator, Sig divsig = EDIV>
+using NaryMul = Nary<T, Mul<T, T, divsig>, Allocator>;
 
 } // namespace pc
 } // namespace lala

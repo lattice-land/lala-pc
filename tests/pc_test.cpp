@@ -4,31 +4,32 @@
 #include <gtest/gtest-spi.h>
 #include "abstract_testing.hpp"
 
-#include "vstore.hpp"
-#include "cartesian_product.hpp"
-#include "interval.hpp"
-#include "pc.hpp"
-#include "terms.hpp"
-#include "fixpoint.hpp"
-#include "vector.hpp"
-#include "shared_ptr.hpp"
+#include "battery/vector.hpp"
+#include "battery/shared_ptr.hpp"
+
+#include "lala/vstore.hpp"
+#include "lala/cartesian_product.hpp"
+#include "lala/interval.hpp"
+#include "lala/pc.hpp"
+#include "lala/terms.hpp"
+#include "lala/fixpoint.hpp"
 
 using namespace lala;
 using namespace battery;
 
-using F = TFormula<StandardAllocator>;
+using F = TFormula<standard_allocator>;
 
 using zi = local::ZInc;
 using zd = local::ZDec;
 using Itv = Interval<zi>;
-using IStore = VStore<Itv, StandardAllocator>;
+using IStore = VStore<Itv, standard_allocator>;
 using IPC = PC<IStore>; // Interval Propagators Completion
 
 const AType sty = 0;
 const AType pty = 1;
 
 TEST(TermTest, AddTermBinary) {
-  IStore store = interpret_to2<IStore>("var int: x; var int: y;\
+  IStore store = interpret_tell_to2<IStore>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);");
   pc::Add<pc::Variable<IStore>, pc::Variable<IStore>> x_plus_y(
@@ -42,15 +43,15 @@ TEST(TermTest, AddTermBinary) {
 }
 
 TEST(TermTest, AddTermNary) {
-  IStore store = interpret_to2<IStore>("var int: x; var int: y; var int: z;\
+  IStore store = interpret_tell_to2<IStore>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_ge(z, 0); constraint int_le(z, 10);");
-  vector<pc::Variable<IStore>, StandardAllocator> vars(3);
+  vector<pc::Variable<IStore>, standard_allocator> vars(3);
   for(int i = 0; i < 3; ++i) {
     vars[i] = pc::Variable<IStore>(AVar(sty, i));
   }
-  pc::NaryAdd<pc::Variable<IStore>, StandardAllocator> sum_xyz(std::move(vars));
+  pc::NaryAdd<pc::Variable<IStore>, standard_allocator> sum_xyz(std::move(vars));
   EXPECT_EQ(sum_xyz.project(store), Itv(0,30));
   local::BInc has_changed2;
   sum_xyz.tell(store, Itv(zi::bot(), 5), has_changed2);
@@ -60,7 +61,7 @@ TEST(TermTest, AddTermNary) {
 
 template <class L>
 void test_extract(const L& ipc, bool is_ua) {
-  AbstractDeps<StandardAllocator> deps;
+  AbstractDeps<standard_allocator> deps;
   L copy1(ipc, deps);
   EXPECT_EQ(ipc.extract(copy1), is_ua);
   EXPECT_EQ(ipc.is_top(), copy1.is_top());
@@ -91,7 +92,7 @@ void refine_and_test(L& ipc, int num_refine, const std::vector<Itv>& before_afte
 
 // x + y = 5
 TEST(IPCTest, AddEquality) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_plus(x, y, 5);");
@@ -100,7 +101,7 @@ TEST(IPCTest, AddEquality) {
 
 // x + y = z, z <= 5
 TEST(IPCTest, TemporalConstraint1Flat) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y; var int: z;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_le(z, 5);\
@@ -109,7 +110,7 @@ TEST(IPCTest, TemporalConstraint1Flat) {
 }
 
 TEST(IPCTest, TemporalConstraint1) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_le(int_plus(x, y), 5);");
@@ -118,7 +119,7 @@ TEST(IPCTest, TemporalConstraint1) {
 
 // x + y > 5 (x,y in [0..10])
 TEST(IPCTest, TemporalConstraint2) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_gt(int_plus(x, y), 5);");
@@ -127,7 +128,7 @@ TEST(IPCTest, TemporalConstraint2) {
 
 // x + y > 5 (x,y in [0..3])
 TEST(IPCTest, TemporalConstraint3) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 3);\
     constraint int_ge(y, 0); constraint int_le(y, 3);\
     constraint int_gt(int_plus(x, y), 5);");
@@ -136,7 +137,7 @@ TEST(IPCTest, TemporalConstraint3) {
 
 // x + y >= 5 (x,y in [0..3])
 TEST(IPCTest, TemporalConstraint4) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 3);\
     constraint int_ge(y, 0); constraint int_le(y, 3);\
     constraint int_ge(int_plus(x, y), 5);");
@@ -145,7 +146,7 @@ TEST(IPCTest, TemporalConstraint4) {
 
 // x + y = 5 (x,y in [0..4])
 TEST(IPCTest, TemporalConstraint5) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 4);\
     constraint int_ge(y, 0); constraint int_le(y, 4);\
     constraint int_eq(int_plus(x, y), 5);");
@@ -154,7 +155,7 @@ TEST(IPCTest, TemporalConstraint5) {
 
 // x - y <= 5 (x,y in [0..10])
 TEST(IPCTest, TemporalConstraint6) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_le(int_minus(x, y), 5);");
@@ -163,7 +164,7 @@ TEST(IPCTest, TemporalConstraint6) {
 
 // x - y <= -10 (x,y in [0..10])
 TEST(IPCTest, TemporalConstraint7) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_le(int_minus(x, y), -10);");
@@ -172,7 +173,7 @@ TEST(IPCTest, TemporalConstraint7) {
 
 // x - y >= 5 (x,y in [0..10])
 TEST(IPCTest, TemporalConstraint8) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_ge(int_minus(x, y), 5);");
@@ -181,7 +182,7 @@ TEST(IPCTest, TemporalConstraint8) {
 
 // x - y <= -5 (x,y in [0..10])
 TEST(IPCTest, TemporalConstraint9) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_le(int_minus(x, y), -5);");
@@ -190,7 +191,7 @@ TEST(IPCTest, TemporalConstraint9) {
 
 // x <= -5 + y (x,y in [0..10])
 TEST(IPCTest, TemporalConstraint10) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_le(x, int_plus(-5, y));");
@@ -199,7 +200,7 @@ TEST(IPCTest, TemporalConstraint10) {
 
 // TOP test x,y,z in [3..10] /\ x + y + z <= 8
 TEST(IPCTest, TopProp) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y; var int: z;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 3); constraint int_le(x, 10);\
     constraint int_ge(y, 3); constraint int_le(y, 10);\
     constraint int_ge(z, 3); constraint int_le(z, 10);\
@@ -210,7 +211,7 @@ TEST(IPCTest, TopProp) {
 
 // x,y,z in [3..10] /\ x + y + z <= 9
 TEST(IPCTest, TernaryAdd2) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y; var int: z;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 3); constraint int_le(x, 10);\
     constraint int_ge(y, 3); constraint int_le(y, 10);\
     constraint int_ge(z, 3); constraint int_le(z, 10);\
@@ -220,7 +221,7 @@ TEST(IPCTest, TernaryAdd2) {
 
 // x,y,z in [3..10] /\ x + y + z <= 10
 TEST(IPCTest, TernaryAdd3) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y; var int: z;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 3); constraint int_le(x, 10);\
     constraint int_ge(y, 3); constraint int_le(y, 10);\
     constraint int_ge(z, 3); constraint int_le(z, 10);\
@@ -230,7 +231,7 @@ TEST(IPCTest, TernaryAdd3) {
 
 // x,y,z in [-2..2] /\ x + y + z <= -5
 TEST(IPCTest, TernaryAdd4) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y; var int: z;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, -2); constraint int_le(x, 2);\
     constraint int_ge(y, -2); constraint int_le(y, 2);\
     constraint int_ge(z, -2); constraint int_le(z, 2);\
@@ -240,7 +241,7 @@ TEST(IPCTest, TernaryAdd4) {
 
 // x,y,z in [0..1] /\ 2x + y + 3z <= 2
 TEST(IPCTest, PseudoBoolean1) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y; var int: z;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 0); constraint int_le(x, 1);\
     constraint int_ge(y, 0); constraint int_le(y, 1);\
     constraint int_ge(z, 0); constraint int_le(z, 1);\
@@ -250,7 +251,7 @@ TEST(IPCTest, PseudoBoolean1) {
 
 // x,y,z in [0..1] /\ 2x + 5y + 3z <= 2
 TEST(IPCTest, PseudoBoolean2) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y; var int: z;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 0); constraint int_le(x, 1);\
     constraint int_ge(y, 0); constraint int_le(y, 1);\
     constraint int_ge(z, 0); constraint int_le(z, 1);\
@@ -260,7 +261,7 @@ TEST(IPCTest, PseudoBoolean2) {
 
 // x,y,z in [0..1] /\ 3x + 5y + 3z <= 2
 TEST(IPCTest, PseudoBoolean3) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y; var int: z;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 0); constraint int_le(x, 1);\
     constraint int_ge(y, 0); constraint int_le(y, 1);\
     constraint int_ge(z, 0); constraint int_le(z, 1);\
@@ -270,7 +271,7 @@ TEST(IPCTest, PseudoBoolean3) {
 
 // x,y,z in [0..1] /\ -x + y + 3z <= 2
 TEST(IPCTest, PseudoBoolean4) {
-  IPC ipc = interpret_to2<IPC>("var int: x; var int: y; var int: z;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 0); constraint int_le(x, 1);\
     constraint int_ge(y, 0); constraint int_le(y, 1);\
     constraint int_ge(z, 0); constraint int_le(z, 1);\
@@ -280,7 +281,7 @@ TEST(IPCTest, PseudoBoolean4) {
 
 // x in [-4..3], -x <= 2
 TEST(IPCTest, NegationOp1) {
-  IPC ipc = interpret_to2<IPC>("var int: x;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x;\
     constraint int_ge(x, -4); constraint int_le(x, 3);\
     constraint int_le(int_neg(x), 2);");
   refine_and_test(ipc, 1, {Itv(-4,3)}, {Itv(-2,3)}, true);
@@ -288,7 +289,7 @@ TEST(IPCTest, NegationOp1) {
 
 // x in [-4..3], -x <= -2
 TEST(IPCTest, NegationOp2) {
-  IPC ipc = interpret_to2<IPC>("var int: x;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x;\
     constraint int_ge(x, -4); constraint int_le(x, 3);\
     constraint int_le(int_neg(x), -2);");
   refine_and_test(ipc, 1, {Itv(-4,3)}, {Itv(2,3)}, true);
@@ -296,7 +297,7 @@ TEST(IPCTest, NegationOp2) {
 
 // x in [0..3], -x <= -2
 TEST(IPCTest, NegationOp3) {
-  IPC ipc = interpret_to2<IPC>("var int: x;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x;\
     constraint int_ge(x, 0); constraint int_le(x, 3);\
     constraint int_le(int_neg(x), -2);");
   refine_and_test(ipc, 1, {Itv(0,3)}, {Itv(2,3)}, true);
@@ -304,7 +305,7 @@ TEST(IPCTest, NegationOp3) {
 
 // x in [-4..-3], -x <= 4
 TEST(IPCTest, NegationOp4) {
-  IPC ipc = interpret_to2<IPC>("var int: x;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x;\
     constraint int_ge(x, -4); constraint int_le(x, -3);\
     constraint int_le(int_neg(x), 4);");
   refine_and_test(ipc, 1, {Itv(-4,-3)}, true);
@@ -312,7 +313,7 @@ TEST(IPCTest, NegationOp4) {
 
 // x in [-4..3], -x >= -2
 TEST(IPCTest, NegationOp5) {
-  IPC ipc = interpret_to2<IPC>("var int: x;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x;\
     constraint int_ge(x, -4); constraint int_le(x, 3);\
     constraint int_ge(int_neg(x), -2);");
   refine_and_test(ipc, 1, {Itv(-4,3)}, {Itv(-4,2)}, true);
@@ -320,7 +321,7 @@ TEST(IPCTest, NegationOp5) {
 
 // x in [-4..3], -x > 2
 TEST(IPCTest, NegationOp6) {
-  IPC ipc = interpret_to2<IPC>("var int: x;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x;\
     constraint int_ge(x, -4); constraint int_le(x, 3);\
     constraint int_gt(int_neg(x), 2);");
   refine_and_test(ipc, 1, {Itv(-4,3)}, {Itv(-4,-3)}, true);
@@ -328,7 +329,7 @@ TEST(IPCTest, NegationOp6) {
 
 // x in [-4..3], -x >= 5
 TEST(IPCTest, NegationOp7) {
-  IPC ipc = interpret_to2<IPC>("var int: x;\
+  IPC ipc = interpret_tell_to2<IPC>("var int: x;\
     constraint int_ge(x, -4); constraint int_le(x, 3);\
     constraint int_ge(int_neg(x), 5);");
   refine_and_test(ipc, 1, {Itv(-4,3)}, {Itv::top()}, false);
@@ -337,8 +338,8 @@ TEST(IPCTest, NegationOp7) {
 
 // Constraint of the form "b <=> (x - y <= k1 /\ y - x <= k2)".
 TEST(IPCTest, ResourceConstraint1) {
-  VarEnv<StandardAllocator> env;
-  IPC ipc = interpret_to<IPC>("var int: x; var int: y; var int: b;\
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_tell_to<IPC>("var int: x; var int: y; var int: b;\
     constraint int_ge(x, 5); constraint int_le(x, 10);\
     constraint int_ge(y, 9); constraint int_le(y, 15);\
     constraint int_ge(b, 0); constraint int_le(b, 1);\
@@ -350,8 +351,8 @@ TEST(IPCTest, ResourceConstraint1) {
 }
 
 TEST(IPCTest, ResourceConstraint2) {
-  VarEnv<StandardAllocator> env;
-  IPC ipc = interpret_to<IPC>("var int: x; var int: y; var int: b;\
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_tell_to<IPC>("var int: x; var int: y; var int: b;\
     constraint int_ge(x, 1); constraint int_le(x, 2);\
     constraint int_ge(y, 0); constraint int_le(y, 2);\
     constraint int_ge(b, 0); constraint int_le(b, 1);\
@@ -363,13 +364,13 @@ TEST(IPCTest, ResourceConstraint2) {
 }
 
 TEST(IPCTest, NotEqualConstraint1) {
-  VarEnv<StandardAllocator> env;
-  IPC ipc = interpret_to<IPC>("var 1..10: x; constraint int_ne(x, 10);", env);
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_tell_to<IPC>("var 1..10: x; constraint int_ne(x, 10);", env);
   refine_and_test(ipc, 1, {Itv(1,10)}, {Itv(1,9)}, true);
 }
 
 TEST(IPCTest, NotEqualConstraint2) {
-  VarEnv<StandardAllocator> env;
-  IPC ipc = interpret_to<IPC>("var 1..10: x; var 10..10: y; constraint int_ne(x, y);", env);
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_tell_to<IPC>("var 1..10: x; var 10..10: y; constraint int_ne(x, y);", env);
   refine_and_test(ipc, 1, {Itv(1,10), Itv(10,10)}, {Itv(1,9), Itv(10,10)}, true);
 }

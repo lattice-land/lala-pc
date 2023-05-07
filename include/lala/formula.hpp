@@ -3,7 +3,7 @@
 #ifndef FORMULA_HPP
 #define FORMULA_HPP
 
-#include "universes/upset_universe.hpp"
+#include "lala/universes/primitive_upset.hpp"
 #include "ptr_utility.hpp"
 
 namespace lala {

@@ -3,8 +3,8 @@
 #ifndef PTR_UTILITY_HPP
 #define PTR_UTILITY_HPP
 
-#include "unique_ptr.hpp"
-#include "shared_ptr.hpp"
+#include "battery/unique_ptr.hpp"
+#include "battery/shared_ptr.hpp"
 
 // This function is used to dereference the attribute if T is a unique pointer.
 // The rational behind that, is to be able to manipulate a type T as a pointer or a reference.

@@ -91,8 +91,8 @@ public:
      * Since templated virtual methods are not supported in C++, we cannot clone the propagators to be defined over A.
      * Instead, we deinterpret each propagator to a formula, and reinterpret them in the current element.
     */
-    using F = TFormula<standard_allocator>;
-    VarEnv<standard_allocator> empty_env;
+    using F = TFormula<battery::standard_allocator>;
+    VarEnv<battery::standard_allocator> empty_env;
     for(int i = 0; i < other.props.size(); ++i) {
       F f = other.props[i]->deinterpret();
       auto res = interpret_tell_in(f, empty_env);

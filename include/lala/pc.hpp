@@ -82,12 +82,26 @@ public:
     sub.swap(other.sub);
   }
 
-  /** The propagators are shared among PC, it currently works because propagators are stateless.
-   * This could be changed later on by adding a method clone in `Term`. */
   template<class A2, class Alloc2, class AllocFast>
   CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<allocator_type, AllocFast>& deps)
-   : atype(other.atype), sub(deps.template clone<A>(other.sub)), props(other.props, deps.get_allocator())
-  {}
+   : atype(other.atype), sub(deps.template clone<A>(other.sub)), props(deps.get_allocator())
+  {
+    /** The propagators are represented as a class hierarchy parametrized over A2.
+     * Since templated virtual methods are not supported in C++, we cannot clone the propagators to be defined over A.
+     * Instead, we deinterpret each propagator to a formula, and reinterpret them in the current element.
+    */
+    using F = TFormula<standard_allocator>;
+    VarEnv<standard_allocator> empty_env;
+    for(int i = 0; i < other.props.size(); ++i) {
+      F f = other.props[i]->deinterpret();
+      auto res = interpret_tell_in(f, empty_env);
+      if(!res.has_value()) {
+        res.print_diagnostics();
+        assert(res.has_value());
+      }
+      tell(res.value());
+    }
+  }
 
   CUDA allocator_type get_allocator() const {
     return props.get_allocator();
@@ -174,14 +188,19 @@ private:
 
   template <class F, class Env>
   CUDA IResult<AVar, F> interpret_var(const F& f, Env& env) {
-    auto x = var_in(f, env);
-    assert(x.has_value());
-    auto avar = x->avar_of(sub->aty());
-    if(avar.has_value()) {
-      return IResult<AVar, F>(std::move(*avar));
+    if(f.is(F::V)) {
+      return IResult<AVar, F>(f.v());
     }
     else {
-      return IResult<AVar, F>(IError<F>(true, name, "The variable is not declared in the sub abstract domain of PC, and thus cannot be accessed by the propagator.", f));
+      auto x = var_in(f, env);
+      assert(x.has_value());
+      auto avar = x->avar_of(sub->aty());
+      if(avar.has_value()) {
+        return IResult<AVar, F>(std::move(*avar));
+      }
+      else {
+        return IResult<AVar, F>(IError<F>(true, name, "The variable is not declared in the sub abstract domain of PC, and thus cannot be accessed by the propagator.", f));
+      }
     }
   }
 
@@ -301,7 +320,13 @@ private:
 
   template <bool is_tell, class F, class Env>
   CUDA fresult<F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
-    assert(f.type() == aty() || f.is_untyped());
+    if(!(f.type() == aty() || f.is_untyped())) {
+      printf("BUG: ");
+      f.print();
+      printf("\n");
+      printf("%d\n", f.type());
+      assert(f.type() == aty() || f.is_untyped());
+    }
     if(f.is_binary()) {
       Sig sig = f.sig();
       switch(sig) {

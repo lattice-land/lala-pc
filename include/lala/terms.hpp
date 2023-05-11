@@ -20,6 +20,7 @@ public:
   CUDA virtual U project(const A&) const = 0;
   CUDA virtual local::BInc is_top(const A&) const = 0;
   CUDA virtual void print(const A&) const = 0;
+  CUDA virtual TFormula<battery::standard_allocator> deinterpret() const = 0;
 };
 
 // `DynTerm` wraps a term and inherits from Term.
@@ -50,6 +51,10 @@ public:
     t.print(a);
   }
 
+  CUDA TFormula<battery::standard_allocator> deinterpret() const override {
+    return t.deinterpret();
+  }
+
   CUDA ~DynTerm() {}
 };
 
@@ -69,6 +74,9 @@ public:
   CUDA U project(const A&) const { return k; }
   CUDA local::BInc is_top(const A&) const { return local::BInc::bot(); }
   CUDA void print(const A&) const { ::battery::print(k); }
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    return k.template deinterpret<TFormula<battery::standard_allocator>>();
+  }
 };
 
 template<class T>
@@ -111,6 +119,10 @@ public:
 
   CUDA local::BInc is_top(const A& a) const { return project(a).is_top(); }
   CUDA void print(const A& a) const { printf("(%d,%d)", avar.aty(), avar.vid()); }
+
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    return TFormula<battery::standard_allocator>::make_avar(avar);
+  }
 };
 
 template<class Universe>
@@ -122,6 +134,7 @@ struct NegOp {
   }
 
   CUDA static char symbol() { return '-'; }
+  CUDA static Sig sig() { return NEG; }
 };
 
 template <class UnaryOp, class TermX>
@@ -159,6 +172,10 @@ public:
     printf("%c", UnaryOp::symbol());
     x().print(a);
   }
+
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    return TFormula<battery::standard_allocator>::make_unary(UnaryOp::sig(), x().deinterpret());
+  }
 };
 
 template <class TermX>
@@ -186,6 +203,7 @@ struct GroupAdd {
   }
 
   CUDA static char symbol() { return '+'; }
+  CUDA static Sig sig() { return ADD; }
 };
 
 template<class Universe>
@@ -205,6 +223,7 @@ struct GroupSub {
   }
 
   CUDA static char symbol() { return '-'; }
+  CUDA static Sig sig() { return SUB; }
 };
 
 template<class Universe, Sig divsig>
@@ -227,6 +246,7 @@ struct GroupMul {
   }
 
   CUDA static char symbol() { return '*'; }
+  CUDA static Sig sig() { return MUL; }
 };
 
 template<class Universe, Sig divsig>
@@ -245,6 +265,7 @@ struct GroupDiv {
   }
 
   CUDA static char symbol() { return '/'; }
+  CUDA static Sig sig() { return divsig; }
 };
 
 template <class Group, class TermX, class TermY>
@@ -300,6 +321,11 @@ public:
     x().print(a);
     printf(" %c ", G::symbol());
     y().print(a);
+  }
+
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    return TFormula<battery::standard_allocator>::make_binary(
+      x().deinterpret(), G::sig(), y().deinterpret());
   }
 };
 
@@ -376,6 +402,15 @@ public:
       printf(" %c ", G::symbol());
       t(i).print(a);
     }
+  }
+
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    using F = TFormula<battery::standard_allocator>;
+    typename F::Sequence seq;
+    for(int i = 0; i < terms.size(); ++i) {
+      seq.push_back(t(i).deinterpret());
+    }
+    return TFormula<battery::standard_allocator>::make_nary(G::sig(), std::move(seq));
   }
 };
 

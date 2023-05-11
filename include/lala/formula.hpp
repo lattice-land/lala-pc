@@ -90,6 +90,10 @@ public:
     return f.is_top(a);
   }
 
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    return f.deinterpret();
+  }
+
   CUDA ~DynFormula() {}
 };
 
@@ -173,6 +177,12 @@ public:
     if constexpr(neg) { printf("not "); }
     printf("(%d,%d)", avar.aty(), avar.vid());
   }
+
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    auto f = TFormula<battery::standard_allocator>::make_avar(avar);
+    f.type_as(UNTYPED); // The variable should be interpreted as an atomic formula in PC (not in VStore).
+    return std::move(f);
+  }
 };
 
 template<class T, class NotF = void>
@@ -223,6 +233,35 @@ public:
     t().print(a);
     printf(" >= ");
     right.print();
+  }
+private:
+  using F = TFormula<battery::standard_allocator>;
+  using Seq = typename F::Sequence;
+
+  CUDA Seq map_seq(const Seq& seq, const F& t) const {
+    Seq seq2;
+    for(int i = 0; i < seq.size(); ++i) {
+      seq2.push_back(map_avar(seq[i], t));
+    }
+    return std::move(seq2);
+  }
+
+  CUDA F map_avar(const F& f, const F& t) const {
+    switch(f.index()) {
+      case F::V: return t;
+      case F::Seq: return F::make_nary(f.sig(), map_seq(f.seq(), t), f.type());
+      case F::ESeq: return F::make_nary(f.esig(), map_seq(f.eseq(), t), f.type());
+      default: return f;
+    }
+  }
+
+public:
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    // We deinterpret the constant with a placeholder variable that is then replaced by the interpretation of the left term.
+    VarEnv<battery::standard_allocator> empty_env;
+    auto uf = right.deinterpret(AVar{}, empty_env);
+    auto tf = t().deinterpret();
+    return map_avar(uf, tf);
   }
 };
 
@@ -327,6 +366,18 @@ public:
     printf(" /\\ ");
     g().print(a);
   }
+
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    auto left = f().deinterpret();
+    auto right = g().deinterpret();
+    if(left.is_true()) { return right; }
+    else if(right.is_true()) { return left; }
+    else if(left.is_false()) { return left; }
+    else if(right.is_false()) { return right; }
+    else {
+      return TFormula<battery::standard_allocator>::make_binary(left, AND, right);
+    }
+  }
 };
 
 template<class F, class G = F>
@@ -380,6 +431,18 @@ public:
     f().print(a);
     printf(" \\/ ");
     g().print(a);
+  }
+
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    auto left = f().deinterpret();
+    auto right = g().deinterpret();
+    if(left.is_true()) { return left; }
+    else if(right.is_true()) { return right; }
+    else if(left.is_false()) { return right; }
+    else if(right.is_false()) { return left; }
+    else {
+      return TFormula<battery::standard_allocator>::make_binary(left, OR, right);
+    }
   }
 };
 
@@ -444,6 +507,10 @@ public:
     f().print(a);
     printf(" <=> ");
     g().print(a);
+  }
+
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    return TFormula<battery::standard_allocator>::make_binary(f().deinterpret(), EQUIV, g().deinterpret());
   }
 };
 

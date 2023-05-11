@@ -35,6 +35,9 @@ public:
 
   constexpr static const char* name = "PC";
 
+  template <class A2, class Alloc2>
+  friend class PC;
+
 private:
   using formula_type = battery::shared_ptr<pc::Formula<A>, allocator_type>;
   using term_type = battery::shared_ptr<pc::Term<A>, allocator_type>;

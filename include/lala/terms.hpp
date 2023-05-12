@@ -14,7 +14,7 @@ template <class AD>
 class Term {
 public:
   using A = AD;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
   CUDA virtual ~Term() {}
   CUDA virtual void tell(A&, const U&, local::BInc&) const = 0;
   CUDA virtual U project(const A&) const = 0;
@@ -30,7 +30,7 @@ class DynTerm: public Term<typename BaseTerm::A> {
   BaseTerm t;
 public:
   using A = typename BaseTerm::A;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
 
   CUDA DynTerm(BaseTerm&& t): t(std::move(t)) {}
   CUDA DynTerm(DynTerm<BaseTerm>&& other): DynTerm(std::move(other.t)) {}
@@ -62,7 +62,7 @@ template <class AD>
 class Constant {
 public:
   using A = AD;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
 
 private:
   U k;
@@ -96,7 +96,7 @@ template <class AD>
 class Variable {
 public:
   using A = AD;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
 
 private:
   AVar avar;
@@ -142,7 +142,7 @@ class Unary {
 public:
   using TermX_ = typename remove_ptr<TermX>::type;
   using A = typename TermX_::A;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
   using this_type = Unary<UnaryOp, TermX>;
 private:
   TermX x_term;

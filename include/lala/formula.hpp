@@ -18,7 +18,7 @@ template <class AD>
 class Formula: public Term<AD> {
 public:
   using A = AD;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
   CUDA virtual ~Formula() {}
 
   /** Given a formula \f$ \varphi \f$, the ask operation \f$ a \vDash \varphi \f$ holds whenever we can deduce \f$ \varphi \f$ from \f$ a \f$.
@@ -49,7 +49,7 @@ class DynFormula: public Formula<typename BaseFormula::A> {
   BaseFormula f;
 public:
   using A = typename BaseFormula::A;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
 
   CUDA DynFormula(BaseFormula&& f): f(std::move(f)) {}
   CUDA DynFormula(DynFormula<BaseFormula>&& other): DynFormula(std::move(other.f)) {}
@@ -103,7 +103,7 @@ public:
 template<class CRTP, class F,
   class A = typename remove_ptr<F>::type::A>
 struct FormulaAsTermAdapter {
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
 
   /** Call `refine` iff \f$ u \geq  [\![x = 1]\!]_U \f$ and `nrefine` iff \f$ u \geq  [\![x = 0]\!] \f$. */
   CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
@@ -127,7 +127,7 @@ class VariableLiteral:
   public FormulaAsTermAdapter<VariableLiteral<AD, neg>, void, AD> {
 public:
   using A = AD;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
 
 private:
   AVar avar;
@@ -193,7 +193,7 @@ class LatticeOrderPredicate<T, void> {
 public:
   using T_ = typename remove_ptr<T>::type;
   using A = typename T_::A;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
   using this_type = LatticeOrderPredicate<T, void>;
 
 protected:
@@ -277,7 +277,7 @@ class LatticeOrderPredicate :
 public:
   using T_ = typename remove_ptr<T>::type;
   using A = typename T_::A;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
   using this_type = LatticeOrderPredicate<T, NotF>;
 
 private:
@@ -315,7 +315,7 @@ public:
   using F_ = typename remove_ptr<F>::type;
   using G_ = typename remove_ptr<G>::type;
   using A = typename F_::A;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
   using this_type = Conjunction<F, G>;
 
 private:
@@ -386,7 +386,7 @@ public:
   using F_ = typename remove_ptr<F>::type;
   using G_ = typename remove_ptr<G>::type;
   using A = typename F_::A;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
   using this_type = Disjunction<F, G>;
 
 private:
@@ -452,7 +452,7 @@ public:
   using F_ = typename remove_ptr<F>::type;
   using G_ = typename remove_ptr<G>::type;
   using A = typename F_::A;
-  using U = typename A::universe_type;
+  using U = typename A::local_universe;
   using this_type = Biconditional<F, G>;
 
 private:

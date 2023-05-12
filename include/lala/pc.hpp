@@ -52,15 +52,23 @@ public:
   struct interpreted_type {
     battery::vector<sub_type, Alloc2> sub_tells;
     battery::vector<formula_type, Alloc2> props;
+
     interpreted_type(interpreted_type&&) = default;
     interpreted_type& operator=(interpreted_type&&) = default;
     interpreted_type(const interpreted_type&) = default;
+
     CUDA interpreted_type(sub_type&& sub_tell, const Alloc2& alloc): sub_tells(alloc), props(alloc) {
       sub_tells.push_back(std::move(sub_tell));
     }
     CUDA interpreted_type(size_t n, const Alloc2& alloc): sub_tells(alloc), props(alloc) {
       props.reserve(n);
     }
+
+    template <class Alloc3, class SubType>
+    CUDA interpreted_type(const interpreted_type<Alloc3, SubType>& other, const Alloc2& alloc = Alloc2())
+      : sub_tells(other.sub_tells, alloc)
+      , props(other.props, alloc)
+    {}
   };
 
   template <class Alloc2>

@@ -57,16 +57,17 @@ public:
     interpreted_type& operator=(interpreted_type&&) = default;
     interpreted_type(const interpreted_type&) = default;
 
-    CUDA interpreted_type(sub_type&& sub_tell, const Alloc2& alloc): sub_tells(alloc), props(alloc) {
+    CUDA interpreted_type(sub_type&& sub_tell, const Alloc2& alloc = Alloc2()): sub_tells(alloc), props(alloc) {
       sub_tells.push_back(std::move(sub_tell));
     }
 
-    CUDA interpreted_type(size_t n, const Alloc2& alloc): sub_tells(alloc), props(alloc) {
+    CUDA interpreted_type(size_t n, const Alloc2& alloc = Alloc2()): sub_tells(alloc), props(alloc) {
       props.reserve(n);
     }
 
+    // This constructor is ugly but enable_if_t is required to avoid ambiguity with the previous constructor.
     template <class InterpretedType>
-    CUDA interpreted_type(const InterpretedType& other, const Alloc2& alloc = Alloc2())
+    CUDA interpreted_type(const std::enable_if_t<!std::is_same_v<InterpretedType,size_t>, InterpretedType>& other, const Alloc2& alloc = Alloc2())
       : sub_tells(other.sub_tells, alloc)
       , props(other.props, alloc)
     {}

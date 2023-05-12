@@ -71,6 +71,9 @@ public:
       : sub_tells(other.sub_tells, alloc)
       , props(other.props, alloc)
     {}
+
+    template <class Alloc3, class SubType2>
+    friend struct interpreted_type;
   };
 
   template <class Alloc2>

@@ -61,13 +61,10 @@ public:
       sub_tells.push_back(std::move(sub_tell));
     }
 
-    CUDA interpreted_type(size_t n, const Alloc2& alloc = Alloc2()): sub_tells(alloc), props(alloc) {
-      props.reserve(n);
-    }
+    CUDA interpreted_type(const Alloc2& alloc = Alloc2()): sub_tells(alloc), props(alloc) {}
 
-    // This constructor is ugly but enable_if_t is required to avoid ambiguity with the previous constructor.
     template <class InterpretedType>
-    CUDA interpreted_type(const std::enable_if_t<!std::is_same_v<InterpretedType,size_t>, InterpretedType>& other, const Alloc2& alloc = Alloc2())
+    CUDA interpreted_type(const InterpretedType& other, const Alloc2& alloc = Alloc2())
       : sub_tells(other.sub_tells, alloc)
       , props(other.props, alloc)
     {}
@@ -465,7 +462,7 @@ private:
       auto split_formula = extract_ty(f, aty());
       const auto& ipc_formulas = battery::get<0>(split_formula);
       const auto& other_formulas = battery::get<1>(split_formula);
-      R res(val_t(ipc_formulas.seq().size(), env.get_allocator()));
+      R res(val_t(env.get_allocator()));
       // We need to interpret the formulas in the sub-domain first because it might handle existential quantifiers needed by formulas interpreted in this domain.
       for(int i = 0; i < other_formulas.seq().size(); ++i) {
         auto sub_tell = is_tell ? sub->interpret_tell_in(other_formulas.seq(i), env) : sub->interpret_ask_in(other_formulas.seq(i), env);
@@ -495,7 +492,7 @@ private:
       return std::move(res);
     }
     else {
-      R res(val_t(1, env.get_allocator()));
+      R res(val_t(env.get_allocator()));
       interpret_formula2<is_tell>(f, env, res);
       return std::move(res);
     }

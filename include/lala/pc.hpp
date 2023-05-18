@@ -16,6 +16,17 @@
 #include "formula.hpp"
 
 namespace lala {
+template <class A, class Alloc> class PC;
+namespace impl {
+  template <class>
+  struct is_pc_like {
+    static constexpr bool value = false;
+  };
+  template<class A, class Alloc>
+  struct is_pc_like<PC<A, Alloc>> {
+    static constexpr bool value = true;
+  };
+}
 
 /** PC is an abstract transformer built on top of an abstract domain `A`.
     It is expected that `A` has a projection function `u = project(x)`.
@@ -641,9 +652,10 @@ public:
 
   /** Extract an under-approximation of `this` in `ua` when all propagators are entailed.
    * In all other cases, returns `false`.
-   * For efficiency reason, the propagators are not copied in `ua` (it is OK, since they are entailed, so don't bring information anymore). */
-  template <class A2, class Alloc2>
-  CUDA bool extract(PC<A2, Alloc2>& ua) const {
+   * For efficiency reason, if `B` is a propagator completion, the propagators are not copied in `ua`.
+   *   (It is OK, since they are entailed, so don't bring information anymore.) */
+  template <class B>
+  CUDA bool extract(B& ua) const {
     if(is_top()) {
       return false;
     }
@@ -652,7 +664,12 @@ public:
         return false;
       }
     }
-    return sub->extract(*ua.sub);
+    if constexpr(impl::is_pc_like<B>::value) {
+      return sub->extract(*ua.sub);
+    }
+    else {
+      return sub->extract(ua);
+    }
   }
 };
 

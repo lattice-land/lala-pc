@@ -93,10 +93,23 @@ public:
     sub.swap(other.sub);
   }
 
-  template<class A2, class Alloc2, class AllocFast>
-  CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<allocator_type, AllocFast>& deps)
-   : atype(other.atype), sub(deps.template clone<A>(other.sub)), props(deps.get_allocator())
+  template<class A2, class Alloc2, class BasicAlloc, class AllocFast>
+  CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<BasicAlloc, AllocFast>& deps)
+   : atype(other.atype), sub(deps.template clone<A>(other.sub))
   {
+    /** We consider that this abstract domain can be either allocated in the basic or the fast memory. */
+    if constexpr(std::is_same_v<allocator_type, BasicAlloc>) {
+      props = battery::vector<formula_type, allocator_type>(deps.get_allocator());
+    }
+    else if constexpr(std::is_same_v<allocator_type, AllocFast>) {
+      props = battery::vector<formula_type, allocator_type>(deps.get_fast_allocator());
+    }
+    else {
+      static_assert(std::is_same_v<allocator_type, BasicAlloc> || std::is_same_v<allocator_type, AllocFast>);
+    }
+
+    props.reserve(other.props.size());
+
     /** The propagators are represented as a class hierarchy parametrized over A2.
      * Since templated virtual methods are not supported in C++, we cannot clone the propagators to be defined over A.
      * Instead, we deinterpret each propagator to a formula, and reinterpret them in the current element.

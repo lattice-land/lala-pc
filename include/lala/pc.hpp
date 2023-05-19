@@ -634,8 +634,8 @@ public:
   }
 
   template <class Alloc2 = allocator_type>
-  CUDA snapshot_type<Alloc2> snapshot() const {
-    return battery::make_tuple(props.size(), sub->template snapshot<Alloc2>());
+  CUDA snapshot_type<Alloc2> snapshot(const Alloc2& alloc = Alloc2()) const {
+    return battery::make_tuple(props.size(), sub->template snapshot<Alloc2>(alloc));
   }
 
   template <class Alloc2 = allocator_type>

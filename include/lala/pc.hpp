@@ -42,7 +42,26 @@ public:
   using this_type = PC<sub_type, allocator_type>;
 
   template <class Alloc2>
-  using snapshot_type = battery::tuple<size_t, typename A::snapshot_type<Alloc2>>;
+  struct snapshot_type
+  {
+    using sub_snap_type = typename A::snapshot_type<Alloc2>;
+    size_t num_props;
+    sub_snap_type sub_snap;
+
+    CUDA snapshot_type(size_t num_props, sub_snap_type&& sub_snap)
+      : num_props(num_props)
+      , sub_snap(std::move(sub_snap))
+    {}
+
+    snapshot_type(const snapshot_type<Alloc2>&) = default;
+    snapshot_type(snapshot_type<Alloc2>&&) = default;
+
+    template <class Alloc3>
+    CUDA snapshot_type(const snapshot_type<Alloc3>& other, const Alloc2& alloc = Alloc2())
+      : num_props(other.num_props)
+      , sub_snap(other.sub_snap, alloc)
+    {}
+  };
 
   using sub_ptr = abstract_ptr<sub_type>;
 
@@ -635,16 +654,16 @@ public:
 
   template <class Alloc2 = allocator_type>
   CUDA snapshot_type<Alloc2> snapshot(const Alloc2& alloc = Alloc2()) const {
-    return battery::make_tuple(props.size(), sub->template snapshot<Alloc2>(alloc));
+    return snapshot_type<Alloc2>(props.size(), sub->snapshot(alloc));
   }
 
   template <class Alloc2 = allocator_type>
   CUDA void restore(const snapshot_type<Alloc2>& snap) {
     int n = props.size();
-    for(int i = battery::get<0>(snap); i < n; ++i) {
+    for(int i = snap.num_props; i < n; ++i) {
       props.pop_back();
     }
-    sub->restore(battery::get<1>(snap));
+    sub->restore(snap.sub_snap);
   }
 
   /** Extract an under-approximation of `this` in `ua` when all propagators are entailed.

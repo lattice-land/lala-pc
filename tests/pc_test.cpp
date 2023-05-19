@@ -61,7 +61,7 @@ TEST(TermTest, AddTermNary) {
 
 template <class L>
 void test_extract(const L& ipc, bool is_ua) {
-  AbstractDeps<standard_allocator> deps;
+  AbstractDeps<standard_allocator> deps(standard_allocator{});
   L copy1(ipc, deps);
   EXPECT_EQ(ipc.extract(copy1), is_ua);
   EXPECT_EQ(ipc.is_top(), copy1.is_top());

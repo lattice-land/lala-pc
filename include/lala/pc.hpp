@@ -10,7 +10,7 @@
 
 #include "lala/logic/logic.hpp"
 #include "lala/universes/primitive_upset.hpp"
-#include "lala/copy_dag_helper.hpp"
+#include "lala/abstract_deps.hpp"
 
 #include "terms.hpp"
 #include "formula.hpp"
@@ -38,12 +38,13 @@ public:
   using sub_type = A;
   using universe_type = typename A::universe_type;
   using allocator_type = Alloc;
-  using this_type = PC<A, allocator_type>;
+  using sub_allocator_type = typename A::allocator_type;
+  using this_type = PC<sub_type, allocator_type>;
 
   template <class Alloc2>
   using snapshot_type = battery::tuple<size_t, typename A::snapshot_type<Alloc2>>;
 
-  using sub_ptr = battery::shared_ptr<A, allocator_type>;
+  using sub_ptr = abstract_ptr<sub_type>;
 
   constexpr static const char* name = "PC";
 
@@ -104,21 +105,11 @@ public:
     sub.swap(other.sub);
   }
 
-  template<class A2, class Alloc2, class BasicAlloc, class AllocFast>
-  CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<BasicAlloc, AllocFast>& deps)
+  template<class A2, class Alloc2, class... Allocators>
+  CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
    : atype(other.atype), sub(deps.template clone<A>(other.sub))
   {
-    /** We consider that this abstract domain can be either allocated in the basic or the fast memory. */
-    if constexpr(std::is_same_v<allocator_type, BasicAlloc>) {
-      props = battery::vector<formula_type, allocator_type>(deps.get_allocator());
-    }
-    else if constexpr(std::is_same_v<allocator_type, AllocFast>) {
-      props = battery::vector<formula_type, allocator_type>(deps.get_fast_allocator());
-    }
-    else {
-      static_assert(std::is_same_v<allocator_type, BasicAlloc> || std::is_same_v<allocator_type, AllocFast>);
-    }
-
+    props = battery::vector<formula_type, allocator_type>(deps.template get_allocator<allocator_type>());
     props.reserve(other.props.size());
 
     /** The propagators are represented as a class hierarchy parametrized over A2.
@@ -146,13 +137,19 @@ public:
     return atype;
   }
 
-  CUDA static this_type bot(AType atype = UNTYPED, const allocator_type& alloc = allocator_type()) {
-    return PC(atype, battery::allocate_shared<sub_type>(alloc, std::move(sub_type::bot(UNTYPED, alloc))), alloc);
+  CUDA static this_type bot(AType atype = UNTYPED,
+    const allocator_type& alloc = allocator_type(),
+    const sub_allocator_type& sub_alloc = sub_allocator_type())
+  {
+    return PC(atype, battery::allocate_shared<sub_type>(alloc, sub_type::bot(UNTYPED, sub_alloc)), alloc);
   }
 
   /** A special symbolic element representing top. */
-  CUDA static this_type top(AType atype = UNTYPED, const allocator_type& alloc = allocator_type()) {
-    return PC(atype, battery::allocate_shared<sub_type>(alloc, std::move(sub_type::top(UNTYPED, alloc))), alloc);
+  CUDA static this_type top(AType atype = UNTYPED,
+    const allocator_type& alloc = allocator_type(),
+    const sub_allocator_type& sub_alloc = sub_allocator_type())
+  {
+    return PC(atype, battery::allocate_shared<sub_type>(sub_alloc, sub_type::top(UNTYPED, sub_alloc)), alloc);
   }
 
 private:

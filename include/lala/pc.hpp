@@ -58,8 +58,8 @@ public:
     snapshot_type<Alloc2>& operator=(snapshot_type<Alloc2>&&) = default;
     snapshot_type<Alloc2>& operator=(const snapshot_type<Alloc2>&) = default;
 
-    template <class Alloc3>
-    CUDA snapshot_type(const snapshot_type<Alloc3>& other, const Alloc2& alloc = Alloc2())
+    template <class SnapshotType>
+    CUDA snapshot_type(const SnapshotType& other, const Alloc2& alloc = Alloc2())
       : num_props(other.num_props)
       , sub_snap(other.sub_snap, alloc)
     {}

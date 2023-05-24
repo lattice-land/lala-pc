@@ -172,11 +172,9 @@ public:
      * Since templated virtual methods are not supported in C++, we cannot clone the propagators to be defined over A.
      * Instead, we deinterpret each propagator to a formula, and reinterpret them in the current element.
     */
-    tell_type<battery::standard_allocator> tell_data;
     for(int i = 0; i < other.props.size(); ++i) {
-      tell_data.props.push_back(copy_propagator(other.props[i]));
+      props.push_back(copy_propagator(other.props[i]));
     }
-    tell(tell_data);
   }
 
   CUDA allocator_type get_allocator() const {
@@ -274,11 +272,14 @@ private:
   template <class F, class Env>
   CUDA IResult<AVar, F> interpret_var(const F& f, Env& env) {
     if(f.is(F::V)) {
+      assert(!f.v().is_untyped());
       return IResult<AVar, F>(f.v());
     }
     else {
       auto x = var_in(f, env);
-      assert(x.has_value());
+      if(!x.has_value()) {
+        return IResult<AVar, F>(IError<F>(true, name, "The variable is not declared in the environment, and thus cannot be accessed by the propagator.", f));
+      }
       auto avar = x->avar_of(sub->aty());
       if(avar.has_value()) {
         return IResult<AVar, F>(std::move(*avar));
@@ -410,7 +411,7 @@ private:
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
     Alloc alloc = env.get_allocator();
-    assert(f.type() == aty() || f.is_untyped());
+    assert(f.type() == aty() || f.is_untyped() || f.is_variable());
     if(f.is_binary()) {
       Sig sig = f.sig();
       switch(sig) {
@@ -524,6 +525,7 @@ private:
   CUDA R interpret_in(const F& f, Env& env) {
     using val_t = typename R::value_type;
     // If the formula is untyped, we first try to interpret it in the sub-domain.
+    IResult<int, F> sub_err{0};
     if(f.is_untyped() || f.type() != aty()) {
       auto r = is_tell ? sub->interpret_tell_in(f, env) : sub->interpret_ask_in(f, env);
       if(r.has_value()) {
@@ -534,6 +536,7 @@ private:
             "The formula could not be interpreted in the sub-domain, and it has an abstract type different from the one of the current element.", f))
           .join_errors(std::move(r)));
       }
+      sub_err = IResult<int, F>(std::move(r.error()));
     }
     assert(f.is_untyped() || f.type() == aty());
     // Conjunction
@@ -565,7 +568,7 @@ private:
       for(int i = 0; i < ipc_formulas.seq().size(); ++i) {
         interpret_formula2<is_tell>(ipc_formulas.seq(i), env, res);
         if(!res.has_value()) {
-          return std::move(res);
+          return std::move(std::move(res).join_errors(std::move(sub_err)));
         }
       }
       return std::move(res);
@@ -573,6 +576,9 @@ private:
     else {
       R res(val_t(env.get_allocator()));
       interpret_formula2<is_tell>(f, env, res);
+      if(!res.has_value()) {
+        return std::move(std::move(res).join_errors(std::move(sub_err)));
+      }
       return std::move(res);
     }
   }

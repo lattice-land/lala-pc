@@ -179,9 +179,7 @@ public:
   }
 
   CUDA TFormula<battery::standard_allocator> deinterpret() const {
-    auto f = TFormula<battery::standard_allocator>::make_avar(avar);
-    f.type_as(UNTYPED); // The variable should be interpreted as an atomic formula in PC (not in VStore).
-    return std::move(f);
+    return TFormula<battery::standard_allocator>::make_avar(avar);
   }
 };
 

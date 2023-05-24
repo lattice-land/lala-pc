@@ -185,6 +185,56 @@ public:
   }
 };
 
+template<class AD>
+class False:
+  public FormulaAsTermAdapter<False<AD>, void, AD> {
+public:
+  using A = AD;
+  using U = typename A::local_universe;
+public:
+  False() = default;
+  CUDA local::BInc ask(const A& a) const { return a.is_top(); }
+  CUDA local::BInc nask(const A&) const { return true; }
+  CUDA void preprocess(A&, local::BInc&) {}
+  CUDA void refine(A& a, local::BInc& has_changed) const {
+    if(!a.is_top()) {
+      has_changed.tell_top();
+      a.tell_top();
+    }
+  }
+  CUDA void nrefine(A&, local::BInc&) const {}
+  CUDA local::BInc is_top(const A&) const { return true; }
+  CUDA void print(const A& a) const { printf("false"); }
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    return TFormula<battery::standard_allocator>::make_false();
+  }
+};
+
+template<class AD>
+class True:
+  public FormulaAsTermAdapter<True<AD>, void, AD> {
+public:
+  using A = AD;
+  using U = typename A::local_universe;
+public:
+  True() = default;
+  CUDA local::BInc ask(const A& a) const { return true; }
+  CUDA local::BInc nask(const A& a) const { return a.is_top(); }
+  CUDA void preprocess(A&, local::BInc&) {}
+  CUDA void refine(A&, local::BInc&) const {}
+  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+    if(!a.is_top()) {
+      has_changed.tell_top();
+      a.tell_top();
+    }
+  }
+  CUDA local::BInc is_top(const A&) const { return false; }
+  CUDA void print(const A& a) const { printf("true"); }
+  CUDA TFormula<battery::standard_allocator> deinterpret() const {
+    return TFormula<battery::standard_allocator>::make_true();
+  }
+};
+
 template<class T, class NotF = void>
 class LatticeOrderPredicate;
 

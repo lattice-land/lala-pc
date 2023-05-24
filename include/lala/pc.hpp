@@ -75,32 +75,65 @@ public:
 private:
   using formula_type = battery::shared_ptr<pc::Formula<A>, allocator_type>;
   using term_type = battery::shared_ptr<pc::Term<A>, allocator_type>;
+  template<class F> using fresult = IResult<formula_type, F>;
+  template<class F> using tresult = IResult<term_type, F>;
 
   AType atype;
   sub_ptr sub;
   battery::vector<formula_type, allocator_type> props;
 
+  CUDA PC(AType atype, const allocator_type& alloc = allocator_type())
+   : atype(atype), props(alloc)  {}
+
+  template <class PropType>
+  CUDA formula_type copy_propagator(const PropType& prop) {
+    if constexpr(std::is_same_v<PropType, formula_type>) {
+      return prop;
+    }
+    else {
+      using F = TFormula<battery::standard_allocator>;
+      VarEnv<battery::standard_allocator> empty_env;
+      F f = prop->deinterpret();
+      f.type_as(atype);
+      auto res = interpret_formula<true>(f, empty_env);
+      if(!res.has_value()) {
+        res.print_diagnostics();
+        assert(res.has_value());
+      }
+      return res.value();
+    }
+  }
+
 public:
-  template <class Alloc2, class sub_type>
+  template <class Alloc2, class SubTellType>
   struct interpreted_type {
-    battery::vector<sub_type, Alloc2> sub_tells;
-    battery::vector<formula_type, Alloc2> props;
+    battery::vector<SubTellType, Alloc2> sub_tells;
+    battery::vector<battery::shared_ptr<pc::Formula<A>, Alloc2>, Alloc2> props;
 
     interpreted_type(interpreted_type&&) = default;
     interpreted_type& operator=(interpreted_type&&) = default;
     interpreted_type(const interpreted_type&) = default;
 
-    CUDA interpreted_type(sub_type&& sub_tell, const Alloc2& alloc = Alloc2()): sub_tells(alloc), props(alloc) {
-      sub_tells.push_back(std::move(sub_tell));
+    CUDA interpreted_type(const SubTellType& sub_tell, const Alloc2& alloc = Alloc2())
+      : sub_tells(alloc), props(alloc)
+    {
+      sub_tells.reserve(1);
+      sub_tells.push_back(sub_tell);
     }
 
-    CUDA interpreted_type(const Alloc2& alloc = Alloc2()): sub_tells(alloc), props(alloc) {}
+    CUDA interpreted_type(const Alloc2& alloc = Alloc2())
+      : sub_tells(alloc), props(alloc) {}
 
     template <class InterpretedType>
     CUDA interpreted_type(const InterpretedType& other, const Alloc2& alloc = Alloc2())
       : sub_tells(other.sub_tells, alloc)
-      , props(other.props, alloc)
-    {}
+      , props(alloc)
+    {
+      PC<A, Alloc2> pc(0, alloc);
+      for(int i = 0; i < other.props.size(); ++i) {
+        props.push_back(pc.copy_propagator(other.props[i]));
+      }
+    }
 
     template <class Alloc3, class SubType2>
     friend struct interpreted_type;
@@ -137,17 +170,11 @@ public:
      * Since templated virtual methods are not supported in C++, we cannot clone the propagators to be defined over A.
      * Instead, we deinterpret each propagator to a formula, and reinterpret them in the current element.
     */
-    using F = TFormula<battery::standard_allocator>;
-    VarEnv<battery::standard_allocator> empty_env;
+    tell_type<battery::standard_allocator> tell_data;
     for(int i = 0; i < other.props.size(); ++i) {
-      F f = other.props[i]->deinterpret();
-      auto res = interpret_tell_in(f, empty_env);
-      if(!res.has_value()) {
-        res.print_diagnostics();
-        assert(res.has_value());
-      }
-      tell(res.value());
+      tell_data.props.push_back(copy_propagator(other.props[i]));
     }
+    tell(tell_data);
   }
 
   CUDA allocator_type get_allocator() const {
@@ -174,9 +201,6 @@ public:
   }
 
 private:
-  template<class F>
-  using tresult = IResult<term_type, F>;
-
   template<class Arg>
   CUDA term_type make_ptr(Arg&& arg) {
     return battery::allocate_shared<pc::DynTerm<Arg>>(get_allocator(), std::move(arg));
@@ -275,6 +299,12 @@ private:
         return std::move(tresult<F>(make_ptr(pc::Constant<A>(std::move(k.value()))))
           .join_warnings(std::move(k)));
       }
+      else if(f.is_false()) {
+        return make_ptr(pc::False<A>());
+      }
+      else if(f.is_true()) {
+        return make_ptr(pc::True<A>());
+      }
       else {
         return std::move(tresult<F>(IError<F>(true, name, "Constant in a term could not be interpreted in the underlying abstract universe.", f))
           .join_errors(std::move(k)));
@@ -287,9 +317,6 @@ private:
       return tresult<F>(IError<F>(true, name, "The shape of the formula is not supported in PC, and could not be interpreted as a term.", f));
     }
   }
-
-  template<class F>
-  using fresult = IResult<formula_type, F>;
 
   template<class Arg>
   CUDA formula_type make_fptr(Arg&& arg) {
@@ -373,13 +400,7 @@ private:
 
   template <bool is_tell, class F, class Env>
   CUDA fresult<F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
-    if(!(f.type() == aty() || f.is_untyped())) {
-      printf("BUG: ");
-      f.print();
-      printf("\n");
-      printf("%d\n", f.type());
-      assert(f.type() == aty() || f.is_untyped());
-    }
+    assert(f.type() == aty() || f.is_untyped());
     if(f.is_binary()) {
       Sig sig = f.sig();
       switch(sig) {
@@ -444,6 +465,12 @@ private:
               .join_errors(std::move(u)));
           }
       }
+    }
+    else if(f.is_false()) {
+      return make_fptr(pc::False<A>());
+    }
+    else if(f.is_true()) {
+      return make_fptr(pc::True<A>());
     }
     // Negative literal
     else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT &&
@@ -589,7 +616,7 @@ public:
     props.reserve(n + t.props.size());
     local::BInc has_changed2;
     for(int i = 0; i < t.props.size(); ++i) {
-      props.push_back(t.props[i]);
+      props.push_back(copy_propagator(t.props[i]));
       props[n + i]->preprocess(*sub, has_changed2);
     }
     has_changed.tell(has_changed2);

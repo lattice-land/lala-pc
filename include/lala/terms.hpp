@@ -72,7 +72,7 @@ public:
   CUDA Constant(Constant<A>&& other): k(std::move(other.k)) {}
   CUDA void tell(A&, const U&, local::BInc&) const {}
   CUDA U project(const A&) const { return k; }
-  CUDA local::BInc is_top(const A&) const { return local::BInc::bot(); }
+  CUDA local::BInc is_top(const A&) const { return false; }
   CUDA void print(const A&) const { ::battery::print(k); }
   CUDA TFormula<battery::standard_allocator> deinterpret() const {
     return k.template deinterpret<TFormula<battery::standard_allocator>>();

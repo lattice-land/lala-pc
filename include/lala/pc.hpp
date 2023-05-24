@@ -77,8 +77,8 @@ private:
   using term_type = battery::shared_ptr<pc::Term<A>, allocator_type>;
   template<class Alloc> using formula_type2 = battery::shared_ptr<pc::Formula<A>, Alloc>;
   template<class Alloc> using term_type2 = battery::shared_ptr<pc::Term<A>, Alloc>;
-  template<class F> using fresult = IResult<formula_type2<typename F::allocator_type>, F>;
-  template<class F> using tresult = IResult<term_type2<typename F::allocator_type>, F>;
+  template<class Alloc, class F> using fresult = IResult<formula_type2<Alloc>, F>;
+  template<class Alloc, class F> using tresult = IResult<term_type2<Alloc>, F>;
 
   AType atype;
   sub_ptr sub;
@@ -94,9 +94,9 @@ private:
     }
     else {
       using F = TFormula<battery::standard_allocator>;
-      VarEnv<battery::standard_allocator> empty_env;
       F f = prop->deinterpret();
       f.type_as(atype);
+      VarEnv<allocator_type> empty_env{get_allocator()};
       auto res = interpret_formula<true>(f, empty_env);
       if(!res.has_value()) {
         res.print_diagnostics();
@@ -209,40 +209,43 @@ private:
   }
 
   template<class Alloc, class F>
-  CUDA static tresult<F> interpret_unary(const Alloc& alloc, const F& f, term_type&& a) {
+  CUDA static tresult<Alloc, F> interpret_unary(const F& f, term_type2<Alloc>&& a) {
+    Alloc alloc = a.get_allocator();
     switch(f.sig()) {
-      case NEG: return make_ptr(alloc, pc::Neg<term_type>(std::move(a)));
-      default: return tresult<F>(IError<F>(true, name, "Unsupported unary symbol.", f));
+      case NEG: return make_ptr(alloc, pc::Neg<term_type2<Alloc>>(std::move(a)));
+      default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported unary symbol.", f));
     }
   }
 
   template<class Alloc, class F>
-  CUDA static tresult<F> interpret_binary(const Alloc& alloc, const F& f, term_type&& x, term_type&& y)
+  CUDA static tresult<Alloc, F> interpret_binary(const F& f, term_type2<Alloc>&& x, term_type2<Alloc>&& y)
   {
+    using Term = term_type2<Alloc>;
+    Alloc alloc = x.get_allocator();
     switch(f.sig()) {
-      case ADD: return make_ptr(alloc, pc::Add<term_type, term_type>(std::move(x), std::move(y)));
-      case SUB: return make_ptr(alloc, pc::Sub<term_type, term_type>(std::move(x), std::move(y)));
-      case MUL: return make_ptr(alloc, pc::Mul<term_type, term_type>(std::move(x), std::move(y)));
-      case DIV: return make_ptr(alloc, pc::Div<term_type, term_type>(std::move(x), std::move(y)));
-      default: return tresult<F>(IError<F>(true, name, "Unsupported binary symbol.", f));
+      case ADD: return make_ptr(alloc, pc::Add<Term, Term>(std::move(x), std::move(y)));
+      case SUB: return make_ptr(alloc, pc::Sub<Term, Term>(std::move(x), std::move(y)));
+      case MUL: return make_ptr(alloc, pc::Mul<Term, Term>(std::move(x), std::move(y)));
+      case DIV: return make_ptr(alloc, pc::Div<Term, Term>(std::move(x), std::move(y)));
+      default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported binary symbol.", f));
     }
   }
 
   template<class Alloc, class F>
-  CUDA static tresult<F> interpret_nary(const F& f, battery::vector<term_type, Alloc>&& subterms)
+  CUDA static tresult<Alloc, F> interpret_nary(const F& f, battery::vector<term_type2<Alloc>, Alloc>&& subterms)
   {
+    using Term = term_type2<Alloc>;
     Alloc alloc = subterms.get_allocator();
     switch(f.sig()) {
-      case ADD: return make_ptr(alloc, pc::NaryAdd<term_type, Alloc>(std::move(subterms)));
-      case MUL: return make_ptr(alloc, pc::NaryMul<term_type, Alloc>(std::move(subterms)));
-      default: return tresult<F>(IError<F>(true, name, "Unsupported nary symbol.", f));
+      case ADD: return make_ptr(alloc, pc::NaryAdd<Term, Alloc>(std::move(subterms)));
+      case MUL: return make_ptr(alloc, pc::NaryMul<Term, Alloc>(std::move(subterms)));
+      default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported nary symbol.", f));
     }
   }
 
-  template <bool is_tell, class F, class Env>
-  CUDA tresult<F> interpret_sequence(const F& f, Env& env)
+  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA tresult<Alloc, F> interpret_sequence(const F& f, Env& env)
   {
-    using Alloc = typename Env::allocator_type;
     Alloc alloc = env.get_allocator();
     battery::vector<term_type2<Alloc>, Alloc> subterms(alloc);
     subterms.reserve(f.seq().size());
@@ -258,10 +261,10 @@ private:
       subterms.push_back(std::move(t.value()));
     }
     if(subterms.size() == 1) {
-      return interpret_unary(alloc, f, std::move(subterms[0]));
+      return interpret_unary(f, std::move(subterms[0]));
     }
     else if(subterms.size() == 2) {
-      return interpret_binary(alloc, f, std::move(subterms[0]), std::move(subterms[1]));
+      return interpret_binary(f, std::move(subterms[0]), std::move(subterms[1]));
     }
     else {
       return interpret_nary(f, std::move(subterms));
@@ -286,9 +289,8 @@ private:
     }
   }
 
-  template <bool is_tell, class F, class Env>
-  CUDA tresult<F> interpret_term(const F& f, Env& env) {
-    using Alloc = typename Env::allocator_type;
+  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA tresult<Alloc, F> interpret_term(const F& f, Env& env) {
     Alloc alloc = env.get_allocator();
     if(f.is_variable()) {
       auto avar = interpret_var(f, env);
@@ -303,7 +305,7 @@ private:
       auto constant = F::make_binary(F::make_avar(AVar()), EQ, f);
       auto k = is_tell ? universe_type::interpret_tell(constant, env) : universe_type::interpret_ask(constant, env);
       if(k.has_value()) {
-        return std::move(tresult<F>(make_ptr(alloc, pc::Constant<A>(std::move(k.value()))))
+        return std::move(tresult<Alloc, F>(make_ptr(alloc, pc::Constant<A>(std::move(k.value()))))
           .join_warnings(std::move(k)));
       }
       else if(f.is_false()) {
@@ -313,7 +315,7 @@ private:
         return make_ptr(alloc, pc::True<A>());
       }
       else {
-        return std::move(tresult<F>(IError<F>(true, name, "Constant in a term could not be interpreted in the underlying abstract universe.", f))
+        return std::move(tresult<Alloc, F>(IError<F>(true, name, "Constant in a term could not be interpreted in the underlying abstract universe.", f))
           .join_errors(std::move(k)));
       }
     }
@@ -321,7 +323,7 @@ private:
       return interpret_sequence<is_tell, F>(f, env);
     }
     else {
-      return tresult<F>(IError<F>(true, name, "The shape of the formula is not supported in PC, and could not be interpreted as a term.", f));
+      return tresult<Alloc, F>(IError<F>(true, name, "The shape of the formula is not supported in PC, and could not be interpreted as a term.", f));
     }
   }
 
@@ -330,24 +332,24 @@ private:
     return battery::allocate_shared<pc::DynFormula<Arg>>(alloc, std::move(arg));
   }
 
-  template <bool is_tell, class F, class Env>
-  CUDA fresult<F> interpret_negation(const F& f, Env& env, bool neg_context) {
+  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_negation(const F& f, Env& env, bool neg_context) {
     auto nf = negate(f);
     if(nf.has_value()) {
       return interpret_formula<is_tell>(*nf, env, neg_context);
     }
     else {
-      return fresult<F>(IError<F>(true, name, "We must query this formula for disentailement, but we could not compute its negation.", f));
+      return fresult<Alloc, F>(IError<F>(true, name, "We must query this formula for disentailement, but we could not compute its negation.", f));
     }
   }
 
-  template<bool is_tell, template<class> class LogicalConnector, class F, class Env>
-  CUDA fresult<F> interpret_binary_logical_connector(const F& f, const F& g, Env& env, bool neg_context) {
+  template<bool is_tell, template<class> class LogicalConnector, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_binary_logical_connector(const F& f, const F& g, Env& env, bool neg_context) {
     auto l = interpret_formula<is_tell>(f, env, neg_context);
     if(l.has_value()) {
       auto k = interpret_formula<is_tell>(g, env, neg_context);
       if(k.has_value()) {
-        return std::move(fresult<F>(make_fptr(env.get_allocator(), LogicalConnector<formula_type>(std::move(l.value()), std::move(k.value()))))
+        return std::move(fresult<Alloc, F>(make_fptr(env.get_allocator(), LogicalConnector<formula_type2<Alloc>>(std::move(l.value()), std::move(k.value()))))
           .join_warnings(std::move(l))
           .join_warnings(std::move(k)));
       }
@@ -360,24 +362,23 @@ private:
     }
   }
 
-  template <bool is_tell, class F, class Env>
-  CUDA fresult<F> interpret_conjunction(const F& f, const F& g, Env& env, bool neg_context) {
+  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_conjunction(const F& f, const F& g, Env& env, bool neg_context) {
     return interpret_binary_logical_connector<is_tell, pc::Conjunction>(f, g, env, neg_context);
   }
 
-  template <bool is_tell, class F, class Env>
-  CUDA fresult<F> interpret_disjunction(const F& f, const F& g, Env& env) {
+  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_disjunction(const F& f, const F& g, Env& env) {
     return interpret_binary_logical_connector<is_tell, pc::Disjunction>(f, g, env, true);
   }
 
-  template <bool is_tell, class F, class Env>
-  CUDA fresult<F> interpret_biconditional(const F& f, const F& g, Env& env) {
+  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_biconditional(const F& f, const F& g, Env& env) {
     return interpret_binary_logical_connector<is_tell, pc::Biconditional>(f, g, env, true);
   }
 
-  template <bool neg, class F, class Env>
-  CUDA fresult<F> interpret_literal(const F& f, Env& env) {
-    using Alloc = typename Env::allocator_type;
+  template <bool neg, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_literal(const F& f, Env& env) {
     auto avar = interpret_var(f, env);
     if(avar.has_value()) {
       return make_fptr(env.get_allocator(), pc::VariableLiteral<A, neg>(std::move(avar.value())));
@@ -389,8 +390,8 @@ private:
 
   /** expr != k is transformed into expr < k \/ expr > k.
    * `k` needs to be an integer. */
-  template <bool is_tell, class F, class Env>
-  CUDA fresult<F> interpret_neq_decomposition(const F& f, Env& env, bool neg_context) {
+  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_neq_decomposition(const F& f, Env& env, bool neg_context) {
     if(f.sig() == NEQ && f.seq(1).is(F::Z)) {
       return interpret_formula<is_tell>(
         F::make_binary(
@@ -402,13 +403,12 @@ private:
       );
     }
     else {
-      return fresult<F>(IError<F>(true, name, "Unsupported predicate in this abstract domain.", f));
+      return fresult<Alloc, F>(IError<F>(true, name, "Unsupported predicate in this abstract domain.", f));
     }
   }
 
-  template <bool is_tell, class F, class Env>
-  CUDA fresult<F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
-    using Alloc = typename Env::allocator_type;
+  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
     Alloc alloc = env.get_allocator();
     assert(f.type() == aty() || f.is_untyped());
     if(f.is_binary()) {
@@ -438,40 +438,40 @@ private:
                 if(nf_.has_value()) {
                   auto nf = interpret_formula<is_tell>(*nf_, env);
                   if(nf.has_value()) {
-                    auto data = make_fptr(alloc, pc::LatticeOrderPredicate<term_type, formula_type>(std::move(term.value()), std::move(u.value()), std::move(nf.value())));
-                    return std::move(fresult<F>(std::move(data))
+                    auto data = make_fptr(alloc, pc::LatticeOrderPredicate<term_type2<Alloc>, formula_type2<Alloc>>(std::move(term.value()), std::move(u.value()), std::move(nf.value())));
+                    return std::move(fresult<Alloc, F>(std::move(data))
                       .join_warnings(std::move(nf))
                       .join_warnings(std::move(u))
                       .join_warnings(std::move(term)));
                   }
                   else {
-                    return std::move(fresult<F>(IError<F>(true, name, "We must query this formula for disentailement, but we could not interpret its negation.", f))
+                    return std::move(fresult<Alloc, F>(IError<F>(true, name, "We must query this formula for disentailement, but we could not interpret its negation.", f))
                       .join_errors(std::move(nf))
                       .join_warnings(std::move(u))
                       .join_warnings(std::move(term)));
                   }
                 }
                 else {
-                  return std::move(fresult<F>(IError<F>(true, name, "We must query this formula for disentailement, but we could not compute its negation.", f))
+                  return std::move(fresult<Alloc, F>(IError<F>(true, name, "We must query this formula for disentailement, but we could not compute its negation.", f))
                     .join_warnings(std::move(u))
                     .join_warnings(std::move(term)));
                 }
               }
               else {
                 auto data = make_fptr(alloc, pc::LatticeOrderPredicate<term_type2<Alloc>>(std::move(term.value()), std::move(u.value())));
-                return std::move(fresult<F>(std::move(data))
+                return std::move(fresult<Alloc, F>(std::move(data))
                   .join_warnings(std::move(u))
                   .join_warnings(std::move(term)));
               }
             }
             else {
-              return std::move(fresult<F>(IError<F>(true, name, "We cannot interpret the term on the LHS of the formula in PC.", f))
+              return std::move(fresult<Alloc, F>(IError<F>(true, name, "We cannot interpret the term on the LHS of the formula in PC.", f))
                 .join_warnings(std::move(u))
                 .join_errors(std::move(term)));
             }
           }
           else {
-            return std::move(fresult<F>(IError<F>(true, name, "We cannot interpret the constant on the RHS of the formula in the underlying abstract universe.", f))
+            return std::move(fresult<Alloc, F>(IError<F>(true, name, "We cannot interpret the constant on the RHS of the formula in the underlying abstract universe.", f))
               .join_errors(std::move(u)));
           }
       }
@@ -501,7 +501,7 @@ private:
       return interpret_formula<is_tell>(f.seq(0), env, neg_context);
     }
     else {
-      return fresult<F>(IError<F>(true, name, "The shape of this formula is not supported.", f));
+      return fresult<Alloc, F>(IError<F>(true, name, "The shape of this formula is not supported.", f));
     }
   }
 

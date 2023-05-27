@@ -16,14 +16,14 @@
 #include "formula.hpp"
 
 namespace lala {
-template <class A, class Alloc> class PC;
+template <class A, class Alloc, class SubAlloc> class PC;
 namespace impl {
   template <class>
   struct is_pc_like {
     static constexpr bool value = false;
   };
-  template<class A, class Alloc>
-  struct is_pc_like<PC<A, Alloc>> {
+  template<class A, class Alloc, class SubAlloc>
+  struct is_pc_like<PC<A, Alloc, SubAlloc>> {
     static constexpr bool value = true;
   };
 }
@@ -32,14 +32,14 @@ namespace impl {
     It is expected that `A` has a projection function `u = project(x)`.
     We also expect a `tell(x, u, has_changed)` function to join the abstract universe `u` in the domain of the variable `x`.
     An example of abstract domain satisfying these requirements is `VStore<Interval<ZInc>>`. */
-template <class A, class Allocator = typename A::allocator_type>
+template <class A, class Allocator = typename A::allocator_type, class SubAllocator = typename A::allocator_type>
 class PC {
 public:
   using sub_type = A;
   using universe_type = typename A::universe_type;
   using allocator_type = Allocator;
-  using sub_allocator_type = typename A::allocator_type;
-  using this_type = PC<sub_type, allocator_type>;
+  using sub_allocator_type = SubAllocator;
+  using this_type = PC<sub_type, allocator_type, sub_allocator_type>;
 
   template <class Alloc2>
   struct snapshot_type
@@ -65,11 +65,12 @@ public:
     {}
   };
 
-  using sub_ptr = abstract_ptr<sub_type>;
+  // using sub_ptr = abstract_ptr<sub_type>;
+  using sub_ptr = battery::shared_ptr<sub_type, sub_allocator_type>;
 
   constexpr static const char* name = "PC";
 
-  template <class A2, class Alloc2>
+  template <class A2, class Alloc2, class SubAlloc2>
   friend class PC;
 
 private:
@@ -84,8 +85,9 @@ private:
   sub_ptr sub;
   battery::vector<formula_type, allocator_type> props;
 
-  CUDA PC(AType atype, const allocator_type& alloc = allocator_type())
-   : atype(atype), props(alloc)  {}
+  CUDA PC(AType atype, const allocator_type& alloc, const sub_allocator_type& sub_alloc)
+   : atype(atype), props(alloc), sub(sub_alloc)
+  {}
 
   template <class PropType>
   CUDA formula_type copy_propagator(const PropType& prop) {
@@ -131,7 +133,7 @@ public:
       : sub_tells(other.sub_tells, alloc)
       , props(alloc)
     {
-      PC<A, Alloc2> pc(0, alloc);
+      PC<A, Alloc2, battery::standard_allocator> pc(0, alloc, battery::standard_allocator());
       for(int i = 0; i < other.props.size(); ++i) {
         props.push_back(pc.copy_propagator(other.props[i]));
       }
@@ -157,15 +159,16 @@ public:
   CUDA PC(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type())
    : atype(atype), sub(std::move(sub)), props(alloc)  {}
 
-  CUDA PC(PC&& other): atype(other.atype), props(std::move(other.props)) {
-    sub.swap(other.sub);
-  }
+  CUDA PC(PC&& other)
+    : atype(other.atype)
+    , props(std::move(other.props))
+    , sub(std::move(other.sub))
+  {}
 
   template<class A2, class Alloc2, class... Allocators>
   CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
-   : atype(other.atype), sub(deps.template clone<A>(other.sub))
+   : atype(other.atype), sub(deps.template clone<A>(other.sub)), props(deps.template get_allocator<allocator_type>())
   {
-    props = battery::vector<formula_type, allocator_type>(deps.template get_allocator<allocator_type>());
     props.reserve(other.props.size());
 
     /** The propagators are represented as a class hierarchy parametrized over A2.
@@ -276,7 +279,7 @@ private:
       return IResult<AVar, F>(f.v());
     }
     else {
-      auto x = var_in(f, env);
+      thrust::optional<const typename Env::variable_type&> x = var_in(f, env);
       if(!x.has_value()) {
         return IResult<AVar, F>(IError<F>(true, name, "The variable is not declared in the environment, and thus cannot be accessed by the propagator.", f));
       }

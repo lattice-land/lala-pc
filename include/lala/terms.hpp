@@ -5,58 +5,15 @@
 
 #include "battery/vector.hpp"
 #include "lala/universes/primitive_upset.hpp"
-#include "ptr_utility.hpp"
 
 namespace lala {
 namespace pc {
 
-template <class AD>
-class Term {
-public:
-  using A = AD;
-  using U = typename A::local_universe;
-  CUDA virtual ~Term() {}
-  CUDA virtual void tell(A&, const U&, local::BInc&) const = 0;
-  CUDA virtual U project(const A&) const = 0;
-  CUDA virtual local::BInc is_top(const A&) const = 0;
-  CUDA virtual void print(const A&) const = 0;
-  CUDA virtual TFormula<battery::standard_allocator> deinterpret() const = 0;
-};
+template <class AD, class Allocator>
+class Term;
 
-// `DynTerm` wraps a term and inherits from Term.
-// A vtable will be created.
-template<class BaseTerm>
-class DynTerm: public Term<typename BaseTerm::A> {
-  BaseTerm t;
-public:
-  using A = typename BaseTerm::A;
-  using U = typename A::local_universe;
-
-  CUDA DynTerm(BaseTerm&& t): t(std::move(t)) {}
-  CUDA DynTerm(DynTerm<BaseTerm>&& other): DynTerm(std::move(other.t)) {}
-
-  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const override {
-    t.tell(a, u, has_changed);
-  }
-
-  CUDA U project(const A& a) const override {
-    return t.project(a);
-  }
-
-  CUDA local::BInc is_top(const A& a) const override {
-    return t.is_top(a);
-  }
-
-  CUDA void print(const A& a) const override {
-    t.print(a);
-  }
-
-  CUDA TFormula<battery::standard_allocator> deinterpret() const override {
-    return t.deinterpret();
-  }
-
-  CUDA ~DynTerm() {}
-};
+template <class AD, class Allocator>
+class Formula;
 
 template <class AD>
 class Constant {
@@ -69,28 +26,23 @@ private:
 
 public:
   CUDA Constant(U&& k) : k(k) {}
-  CUDA Constant(Constant<A>&& other): k(std::move(other.k)) {}
+  Constant(Constant<A>&& other) = default;
+
+  template <class A2, class Alloc>
+  CUDA Constant(const Constant<A2>& other, const Alloc&): k(other.k) {}
+
   CUDA void tell(A&, const U&, local::BInc&) const {}
   CUDA U project(const A&) const { return k; }
   CUDA local::BInc is_top(const A&) const { return false; }
   CUDA void print(const A&) const { ::battery::print(k); }
-  CUDA TFormula<battery::standard_allocator> deinterpret() const {
-    return k.template deinterpret<TFormula<battery::standard_allocator>>();
+  template <class Alloc>
+  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+    return k.template deinterpret<TFormula<Alloc>>(alloc);
   }
-};
 
-template<class T>
-struct is_constant_term {
-  static constexpr bool value = false;
+  template <class A2>
+  friend class Constant;
 };
-
-template <class A>
-struct is_constant_term<Constant<A>> {
-  static constexpr bool value = true;
-};
-
-template<class T>
-inline constexpr bool is_constant_term_v = is_constant_term<T>::value;
 
 template <class AD>
 class Variable {
@@ -105,9 +57,10 @@ public:
   CUDA Variable() {}
   CUDA Variable(AVar avar) : avar(avar) {}
   Variable(Variable<A>&& other) = default;
-  Variable(const Variable<A>& other) = default;
-  Variable<A>& operator=(Variable<A>&&) = default;
-  Variable<A>& operator=(const Variable<A>&) = default;
+  Variable<A>& operator=(Variable<A>&& other) = default;
+
+  template <class A2, class Alloc>
+  CUDA Variable(const Variable<A2>& other, const Alloc&): avar(other.avar) {}
 
   CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
     a.tell(avar, u, has_changed);
@@ -120,9 +73,13 @@ public:
   CUDA local::BInc is_top(const A& a) const { return project(a).is_top(); }
   CUDA void print(const A& a) const { printf("(%d,%d)", avar.aty(), avar.vid()); }
 
-  CUDA TFormula<battery::standard_allocator> deinterpret() const {
-    return TFormula<battery::standard_allocator>::make_avar(avar);
+  template <class Alloc>
+  CUDA TFormula<Alloc> deinterpret(const Alloc&, AType) const {
+    return TFormula<Alloc>::make_avar(avar);
   }
+
+  template <class A2>
+  friend class Variable;
 };
 
 template<class Universe>
@@ -137,23 +94,33 @@ struct NegOp {
   CUDA static Sig sig() { return NEG; }
 };
 
-template <class UnaryOp, class TermX>
+template <class AD, class UnaryOp, class Allocator>
 class Unary {
 public:
-  using TermX_ = typename remove_ptr<TermX>::type;
-  using A = typename TermX_::A;
+  using allocator_type = Allocator;
+  using A = AD;
   using U = typename A::local_universe;
-  using this_type = Unary<UnaryOp, TermX>;
-private:
-  TermX x_term;
+  using this_type = Unary<A, allocator_type, UnaryOp>;
 
-  CUDA INLINE const TermX_& x() const {
-    return deref(x_term);
+  template <class A2, class UnaryOp2, class Alloc2>
+  friend class Unary;
+
+private:
+  using sub_type = Term<A, allocator_type>;
+  battery::unique_ptr<sub_type, allocator_type> x_term;
+
+  CUDA INLINE const sub_type& x() const {
+    return *x_term;
   }
 
 public:
-  CUDA Unary(TermX&& x_term): x_term(std::move(x_term)) {}
+  CUDA Unary(battery::unique_ptr<sub_type, allocator_type>&& x_term): x_term(std::move(x_term)) {}
   CUDA Unary(this_type&& other): Unary(std::move(other.x_term)) {}
+
+  template <class A2, class UnaryOp2, class Alloc2>
+  CUDA Unary(const Unary<A2, UnaryOp2, Alloc2>& other, const allocator_type& allocator):
+    x_term(battery::allocate_unique<sub_type, allocator_type>(allocator, *other.x_term, allocator))
+  {}
 
   CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
     if(x().is_top(a)) { return; }
@@ -173,15 +140,11 @@ public:
     x().print(a);
   }
 
-  CUDA TFormula<battery::standard_allocator> deinterpret() const {
-    return TFormula<battery::standard_allocator>::make_unary(UnaryOp::sig(), x().deinterpret());
+  template <class Alloc>
+  CUDA TFormula<Alloc> deinterpret(const Alloc& allocator, AType apc) const {
+    return TFormula<Alloc>::make_unary(UnaryOp::sig(), x().deinterpret(allocator, apc), apc, allocator);
   }
 };
-
-template <class TermX>
-using Neg = Unary<
-  NegOp<typename remove_ptr<TermX>::type::U>,
-  TermX>;
 
 template<class Universe>
 struct GroupAdd {
@@ -268,32 +231,44 @@ struct GroupDiv {
   CUDA static Sig sig() { return divsig; }
 };
 
-template <class Group, class TermX, class TermY>
+template <class AD, class Group, class Allocator>
 class Binary {
 public:
-  using TermX_ = typename remove_ptr<TermX>::type;
-  using TermY_ = typename remove_ptr<TermY>::type;
-
-  using A = typename TermX_::A;
+  using A = AD;
+  using allocator_type = Allocator;
   using U = typename Group::U;
   using G = Group;
-  using this_type = Binary<Group, TermX, TermY>;
+  using this_type = Binary<A, G, allocator_type>;
+
+  template <class A2, class Group2, class Alloc2>
+  friend class Binary;
 
 private:
-  TermX x_term;
-  TermY y_term;
+  using sub_type = Term<A, allocator_type>;
+  battery::unique_ptr<sub_type> x_term;
+  battery::unique_ptr<sub_type> y_term;
 
-  CUDA INLINE const TermX_& x() const {
-    return deref(x_term);
+  CUDA INLINE const sub_type& x() const {
+    return *x_term;
   }
 
-  CUDA INLINE const TermY_& y() const {
-    return deref(y_term);
+  CUDA INLINE const sub_type& y() const {
+    return *y_term;
   }
 
 public:
-  CUDA Binary(TermX&& x_term, TermY&& y_term): x_term(std::move(x_term)), y_term(std::move(y_term)) {}
-  CUDA Binary(this_type&& other): Binary(std::move(other.x_term), std::move(other.y_term)) {}
+  CUDA Binary(battery::unique_ptr<sub_type>&& x_term, battery::unique_ptr<sub_type>&& y_term)
+    : x_term(std::move(x_term))
+    , y_term(std::move(y_term)) {}
+
+  CUDA Binary(this_type&& other)
+    : Binary(std::move(other.x_term), std::move(other.y_term)) {}
+
+  template <class A2, class Group2, class Alloc2>
+  CUDA Binary(const Binary<A2, Group2, Alloc2>& other, const allocator_type& allocator)
+    : x_term(battery::allocate_unique<sub_type, allocator_type>(allocator, *other.x_term, allocator))
+    , y_term(battery::allocate_unique<sub_type, allocator_type>(allocator, *other.y_term, allocator))
+  {}
 
   /** Enforce `x <op> y >= u` where >= is the lattice order of the underlying abstract universe.
       For instance, over the interval abstract universe, `x + y >= [2..5]` will ensure that `x + y` is eventually at least `2` and at most `5`. */
@@ -301,10 +276,10 @@ public:
     auto xt = x().project(a);
     auto yt = y().project(a);
     if(xt.is_top() || yt.is_top()) { return; }
-    if constexpr(!is_constant_term_v<TermX>) {
+    if(!x().is(sub_type::IConstant)) {
       x().tell(a, G::inv1(u, yt), has_changed);   // x <- u <inv> y
     }
-    if constexpr(!is_constant_term_v<TermY>) {
+    if(!y().is(sub_type::IConstant)) {
       y().tell(a, G::inv2(u, x().project(a)), has_changed);   // y <- u <inv> x
     }
   }
@@ -323,54 +298,45 @@ public:
     y().print(a);
   }
 
-  CUDA TFormula<battery::standard_allocator> deinterpret() const {
-    return TFormula<battery::standard_allocator>::make_binary(
-      x().deinterpret(), G::sig(), y().deinterpret());
+  template <class Alloc>
+  CUDA TFormula<Alloc> deinterpret(const Alloc& allocator, AType apc) const {
+    return TFormula<Alloc>::make_binary(
+      x().deinterpret(allocator, apc),
+      G::sig(),
+      y().deinterpret(allocator, apc),
+      apc,
+      allocator);
   }
 };
 
-template <class TermX, class TermY>
-using Add = Binary<
-  GroupAdd<typename remove_ptr<TermX>::type::U>,
-  TermX,
-  TermY>;
-
-template <class TermX, class TermY>
-using Sub = Binary<
-  GroupSub<typename remove_ptr<TermX>::type::U>,
-  TermX,
-  TermY>;
-
-template <class TermX, class TermY, Sig divsig = EDIV>
-using Mul = Binary<
-  GroupMul<typename remove_ptr<TermX>::type::U, divsig>,
-  TermX,
-  TermY>;
-
-template <class TermX, class TermY, Sig divsig = EDIV>
-using Div = Binary<
-  GroupDiv<typename remove_ptr<TermX>::type::U, divsig>,
-  TermX,
-  TermY>;
-
 // Nary is only valid for commutative group (e.g., addition and multiplication).
-template <class T, class Combinator, class Allocator>
+template <class Combinator>
 class Nary {
-  battery::vector<T, Allocator> terms;
-
-  using T_ = typename remove_ptr<T>::type;
-  CUDA INLINE const T_& t(size_t i) const {
-    return deref(terms[i]);
-  }
-
 public:
-  using this_type = Nary<T, Combinator, Allocator>;
+  using this_type = Nary<Combinator>;
+  using allocator_type = typename Combinator::allocator_type;
   using A = typename Combinator::A;
   using U = typename Combinator::U;
   using G = typename Combinator::G;
 
-  CUDA Nary(battery::vector<T, Allocator>&& terms): terms(std::move(terms)) {}
+  template <class Combinator2>
+  friend class Nary;
+private:
+  using sub_type = Term<A, allocator_type>;
+  battery::vector<sub_type, allocator_type> terms;
+
+  CUDA INLINE const sub_type& t(size_t i) const {
+    return terms[i];
+  }
+
+public:
+  CUDA Nary(battery::vector<sub_type, allocator_type>&& terms): terms(std::move(terms)) {}
   CUDA Nary(this_type&& other): Nary(std::move(other.terms)) {}
+
+  template <class Combinator2>
+  CUDA Nary(const Nary<Combinator2>& other, const allocator_type& allocator)
+    : terms(other.terms, allocator)
+  {}
 
   CUDA U project(const A& a) const {
     U accu = t(0).project(a);
@@ -404,21 +370,216 @@ public:
     }
   }
 
-  CUDA TFormula<battery::standard_allocator> deinterpret() const {
-    using F = TFormula<battery::standard_allocator>;
-    typename F::Sequence seq;
+  template <class Alloc>
+  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+    using F = TFormula<Alloc>;
+    typename F::Sequence seq{alloc};
     for(int i = 0; i < terms.size(); ++i) {
-      seq.push_back(t(i).deinterpret());
+      seq.push_back(t(i).deinterpret(alloc, apc));
     }
-    return TFormula<battery::standard_allocator>::make_nary(G::sig(), std::move(seq));
+    return TFormula<Alloc>::make_nary(G::sig(), std::move(seq), apc);
   }
 };
 
-template<class T, class Allocator>
-using NaryAdd = Nary<T, Add<T, T>, Allocator>;
+template <class AD, class Allocator>
+class Term {
+public:
+  using A = AD;
+  using U = typename A::local_universe;
+  using allocator_type = Allocator;
+  using this_type = Term<A, allocator_type>;
+  using this_ptr = battery::unique_ptr<Term<A, allocator_type>, allocator_type>;
+  using formula_ptr = battery::unique_ptr<Formula<A, allocator_type>, allocator_type>;
+  using Neg = Unary<A, NegOp<U>, allocator_type>;
+  using Add = Binary<A, GroupAdd<U>, allocator_type>;
+  using Sub = Binary<A, GroupSub<U>, allocator_type>;
+  using Mul = Binary<A, GroupMul<U, EDIV>, allocator_type>;
+  using TDiv = Binary<A, GroupDiv<U, TDIV>, allocator_type>;
+  using FDiv = Binary<A, GroupDiv<U, FDIV>, allocator_type>;
+  using CDiv = Binary<A, GroupDiv<U, CDIV>, allocator_type>;
+  using EDiv = Binary<A, GroupDiv<U, EDIV>, allocator_type>;
+  using NaryAdd = Nary<Add>;
+  using NaryMul = Nary<Mul>;
 
-template<class T, class Allocator, Sig divsig = EDIV>
-using NaryMul = Nary<T, Mul<T, T, divsig>, Allocator>;
+  static constexpr size_t IVar = 0;
+  static constexpr size_t IConstant = IVar + 1;
+  static constexpr size_t IFormula = IConstant + 1;
+  static constexpr size_t INeg = IFormula + 1;
+  static constexpr size_t IAdd = INeg + 1;
+  static constexpr size_t ISub = IAdd + 1;
+  static constexpr size_t IMul = ISub + 1;
+  static constexpr size_t ITDiv = IMul + 1;
+  static constexpr size_t IFDiv = ITDiv + 1;
+  static constexpr size_t ICDiv = IFDiv + 1;
+  static constexpr size_t IEDiv = ICDiv + 1;
+  static constexpr size_t INaryAdd = IEDiv + 1;
+  static constexpr size_t INaryMul = INaryAdd + 1;
+
+  template <class A2, class Alloc2>
+  friend class Term;
+
+private:
+  using VTerm = battery::variant<
+    Variable<A>,
+    Constant<A>,
+    formula_ptr,
+    Neg,
+    Add,
+    Sub,
+    Mul,
+    TDiv,
+    FDiv,
+    CDiv,
+    EDiv,
+    NaryAdd,
+    NaryMul
+  >;
+
+  VTerm term;
+
+  template <size_t I, class TermType, class A2, class Alloc2>
+  CUDA static VTerm create_one(const Term<A2, Alloc2>& other, const allocator_type& allocator) {
+    return VTerm::template create<I>(TermType(battery::get<I>(other.term), allocator));
+  }
+
+  template <class A2, class Alloc2>
+  CUDA static VTerm create(const Term<A2, Alloc2>& other, const allocator_type& allocator) {
+    switch(other.term.index()) {
+      case IVar: return create_one<IVar, Variable<A>>(other, allocator);
+      case IConstant: return create_one<IConstant, Constant<A>>(other, allocator);
+      case IFormula:
+        return VTerm::template create<IFormula>(battery::allocate_unique<Formula<A, allocator_type>>(
+          allocator, *battery::get<IFormula>(other.term), allocator));
+      case INeg: return create_one<INeg, Neg>(other, allocator);
+      case IAdd: return create_one<IAdd, Add>(other, allocator);
+      case ISub: return create_one<ISub, Sub>(other, allocator);
+      case IMul: return create_one<IMul, Mul>(other, allocator);
+      case ITDiv: return create_one<ITDiv, TDiv>(other, allocator);
+      case IFDiv: return create_one<IFDiv, FDiv>(other, allocator);
+      case ICDiv: return create_one<ICDiv, CDiv>(other, allocator);
+      case IEDiv: return create_one<IEDiv, EDiv>(other, allocator);
+      case INaryAdd: return create_one<INaryAdd, NaryAdd>(other, allocator);
+      case INaryMul: return create_one<INaryMul, NaryMul>(other, allocator);
+      default:
+        printf("BUG: term not handled.\n");
+        assert(false);
+        return VTerm::template create<IVar>(Variable<A>());
+    }
+  }
+
+  CUDA Term(VTerm&& term): term(std::move(term)) {}
+
+  template <class F>
+  CUDA auto forward(F&& f) const {
+    switch(term.index()) {
+      case IVar: return f(battery::get<IVar>(term));
+      case IConstant: return f(battery::get<IConstant>(term));
+      case IFormula: return f(*battery::get<IFormula>(term));
+      case INeg: return f(battery::get<INeg>(term));
+      case IAdd: return f(battery::get<IAdd>(term));
+      case ISub: return f(battery::get<ISub>(term));
+      case IMul: return f(battery::get<IMul>(term));
+      case ITDiv: return f(battery::get<ITDiv>(term));
+      case IFDiv: return f(battery::get<IFDiv>(term));
+      case ICDiv: return f(battery::get<ICDiv>(term));
+      case IEDiv: return f(battery::get<IEDiv>(term));
+      case INaryAdd: return f(battery::get<INaryAdd>(term));
+      case INaryMul: return f(battery::get<INaryMul>(term));
+      default:
+        printf("BUG: term not handled.\n");
+        assert(false);
+        return f(Variable<A>());
+    }
+  }
+
+public:
+  template <class A2, class Alloc2>
+  CUDA Term(const Term<A2, Alloc2>& other, const allocator_type& allocator = allocator_type())
+    : term(create(other, allocator))
+  {}
+
+  CUDA bool is(size_t kind) const {
+    return term.index() == kind;
+  }
+
+  template <size_t I, class SubTerm>
+  CUDA static this_type make(SubTerm&& sub_term) {
+    return Term(VTerm::template create<I>(std::move(sub_term)));
+  }
+
+  CUDA static this_type make_var(const AVar& avar) {
+    return make<IVar>(Variable<A>(avar));
+  }
+
+  CUDA static this_type make_constant(U&& sub_term) {
+    return make<IConstant>(Constant<A>(std::move(sub_term)));
+  }
+
+  CUDA static this_type make_formula(formula_ptr&& sub_term) {
+    return make<IFormula>(std::move(sub_term));
+  }
+
+  CUDA static this_type make_neg(this_ptr&& sub_term) {
+    return make<INeg>(Neg(std::move(sub_term)));
+  }
+
+  CUDA static this_type make_add(this_ptr&& left, this_ptr&& right) {
+    return make<IAdd>(Add(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_sub(this_ptr&& left, this_ptr&& right) {
+    return make<ISub>(Sub(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_mul(this_ptr&& left, this_ptr&& right) {
+    return make<IMul>(Mul(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_tdiv(this_ptr&& left, this_ptr&& right) {
+    return make<ITDiv>(TDiv(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_fdiv(this_ptr&& left, this_ptr&& right) {
+    return make<IFDiv>(FDiv(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_cdiv(this_ptr&& left, this_ptr&& right) {
+    return make<ICDiv>(CDiv(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_ediv(this_ptr&& left, this_ptr&& right) {
+    return make<IEDiv>(EDiv(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_naryadd(battery::vector<this_type, allocator_type>&& sub_terms) {
+    return make<INaryAdd>(NaryAdd(std::move(sub_terms)));
+  }
+
+  CUDA static this_type make_narymul(battery::vector<this_type, allocator_type>&& sub_terms) {
+    return make<INaryMul>(NaryMul(std::move(sub_terms)));
+  }
+
+  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
+    forward([&](const auto& t) { t.tell(a, u, has_changed); });
+  }
+
+  CUDA U project(const A& a) const {
+    return forward([&](const auto& t) { return t.project(a); });
+  }
+
+  CUDA local::BInc is_top(const A& a) const {
+    return forward([&](const auto& t) { return t.is_top(a); });
+  }
+
+  CUDA void print(const A& a) const {
+    forward([&](const auto& t) { return t.print(a); });
+  }
+
+  template <class Alloc>
+  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+    return forward([&](const auto& t) { return t.deinterpret(alloc, apc); });
+  }
+};
 
 } // namespace pc
 } // namespace lala

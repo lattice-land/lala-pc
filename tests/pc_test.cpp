@@ -32,9 +32,12 @@ TEST(TermTest, AddTermBinary) {
   IStore store = interpret_tell_to2<IStore>("var int: x; var int: y;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);");
-  pc::Add<pc::Variable<IStore>, pc::Variable<IStore>> x_plus_y(
-    pc::Variable<IStore>(AVar(sty, 0)),
-    pc::Variable<IStore>(AVar(sty, 1)));
+  using T = pc::Term<IStore, standard_allocator>;
+  standard_allocator alloc{};
+  T x_plus_y(
+    T::make<T::IAdd>(T::Add(
+      battery::allocate_unique<T>(alloc, T::make<T::IVar>(pc::Variable<IStore>(AVar(sty, 0)))),
+      battery::allocate_unique<T>(alloc, T::make<T::IVar>(pc::Variable<IStore>(AVar(sty, 1)))))));
   EXPECT_EQ(x_plus_y.project(store), Itv(0,20));
   local::BInc has_changed2;
   x_plus_y.tell(store, Itv(zi::bot(), 5), has_changed2);
@@ -47,11 +50,13 @@ TEST(TermTest, AddTermNary) {
     constraint int_ge(x, 0); constraint int_le(x, 10);\
     constraint int_ge(y, 0); constraint int_le(y, 10);\
     constraint int_ge(z, 0); constraint int_le(z, 10);");
-  vector<pc::Variable<IStore>, standard_allocator> vars(3);
-  for(int i = 0; i < 3; ++i) {
-    vars[i] = pc::Variable<IStore>(AVar(sty, i));
-  }
-  pc::NaryAdd<pc::Variable<IStore>, standard_allocator> sum_xyz(std::move(vars));
+  using T = pc::Term<IStore, standard_allocator>;
+  vector<T, standard_allocator> vars({
+    T::make<T::IVar>(pc::Variable<IStore>(AVar(sty, 0))),
+    T::make<T::IVar>(pc::Variable<IStore>(AVar(sty, 1))),
+    T::make<T::IVar>(pc::Variable<IStore>(AVar(sty, 2)))
+  });
+  auto sum_xyz = T::make<T::INaryAdd>(T::NaryAdd(std::move(vars)));
   EXPECT_EQ(sum_xyz.project(store), Itv(0,30));
   local::BInc has_changed2;
   sum_xyz.tell(store, Itv(zi::bot(), 5), has_changed2);

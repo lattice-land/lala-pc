@@ -16,14 +16,14 @@
 #include "formula.hpp"
 
 namespace lala {
-template <class A, class Alloc, class SubAlloc> class PC;
+template <class A, class Alloc> class PC;
 namespace impl {
   template <class>
   struct is_pc_like {
     static constexpr bool value = false;
   };
-  template<class A, class Alloc, class SubAlloc>
-  struct is_pc_like<PC<A, Alloc, SubAlloc>> {
+  template<class A, class Alloc>
+  struct is_pc_like<PC<A, Alloc>> {
     static constexpr bool value = true;
   };
 }
@@ -32,14 +32,14 @@ namespace impl {
     It is expected that `A` has a projection function `u = project(x)`.
     We also expect a `tell(x, u, has_changed)` function to join the abstract universe `u` in the domain of the variable `x`.
     An example of abstract domain satisfying these requirements is `VStore<Interval<ZInc>>`. */
-template <class A, class Allocator = typename A::allocator_type, class SubAllocator = typename A::allocator_type>
+template <class A, class Allocator = typename A::allocator_type>
 class PC {
 public:
   using sub_type = A;
   using universe_type = typename A::universe_type;
   using allocator_type = Allocator;
-  using sub_allocator_type = SubAllocator;
-  using this_type = PC<sub_type, allocator_type, sub_allocator_type>;
+  using sub_allocator_type = typename A::allocator_type;
+  using this_type = PC<sub_type, allocator_type>;
 
   template <class Alloc2>
   struct snapshot_type
@@ -65,54 +65,29 @@ public:
     {}
   };
 
-  // using sub_ptr = abstract_ptr<sub_type>;
-  using sub_ptr = battery::shared_ptr<sub_type, sub_allocator_type>;
+  using sub_ptr = abstract_ptr<sub_type>;
 
   constexpr static const char* name = "PC";
 
-  template <class A2, class Alloc2, class SubAlloc2>
+  template <class A2, class Alloc2>
   friend class PC;
 
 private:
-  using formula_type = battery::shared_ptr<pc::Formula<A>, allocator_type>;
-  using term_type = battery::shared_ptr<pc::Term<A>, allocator_type>;
-  template<class Alloc> using formula_type2 = battery::shared_ptr<pc::Formula<A>, Alloc>;
-  template<class Alloc> using term_type2 = battery::shared_ptr<pc::Term<A>, Alloc>;
-  template<class Alloc, class F> using fresult = IResult<formula_type2<Alloc>, F>;
-  template<class Alloc, class F> using tresult = IResult<term_type2<Alloc>, F>;
+  using formula_type = pc::Formula<A, allocator_type>;
+  using term_type = pc::Term<A, allocator_type>;
+  template<class Alloc> using term_ptr = battery::unique_ptr<pc::Term<A, Alloc>, Alloc>;
+  template<class Alloc, class F> using fresult = IResult<pc::Formula<A, Alloc>, F>;
+  template<class Alloc, class F> using tresult = IResult<pc::Term<A, Alloc>, F>;
 
   AType atype;
   sub_ptr sub;
   battery::vector<formula_type, allocator_type> props;
 
-  CUDA PC(AType atype, const allocator_type& alloc, const sub_allocator_type& sub_alloc)
-   : atype(atype), props(alloc), sub(sub_alloc)
-  {}
-
-  template <class PropType>
-  CUDA formula_type copy_propagator(const PropType& prop) {
-    if constexpr(std::is_same_v<PropType, formula_type>) {
-      return prop;
-    }
-    else {
-      using F = TFormula<battery::standard_allocator>;
-      F f = prop->deinterpret();
-      f.type_as(atype);
-      VarEnv<allocator_type> empty_env{get_allocator()};
-      auto res = interpret_formula<true>(f, empty_env);
-      if(!res.has_value()) {
-        res.print_diagnostics();
-        assert(res.has_value());
-      }
-      return res.value();
-    }
-  }
-
 public:
   template <class Alloc2, class SubTellType>
   struct interpreted_type {
     battery::vector<SubTellType, Alloc2> sub_tells;
-    battery::vector<formula_type2<Alloc2>, Alloc2> props;
+    battery::vector<pc::Formula<A, Alloc2>, Alloc2> props;
 
     interpreted_type(interpreted_type&&) = default;
     interpreted_type& operator=(interpreted_type&&) = default;
@@ -131,13 +106,8 @@ public:
     template <class InterpretedType>
     CUDA interpreted_type(const InterpretedType& other, const Alloc2& alloc = Alloc2())
       : sub_tells(other.sub_tells, alloc)
-      , props(alloc)
-    {
-      PC<A, Alloc2, battery::standard_allocator> pc(0, alloc, battery::standard_allocator());
-      for(int i = 0; i < other.props.size(); ++i) {
-        props.push_back(pc.copy_propagator(other.props[i]));
-      }
-    }
+      , props(other.props, alloc)
+    {}
 
     template <class Alloc3, class SubType2>
     friend struct interpreted_type;
@@ -167,18 +137,10 @@ public:
 
   template<class A2, class Alloc2, class... Allocators>
   CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
-   : atype(other.atype), sub(deps.template clone<A>(other.sub)), props(deps.template get_allocator<allocator_type>())
-  {
-    props.reserve(other.props.size());
-
-    /** The propagators are represented as a class hierarchy parametrized over A2.
-     * Since templated virtual methods are not supported in C++, we cannot clone the propagators to be defined over A.
-     * Instead, we deinterpret each propagator to a formula, and reinterpret them in the current element.
-    */
-    for(int i = 0; i < other.props.size(); ++i) {
-      props.push_back(copy_propagator(other.props[i]));
-    }
-  }
+   : atype(other.atype)
+   , sub(deps.template clone<A>(other.sub))
+   , props(other.props, deps.template get_allocator<allocator_type>())
+  {}
 
   CUDA allocator_type get_allocator() const {
     return props.get_allocator();
@@ -204,42 +166,39 @@ public:
   }
 
 private:
-  template<class Alloc, class Arg>
-  CUDA static term_type2<Alloc> make_ptr(const Alloc& alloc, Arg&& arg) {
-    return battery::allocate_shared<pc::DynTerm<Arg>>(alloc, std::move(arg));
-  }
-
   template<class Alloc, class F>
-  CUDA static tresult<Alloc, F> interpret_unary(const F& f, term_type2<Alloc>&& a) {
+  CUDA static tresult<Alloc, F> interpret_unary(const F& f, term_ptr<Alloc>&& a) {
+    using T = pc::Term<A, Alloc>;
     Alloc alloc = a.get_allocator();
     switch(f.sig()) {
-      case NEG: return make_ptr(alloc, pc::Neg<term_type2<Alloc>>(std::move(a)));
+      case NEG: return T::make_neg(std::move(a));
       default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported unary symbol.", f));
     }
   }
 
   template<class Alloc, class F>
-  CUDA static tresult<Alloc, F> interpret_binary(const F& f, term_type2<Alloc>&& x, term_type2<Alloc>&& y)
+  CUDA static tresult<Alloc, F> interpret_binary(const F& f, term_ptr<Alloc>&& x, term_ptr<Alloc>&& y)
   {
-    using Term = term_type2<Alloc>;
-    Alloc alloc = x.get_allocator();
+    using T = pc::Term<A, Alloc>;
     switch(f.sig()) {
-      case ADD: return make_ptr(alloc, pc::Add<Term, Term>(std::move(x), std::move(y)));
-      case SUB: return make_ptr(alloc, pc::Sub<Term, Term>(std::move(x), std::move(y)));
-      case MUL: return make_ptr(alloc, pc::Mul<Term, Term>(std::move(x), std::move(y)));
-      case DIV: return make_ptr(alloc, pc::Div<Term, Term>(std::move(x), std::move(y)));
+      case ADD: return T::make_add(std::move(x), std::move(y));
+      case SUB: return T::make_sub(std::move(x), std::move(y));
+      case MUL: return T::make_mul(std::move(x), std::move(y));
+      case TDIV: return T::make_tdiv(std::move(x), std::move(y));
+      case FDIV: return T::make_fdiv(std::move(x), std::move(y));
+      case CDIV: return T::make_cdiv(std::move(x), std::move(y));
+      case EDIV: return T::make_ediv(std::move(x), std::move(y));
       default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported binary symbol.", f));
     }
   }
 
   template<class Alloc, class F>
-  CUDA static tresult<Alloc, F> interpret_nary(const F& f, battery::vector<term_type2<Alloc>, Alloc>&& subterms)
+  CUDA static tresult<Alloc, F> interpret_nary(const F& f, battery::vector<pc::Term<A, Alloc>, Alloc>&& subterms)
   {
-    using Term = term_type2<Alloc>;
-    Alloc alloc = subterms.get_allocator();
+    using T = pc::Term<A, Alloc>;
     switch(f.sig()) {
-      case ADD: return make_ptr(alloc, pc::NaryAdd<Term, Alloc>(std::move(subterms)));
-      case MUL: return make_ptr(alloc, pc::NaryMul<Term, Alloc>(std::move(subterms)));
+      case ADD: return T::make_naryadd(std::move(subterms));
+      case MUL: return T::make_narymul(std::move(subterms));
       default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported nary symbol.", f));
     }
   }
@@ -247,8 +206,9 @@ private:
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA tresult<Alloc, F> interpret_sequence(const F& f, Env& env)
   {
+    using T = pc::Term<A, Alloc>;
     Alloc alloc = env.get_allocator();
-    battery::vector<term_type2<Alloc>, Alloc> subterms(alloc);
+    battery::vector<T, Alloc> subterms(alloc);
     subterms.reserve(f.seq().size());
     for(int i = 0; i < f.seq().size(); ++i) {
       auto t = interpret_term<is_tell>(f.seq(i), env);
@@ -257,15 +217,19 @@ private:
         if(!p.has_value()) {
           return std::move(t.join_errors(std::move(p)));
         }
-        t.value() = p.value();
+        t.value() = T::make_formula(
+          battery::allocate_unique<pc::Formula<A, Alloc>>(alloc, std::move(p.value())));
       }
       subterms.push_back(std::move(t.value()));
     }
     if(subterms.size() == 1) {
-      return interpret_unary(f, std::move(subterms[0]));
+      return interpret_unary(f,
+        battery::allocate_unique<T>(alloc, std::move(subterms[0])));
     }
     else if(subterms.size() == 2) {
-      return interpret_binary(f, std::move(subterms[0]), std::move(subterms[1]));
+      return interpret_binary(f,
+        battery::allocate_unique<T>(alloc, std::move(subterms[0])),
+        battery::allocate_unique<T>(alloc, std::move(subterms[1])));
     }
     else {
       return interpret_nary(f, std::move(subterms));
@@ -279,7 +243,7 @@ private:
       return IResult<AVar, F>(f.v());
     }
     else {
-      thrust::optional<const typename Env::variable_type&> x = var_in(f, env);
+      auto x = var_in(f, env);
       if(!x.has_value()) {
         return IResult<AVar, F>(IError<F>(true, name, "The variable is not declared in the environment, and thus cannot be accessed by the propagator.", f));
       }
@@ -295,28 +259,24 @@ private:
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA tresult<Alloc, F> interpret_term(const F& f, Env& env) {
+    using T = pc::Term<A, Alloc>;
     Alloc alloc = env.get_allocator();
     if(f.is_variable()) {
       auto avar = interpret_var(f, env);
       if(avar.has_value()) {
-        return make_ptr(alloc, pc::Variable<A>(std::move(avar.value())));
+        return T::make_var(avar.value());
       }
       else {
-        return std::move(avar).template map_error<term_type2<Alloc>>();
+        return std::move(avar).template map_error<pc::Term<A, Alloc>>();
       }
     }
     else if(f.is_constant()) {
-      auto constant = F::make_binary(F::make_avar(AVar()), EQ, f);
+      using F2 = TFormula<typename Env::allocator_type>;
+      auto constant = F2::make_binary(F2::make_avar(AVar()), EQ, f, UNTYPED, env.get_allocator());
       auto k = is_tell ? universe_type::interpret_tell(constant, env) : universe_type::interpret_ask(constant, env);
       if(k.has_value()) {
-        return std::move(tresult<Alloc, F>(make_ptr(alloc, pc::Constant<A>(std::move(k.value()))))
+        return std::move(tresult<Alloc, F>(T::make_constant(std::move(k.value())))
           .join_warnings(std::move(k)));
-      }
-      else if(f.is_false()) {
-        return make_ptr(alloc, pc::False<A>());
-      }
-      else if(f.is_true()) {
-        return make_ptr(alloc, pc::True<A>());
       }
       else {
         return std::move(tresult<Alloc, F>(IError<F>(true, name, "Constant in a term could not be interpreted in the underlying abstract universe.", f))
@@ -331,11 +291,6 @@ private:
     }
   }
 
-  template<class Alloc, class Arg>
-  CUDA static formula_type2<Alloc> make_fptr(const Alloc& alloc, Arg&& arg) {
-    return battery::allocate_shared<pc::DynFormula<Arg>>(alloc, std::move(arg));
-  }
-
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_negation(const F& f, Env& env, bool neg_context) {
     auto nf = negate(f);
@@ -347,16 +302,21 @@ private:
     }
   }
 
-  template<bool is_tell, template<class> class LogicalConnector, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_binary_logical_connector(const F& f, const F& g, Env& env, bool neg_context) {
+  template<bool is_tell, class Create, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_binary_logical_connector(const F& f, const F& g, Env& env, bool neg_context, Create&& create) {
+    using PF = pc::Formula<A, Alloc>;
+    Alloc alloc = env.get_allocator();
     auto l = interpret_formula<is_tell>(f, env, neg_context);
     if(l.has_value()) {
       auto k = interpret_formula<is_tell>(g, env, neg_context);
       if(k.has_value()) {
-        return std::move(fresult<Alloc, F>(make_fptr(env.get_allocator(), LogicalConnector<formula_type2<Alloc>>(std::move(l.value()), std::move(k.value()))))
+        return std::move(fresult<Alloc, F>(create(
+            battery::allocate_unique<PF>(alloc, std::move(l.value())),
+            battery::allocate_unique<PF>(alloc, std::move(k.value())))
+          )
           .join_warnings(std::move(l))
           .join_warnings(std::move(k)));
-      }
+        }
       else {
         return std::move(k);
       }
@@ -368,27 +328,39 @@ private:
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_conjunction(const F& f, const F& g, Env& env, bool neg_context) {
-    return interpret_binary_logical_connector<is_tell, pc::Conjunction>(f, g, env, neg_context);
+    using PF = pc::Formula<A, Alloc>;
+    return interpret_binary_logical_connector<is_tell>(f, g, env, neg_context,
+      [](auto&& l, auto&& k) { return PF::make_conj(std::move(l), std::move(k)); });
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_disjunction(const F& f, const F& g, Env& env) {
-    return interpret_binary_logical_connector<is_tell, pc::Disjunction>(f, g, env, true);
+    using PF = pc::Formula<A, Alloc>;
+    return interpret_binary_logical_connector<is_tell>(f, g, env, true,
+      [](auto&& l, auto&& k) { return PF::make_disj(std::move(l), std::move(k)); });
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_biconditional(const F& f, const F& g, Env& env) {
-    return interpret_binary_logical_connector<is_tell, pc::Biconditional>(f, g, env, true);
+    using PF = pc::Formula<A, Alloc>;
+    return interpret_binary_logical_connector<is_tell>(f, g, env, true,
+      [](auto&& l, auto&& k) { return PF::make_bicond(std::move(l), std::move(k)); });
   }
 
   template <bool neg, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_literal(const F& f, Env& env) {
+    using PF = pc::Formula<A, Alloc>;
     auto avar = interpret_var(f, env);
     if(avar.has_value()) {
-      return make_fptr(env.get_allocator(), pc::VariableLiteral<A, neg>(std::move(avar.value())));
+      if constexpr(neg) {
+        return PF::make_nvarlit(std::move(avar.value()));
+      }
+      else {
+        return PF::make_pvarlit(std::move(avar.value()));
+      }
     }
     else {
-      return std::move(avar).template map_error<formula_type2<Alloc>>();
+      return std::move(avar).template map_error<pc::Formula<A, Alloc>>();
     }
   }
 
@@ -397,11 +369,15 @@ private:
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_neq_decomposition(const F& f, Env& env, bool neg_context) {
     if(f.sig() == NEQ && f.seq(1).is(F::Z)) {
+      using F2 = TFormula<typename Env::allocator_type>;
+      typename Env::allocator_type alloc = env.get_allocator();
       return interpret_formula<is_tell>(
-        F::make_binary(
-          F::make_binary(f.seq(0), LT, f.seq(1)),
+        F2::make_binary(
+          F2::make_binary(f.seq(0), LT, f.seq(1), f.type(), alloc),
           OR,
-          F::make_binary(f.seq(0), GT, f.seq(1))),
+          F2::make_binary(f.seq(0), GT, f.seq(1), f.type(), alloc),
+          f.type(),
+          alloc),
         env,
         neg_context
       );
@@ -413,9 +389,16 @@ private:
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
-    Alloc alloc = env.get_allocator();
     assert(f.type() == aty() || f.is_untyped() || f.is_variable());
-    if(f.is_binary()) {
+    Alloc alloc = env.get_allocator();
+    using PF = pc::Formula<A, Alloc>;
+    if(f.is_false()) {
+      return PF::make_false();
+    }
+    else if(f.is_true()) {
+      return PF::make_true();
+    }
+    else if(f.is_binary()) {
       Sig sig = f.sig();
       switch(sig) {
         case AND: return interpret_conjunction<is_tell>(f.seq(0), f.seq(1), env, neg_context);
@@ -428,7 +411,8 @@ private:
         // Form of the constraint `T <op> u` with `x <op> u` interpreted in the underlying universe.
         default:
           auto fn = move_constants_on_rhs(f);
-          auto fu = F::make_binary(F::make_avar(AVar()), fn.sig(), fn.seq(1));
+          using F2 = TFormula<typename Env::allocator_type>;
+          auto fu = F2::make_binary(F2::make_avar(AVar()), fn.sig(), fn.seq(1), fn.type(), alloc);
           auto u = is_tell ? universe_type::interpret_tell(fu, env) : universe_type::interpret_ask(fu, env);
           if(!u.has_value() && fn.sig() == NEQ) {
             return interpret_neq_decomposition<is_tell>(fn, env, neg_context);
@@ -442,7 +426,8 @@ private:
                 if(nf_.has_value()) {
                   auto nf = interpret_formula<is_tell>(*nf_, env);
                   if(nf.has_value()) {
-                    auto data = make_fptr(alloc, pc::LatticeOrderPredicate<term_type2<Alloc>, formula_type2<Alloc>>(std::move(term.value()), std::move(u.value()), std::move(nf.value())));
+                    auto data = PF::make_nlop(std::move(term.value()), std::move(u.value()),
+                      battery::allocate_unique<PF>(alloc, std::move(nf.value())));
                     return std::move(fresult<Alloc, F>(std::move(data))
                       .join_warnings(std::move(nf))
                       .join_warnings(std::move(u))
@@ -462,7 +447,7 @@ private:
                 }
               }
               else {
-                auto data = make_fptr(alloc, pc::LatticeOrderPredicate<term_type2<Alloc>>(std::move(term.value()), std::move(u.value())));
+                auto data = PF::make_plop(std::move(term.value()), std::move(u.value()));
                 return std::move(fresult<Alloc, F>(std::move(data))
                   .join_warnings(std::move(u))
                   .join_warnings(std::move(term)));
@@ -479,12 +464,6 @@ private:
               .join_errors(std::move(u)));
           }
       }
-    }
-    else if(f.is_false()) {
-      return make_fptr(alloc, pc::False<A>());
-    }
-    else if(f.is_true()) {
-      return make_fptr(alloc, pc::True<A>());
     }
     // Negative literal
     else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT &&
@@ -635,8 +614,8 @@ public:
     props.reserve(n + t.props.size());
     local::BInc has_changed2;
     for(int i = 0; i < t.props.size(); ++i) {
-      props.push_back(copy_propagator(t.props[i]));
-      props[n + i]->preprocess(*sub, has_changed2);
+      props.push_back(formula_type(t.props[i], get_allocator()));
+      props[n + i].preprocess(*sub, has_changed2);
     }
     has_changed.tell(has_changed2);
     return *this;
@@ -651,7 +630,7 @@ public:
   template <class Alloc2>
   CUDA local::BInc ask(const tell_type<Alloc2>& t) const {
     for(int i = 0; i < t.props.size(); ++i) {
-      if(!t.props[i]->ask(*sub)) {
+      if(!t.props[i].ask(*sub)) {
         return false;
       }
     }
@@ -672,7 +651,7 @@ public:
     assert(i < num_refinements());
     if(is_top()) { return; }
     local::BInc has_changed2; // Due to inheritance, `refine` takes a `local::BInc` (virtual methods cannot be templated).
-    props[i]->refine(*sub, has_changed2);
+    props[i].refine(*sub, has_changed2);
     has_changed.tell(has_changed2);
   }
 
@@ -724,7 +703,7 @@ public:
       return false;
     }
     for(int i = 0; i < props.size(); ++i) {
-      if(!props[i]->ask(*sub)) {
+      if(!props[i].ask(*sub)) {
         return false;
       }
     }

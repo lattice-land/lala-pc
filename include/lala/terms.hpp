@@ -119,7 +119,7 @@ public:
 
   template <class A2, class UnaryOp2, class Alloc2>
   CUDA Unary(const Unary<A2, UnaryOp2, Alloc2>& other, const allocator_type& allocator):
-    x_term(battery::allocate_unique<sub_type, allocator_type>(allocator, *other.x_term, allocator))
+    x_term(battery::allocate_unique<sub_type>(allocator, *other.x_term))
   {}
 
   CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
@@ -243,10 +243,12 @@ public:
   template <class A2, class Group2, class Alloc2>
   friend class Binary;
 
-private:
   using sub_type = Term<A, allocator_type>;
-  battery::unique_ptr<sub_type> x_term;
-  battery::unique_ptr<sub_type> y_term;
+  using sub_ptr = battery::unique_ptr<sub_type, allocator_type>;
+
+private:
+  sub_ptr x_term;
+  sub_ptr y_term;
 
   CUDA INLINE const sub_type& x() const {
     return *x_term;
@@ -257,7 +259,7 @@ private:
   }
 
 public:
-  CUDA Binary(battery::unique_ptr<sub_type>&& x_term, battery::unique_ptr<sub_type>&& y_term)
+  CUDA Binary(sub_ptr&& x_term, sub_ptr&& y_term)
     : x_term(std::move(x_term))
     , y_term(std::move(y_term)) {}
 
@@ -266,8 +268,8 @@ public:
 
   template <class A2, class Group2, class Alloc2>
   CUDA Binary(const Binary<A2, Group2, Alloc2>& other, const allocator_type& allocator)
-    : x_term(battery::allocate_unique<sub_type, allocator_type>(allocator, *other.x_term, allocator))
-    , y_term(battery::allocate_unique<sub_type, allocator_type>(allocator, *other.y_term, allocator))
+    : x_term(battery::allocate_unique<sub_type>(allocator, *other.x_term))
+    , y_term(battery::allocate_unique<sub_type>(allocator, *other.y_term))
   {}
 
   /** Enforce `x <op> y >= u` where >= is the lattice order of the underlying abstract universe.
@@ -449,7 +451,7 @@ private:
       case IConstant: return create_one<IConstant, Constant<A>>(other, allocator);
       case IFormula:
         return VTerm::template create<IFormula>(battery::allocate_unique<Formula<A, allocator_type>>(
-          allocator, *battery::get<IFormula>(other.term), allocator));
+          allocator, *battery::get<IFormula>(other.term)));
       case INeg: return create_one<INeg, Neg>(other, allocator);
       case IAdd: return create_one<IAdd, Add>(other, allocator);
       case ISub: return create_one<ISub, Sub>(other, allocator);

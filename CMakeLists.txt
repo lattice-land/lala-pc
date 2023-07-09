@@ -27,6 +27,7 @@ FetchContent_MakeAvailable(lala_core)
 # Preparing the library
 
 add_library(lala_pc INTERFACE)
+target_link_libraries(lala_pc INTERFACE lala_core)
 target_include_directories(lala_pc INTERFACE include)
 
 if(LALA_PC_BUILD_TESTS)

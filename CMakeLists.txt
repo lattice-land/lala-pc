@@ -53,7 +53,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(lala_parsing)
 
 add_executable(pc_test tests/pc_test.cpp)
-target_include_directories(pc_test PRIVATE ${lala_core_SOURCE_DIR}/tests/include)
+target_include_directories(pc_test PRIVATE "${lala-core_SOURCE_DIR}/tests/include")
 target_link_libraries(pc_test lala_parsing lala_pc gtest_main)
 gtest_discover_tests(pc_test)
 

@@ -379,3 +379,19 @@ TEST(IPCTest, NotEqualConstraint2) {
   IPC ipc = interpret_tell_to<IPC>("var 1..10: x; var 10..10: y; constraint int_ne(x, y);", env);
   refine_and_test(ipc, 1, {Itv(1,10), Itv(10,10)}, {Itv(1,9), Itv(10,10)}, true);
 }
+
+// Constraint of the form "a[b] = c".
+TEST(IPCTest, ElementConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_tell_to<IPC>(
+    "array[1..3] of int: a = [10, 11, 12];\
+    var 1..3: b; var 10..12: c;\
+    constraint array_int_element(b, a, c);", env);
+  refine_and_test(ipc, 3, {Itv(1,3), Itv(10, 12)}, false);
+
+  interpret_and_tell(ipc, "constraint int_le(c, 11);", env);
+  refine_and_test(ipc, 3, {Itv(1,3), Itv(10, 11)}, {Itv(1,2), Itv(10,11)}, false);
+
+  interpret_and_tell(ipc, "constraint int_ge(c, 11);", env);
+  refine_and_test(ipc, 3, {Itv(1,2), Itv(11, 11)}, {Itv(2,2), Itv(11,11)}, true);
+}

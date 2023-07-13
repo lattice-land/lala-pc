@@ -354,6 +354,13 @@ private:
       [](auto&& l, auto&& k) { return PF::make_imply(std::move(l), std::move(k)); });
   }
 
+  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_xor(const F& f, const F& g, Env& env) {
+    using PF = pc::Formula<A, Alloc>;
+    return interpret_binary_logical_connector<is_tell>(f, g, env, true,
+      [](auto&& l, auto&& k) { return PF::make_xor(std::move(l), std::move(k)); });
+  }
+
   template <bool neg, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_literal(const F& f, Env& env) {
     using PF = pc::Formula<A, Alloc>;
@@ -412,6 +419,7 @@ private:
         case OR:  return interpret_disjunction<is_tell>(f.seq(0), f.seq(1), env);
         case EQUIV: return interpret_biconditional<is_tell>(f.seq(0), f.seq(1), env);
         case IMPLY: return interpret_implication<is_tell>(f.seq(0), f.seq(1), env);
+        case XOR: return interpret_xor<is_tell>(f.seq(0), f.seq(1), env);
         case EQ: // Whenever an operand of `=` is a formula with logical connectors, we interpret `=` as `<=>`.
           if(f.seq(0).is_logical() || f.seq(1).is_logical()) {
             return interpret_biconditional<is_tell>(f.seq(0), f.seq(1), env);

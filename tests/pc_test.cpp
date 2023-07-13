@@ -395,3 +395,26 @@ TEST(IPCTest, ElementConstraint1) {
   interpret_and_tell(ipc, "constraint int_ge(c, 11);", env);
   refine_and_test(ipc, 3, {Itv(1,2), Itv(11, 11)}, {Itv(2,2), Itv(11,11)}, true);
 }
+
+
+// Constraint of the form "x = 5 xor y = 5".
+TEST(IPCTest, XorConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_tell_to<IPC>("var int: x; var int: y;\
+    constraint bool_xor(int_eq(x, 5), int_eq(y, 5));", env);
+  refine_and_test(ipc, 1, {Itv::bot(), Itv::bot()}, false);
+
+  interpret_and_tell(ipc, "constraint int_eq(x, 1);", env);
+  refine_and_test(ipc, 1, {Itv(1, 1), Itv::bot()}, {Itv(1, 1), Itv(5, 5)}, true);
+}
+
+// Constraint of the form "x = 5 xor y = 5".
+TEST(IPCTest, XorConstraint2) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_tell_to<IPC>("var 1..5: x; var 1..5: y;\
+    constraint bool_xor(int_eq(x, 5), int_eq(y, 5));", env);
+  refine_and_test(ipc, 1, {Itv(1, 5), Itv(1, 5)}, false);
+
+  interpret_and_tell(ipc, "constraint int_eq(y, 5);", env);
+  refine_and_test(ipc, 1, {Itv(1, 5), Itv(5, 5)}, {Itv(1, 4), Itv(5, 5)}, true);
+}

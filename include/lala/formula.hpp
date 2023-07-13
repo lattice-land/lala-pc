@@ -578,6 +578,82 @@ public:
   }
 };
 
+template<class AD, class Allocator>
+class ExclusiveDisjunction {
+public:
+  using A = AD;
+  using U = typename A::local_universe;
+  using allocator_type = Allocator;
+  using this_type = ExclusiveDisjunction<AD, Allocator>;
+  using sub_type = Formula<A, allocator_type>;
+  using sub_ptr = battery::unique_ptr<sub_type, allocator_type>;
+
+  template <class A2, class Alloc2>
+  friend class ExclusiveDisjunction;
+
+private:
+  sub_ptr f;
+  sub_ptr g;
+
+public:
+  CUDA ExclusiveDisjunction(sub_ptr&& f, sub_ptr&& g): f(std::move(f)), g(std::move(g)) {}
+  CUDA ExclusiveDisjunction(this_type&& other): ExclusiveDisjunction(
+    std::move(other.f), std::move(other.g)) {}
+
+  template <class A2, class Alloc2>
+  CUDA ExclusiveDisjunction(const ExclusiveDisjunction<A2, Alloc2>& other, const allocator_type& alloc)
+   : f(battery::allocate_unique<sub_type>(alloc, *other.f, alloc))
+   , g(battery::allocate_unique<sub_type>(alloc, *other.g, alloc))
+  {}
+
+  CUDA local::BInc ask(const A& a) const {
+    return
+      (f->ask(a) && g->nask(a)) ||
+      (f->nask(a) && g->ask(a));
+  }
+
+  CUDA local::BInc nask(const A& a) const {
+    return
+      (f->ask(a) && g->ask(a)) ||
+      (f->ask(a) && g->nask(a));
+  }
+
+  CUDA void preprocess(A& a, local::BInc& has_changed) {
+    f->preprocess(a, has_changed);
+    g->preprocess(a, has_changed);
+  }
+
+  CUDA void refine(A& a, local::BInc& has_changed) const {
+    if(f->ask(a)) { g->nrefine(a, has_changed); }
+    else if(f->nask(a)) { g->refine(a, has_changed); }
+    else if(g->ask(a)) { f->nrefine(a, has_changed); }
+    else if(g->nask(a)) { f->refine(a, has_changed); }
+  }
+
+  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+    if(f->ask(a)) { g->refine(a, has_changed); }
+    else if(f->nask(a)) { g->nrefine(a, has_changed); }
+    else if(g->ask(a)) { f->refine(a, has_changed); }
+    else if(g->nask(a)) { f->nrefine(a, has_changed); }
+  }
+
+  CUDA local::BInc is_top(const A& a) const {
+    return f->is_top(a) || g->is_top(a);
+  }
+
+  CUDA void print(const A& a) const {
+    f->print(a);
+    printf(" xor ");
+    g->print(a);
+  }
+
+  template <class Alloc>
+  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+    return TFormula<Alloc>::make_binary(
+      f->deinterpret(alloc, apc), XOR, g->deinterpret(alloc, apc), apc, alloc);
+  }
+};
+
 /**
  * A formula can occur in a term, e.g., `(x = 2) + (y = 2) + (z = 2) >= 2`
  * In that case, the entailment of the formula is mapped onto a sublattice of `U` supporting initialization from `0` and `1`.
@@ -606,6 +682,7 @@ public:
   using Disj = Disjunction<A, allocator_type>;
   using Bicond = Biconditional<A, allocator_type>;
   using Imply = Implication<A, allocator_type>;
+  using Xor = ExclusiveDisjunction<A, allocator_type>;
 
   static constexpr size_t IPVarLit = 0;
   static constexpr size_t INVarLit = IPVarLit + 1;
@@ -617,6 +694,7 @@ public:
   static constexpr size_t IDisj = IConj + 1;
   static constexpr size_t IBicond = IDisj + 1;
   static constexpr size_t IImply = IBicond + 1;
+  static constexpr size_t IXor = IImply + 1;
 
   template <class A2, class Alloc2>
   friend class Formula;
@@ -632,7 +710,8 @@ private:
     Conj,
     Disj,
     Bicond,
-    Imply
+    Imply,
+    Xor
   >;
 
   VFormula formula;
@@ -655,6 +734,7 @@ private:
       case IDisj: return create_one<IDisj, Disj>(other, allocator);
       case IBicond: return create_one<IBicond, Bicond>(other, allocator);
       case IImply: return create_one<IImply, Imply>(other, allocator);
+      case IXor: return create_one<IXor, Xor>(other, allocator);
       default:
         printf("BUG: formula not handled.\n");
         assert(false);
@@ -677,6 +757,7 @@ private:
       case IDisj: return f(battery::get<IDisj>(formula));
       case IBicond: return f(battery::get<IBicond>(formula));
       case IImply: return f(battery::get<IImply>(formula));
+      case IXor: return f(battery::get<IXor>(formula));
       default:
         printf("BUG: formula not handled.\n");
         assert(false);
@@ -697,6 +778,7 @@ private:
       case IDisj: return f(battery::get<IDisj>(formula));
       case IBicond: return f(battery::get<IBicond>(formula));
       case IImply: return f(battery::get<IImply>(formula));
+      case IXor: return f(battery::get<IXor>(formula));
       default:
         printf("BUG: formula not handled.\n");
         assert(false);
@@ -758,6 +840,10 @@ public:
 
   CUDA static this_type make_imply(this_ptr&& left, this_ptr&& right) {
     return make<IImply>(Imply(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_xor(this_ptr&& left, this_ptr&& right) {
+    return make<IXor>(Xor(std::move(left), std::move(right)));
   }
 
   /** Call `refine` iff \f$ u \geq  [\![x = 1]\!]_U \f$ and `nrefine` iff \f$ u \geq  [\![x = 0]\!] \f$. */

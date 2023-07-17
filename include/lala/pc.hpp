@@ -402,6 +402,31 @@ private:
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
+  CUDA fresult<Alloc, F> interpret_in_decomposition(const F& f, Env& env, bool neg_context) {
+    assert(f.seq(1).is(F::S));
+    using F2 = TFormula<typename Env::allocator_type>;
+    typename Env::allocator_type alloc = env.get_allocator();
+    // Decompose IN into disjunction.
+    typename F2::Sequence seq;
+    const auto& set = f.seq(1).s();
+    for(size_t i = 0; i < set.size(); ++i) {
+      if(battery::get<0>(set[i]) == battery::get<1>(set[i])) {
+        seq.push_back(F2::make_binary(f.seq(0), GEQ, battery::get<0>(set[i]), f.type(), alloc));
+      }
+      else {
+        seq.push_back(
+          F2::make_binary(
+            F2::make_binary(f.seq(0), GEQ, battery::get<0>(set[i]), f.type(), alloc),
+            AND,
+            F2::make_binary(f.seq(0), LEQ, battery::get<1>(set[i]), f.type(), alloc),
+            f.type(),
+            alloc));
+      }
+    }
+    return interpret_formula<is_tell>(F2::make_nary(OR, seq, f.type()), env, neg_context);
+  }
+
+  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
     assert(f.type() == aty() || f.is_untyped() || f.is_variable());
     Alloc alloc = env.get_allocator();
@@ -411,6 +436,9 @@ private:
     }
     else if(f.is_true()) {
       return PF::make_true();
+    }
+    else if(f.is(F::Seq) && f.sig() == IN) {
+      return interpret_in_decomposition<is_tell>(f, env, neg_context);
     }
     else if(f.is_binary()) {
       Sig sig = f.sig();
@@ -564,6 +592,15 @@ private:
         }
       }
       for(int i = 0; i < ipc_formulas.seq().size(); ++i) {
+        const auto& g = ipc_formulas.seq(i);
+        // For the predicate IN, we still wish to interpret it in the sub-domain because its decomposition in PC is very weak (disjunction).
+        if(is_tell && g.is(F::Seq) && g.sig() == IN) {
+          auto sub_tell = sub->interpret_tell_in(g, env);
+          if(sub_tell.has_value()) {
+            res.value().sub_tells.push_back(std::move(sub_tell.value()));
+            res.join_warnings(std::move(sub_tell));
+          }
+        }
         interpret_formula2<is_tell>(ipc_formulas.seq(i), env, res);
         if(!res.has_value()) {
           return std::move(std::move(res).join_errors(std::move(sub_err)));

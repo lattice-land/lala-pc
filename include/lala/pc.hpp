@@ -11,6 +11,7 @@
 #include "lala/logic/logic.hpp"
 #include "lala/universes/primitive_upset.hpp"
 #include "lala/abstract_deps.hpp"
+#include "lala/vstore.hpp"
 
 #include "terms.hpp"
 #include "formula.hpp"
@@ -757,9 +758,9 @@ public:
   /** Extract an under-approximation of `this` in `ua` when all propagators are entailed.
    * In all other cases, returns `false`.
    * For efficiency reason, if `B` is a propagator completion, the propagators are not copied in `ua`.
-   *   (It is OK, since they are entailed, so don't bring information anymore.) */
-  template <class B>
-  CUDA bool extract(B& ua) const {
+   *   (It is OK, since they are entailed, they don't bring information anymore.) */
+  template <class ExtractionStrategy = NonAtomicExtraction, class B>
+  CUDA bool extract(B& ua, const ExtractionStrategy& strategy = ExtractionStrategy()) const {
     if(is_top()) {
       return false;
     }
@@ -769,10 +770,10 @@ public:
       }
     }
     if constexpr(impl::is_pc_like<B>::value) {
-      return sub->extract(*ua.sub);
+      return sub->extract(*ua.sub, strategy);
     }
     else {
-      return sub->extract(ua);
+      return sub->extract(ua, strategy);
     }
   }
 

@@ -37,7 +37,7 @@ public:
   CUDA void print(const A&) const { ::battery::print(k); }
   template <class Alloc>
   CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
-    return k.template deinterpret<TFormula<Alloc>>(alloc);
+    return k.template deinterpret<TFormula<Alloc>>();
   }
 
   template <class A2>

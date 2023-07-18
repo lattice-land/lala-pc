@@ -411,7 +411,7 @@ private:
     const auto& set = f.seq(1).s();
     for(size_t i = 0; i < set.size(); ++i) {
       if(battery::get<0>(set[i]) == battery::get<1>(set[i])) {
-        seq.push_back(F2::make_binary(f.seq(0), GEQ, battery::get<0>(set[i]), f.type(), alloc));
+        seq.push_back(F2::make_binary(f.seq(0), EQ, battery::get<0>(set[i]), f.type(), alloc));
       }
       else {
         seq.push_back(
@@ -423,7 +423,12 @@ private:
             alloc));
       }
     }
-    return interpret_formula<is_tell>(F2::make_nary(OR, seq, f.type()), env, neg_context);
+    if(seq.size() == 1) {
+      return interpret_formula<is_tell>(seq[0], env, neg_context);
+    }
+    else {
+      return interpret_formula<is_tell>(F2::make_nary(OR, seq, f.type()), env, neg_context);
+    }
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
@@ -595,7 +600,7 @@ private:
         const auto& g = ipc_formulas.seq(i);
         // For the predicate IN, we still wish to interpret it in the sub-domain because its decomposition in PC is very weak (disjunction).
         if(is_tell && g.is(F::Seq) && g.sig() == IN) {
-          auto sub_tell = sub->interpret_tell_in(g, env);
+          auto sub_tell = sub->interpret_tell_in(g.map_atype(sub->aty()), env);
           if(sub_tell.has_value()) {
             res.value().sub_tells.push_back(std::move(sub_tell.value()));
             res.join_warnings(std::move(sub_tell));
@@ -631,9 +636,12 @@ public:
    * The sub abstract domain is supposed to be able to represent variables, and its constructor is assumed to take a size, like for `VStore`. */
   template <class F, class Env>
   CUDA static IResult<this_type, F> interpret_tell(const F& f, Env& env, allocator_type alloc = allocator_type()) {
-    this_type ipc(env.extends_abstract_dom(),
-      battery::allocate_shared<sub_type>(alloc, env.extends_abstract_dom(), num_quantified_untyped_vars(f)),
-      alloc);
+    auto sub_ty = env.extends_abstract_dom();
+    auto ipc_ty = env.extends_abstract_dom();
+    this_type ipc(ipc_ty,
+      battery::allocate_shared<sub_type>(alloc, sub_ty,
+        num_quantified_vars(f, UNTYPED) + num_quantified_vars(f, sub_ty)),
+        alloc);
     auto r = ipc.interpret_tell_in(f, env);
     if(r.has_value()) {
       ipc.tell(r.value());
@@ -766,6 +774,26 @@ public:
     else {
       return sub->extract(ua);
     }
+  }
+
+  template<class Env>
+  CUDA TFormula<typename Env::allocator_type> deinterpret(const Env& env) const {
+    using F = TFormula<typename Env::allocator_type>;
+    F sub_f = sub->deinterpret(env);
+    typename F::Sequence seq{env.get_allocator()};
+    if(sub_f.is(F::Seq) && sub_f.sig() == AND) {
+      for(int i = 0; i < sub_f.seq().size(); ++i) {
+        seq.push_back(sub_f.seq(i));
+      }
+    }
+    else {
+      seq.push_back(sub_f);
+    }
+    for(int i = 0; i < props.size(); ++i) {
+      seq.push_back(props[i].deinterpret(env.get_allocator(), aty()));
+      map_avar_to_lvar(seq.back(), env);
+    }
+    return F::make_nary(AND, std::move(seq), aty());
   }
 };
 

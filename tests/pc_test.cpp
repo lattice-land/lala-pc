@@ -418,3 +418,50 @@ TEST(IPCTest, XorConstraint2) {
   interpret_and_tell(ipc, "constraint int_eq(y, 5);", env);
   refine_and_test(ipc, 1, {Itv(1, 5), Itv(5, 5)}, {Itv(1, 4), Itv(5, 5)}, true);
 }
+
+template <class F>
+void type_in_predicate(F& f, AType ty) {
+  switch(f.index()) {
+    case F::Seq:
+      if(f.sig() == IN && f.seq(1).is(F::S) && f.seq(1).s().size() > 1) {
+        f.type_as(ty);
+        return;
+      }
+      for(int i = 0; i < f.seq().size(); ++i) {
+        type_in_predicate(f.seq(i), ty);
+      }
+      break;
+    case F::ESeq:
+      for(int i = 0; i < f.eseq().size(); ++i) {
+        type_in_predicate(f.eseq(i), ty);
+      }
+      break;
+  }
+}
+
+template <class L>
+L interpret_type_and_tell(const char* fzn, VarEnv<standard_allocator>& env) {
+  auto f = parse_flatzinc_str<standard_allocator>(fzn);
+  EXPECT_TRUE(f);
+  type_in_predicate(*f, 1);
+  f->print(true);
+  printf("\n\n");
+  auto r = L::interpret_tell(*f, env);
+  if(!r.has_value()) {
+    r.print_diagnostics();
+  }
+  EXPECT_TRUE(r.has_value());
+  return std::move(r.value());
+}
+
+// Constraint of the form "x in {1,3}".
+TEST(IPCTest, InConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("var {1, 3}: x; var 2..3: y;", env);
+  ipc.deinterpret(env).print(true);
+  printf("\n");
+  refine_and_test(ipc, 1, {Itv(1, 3), Itv(2,3)}, false);
+
+  interpret_and_tell(ipc, "constraint int_eq(x, y);", env);
+  refine_and_test(ipc, 2, {Itv(1, 3), Itv(2, 3)}, {Itv(3,3), Itv(3,3)}, true);
+}

@@ -209,7 +209,7 @@ private:
   CUDA Seq<Alloc> map_seq(const Seq<Alloc>& seq, const F<Alloc>& t) const {
     Seq<Alloc> seq2{seq.get_allocator()};
     for(int i = 0; i < seq.size(); ++i) {
-      seq2.push_back(map_avar(seq[i], t, seq.get_allocator()));
+      seq2.push_back(map_avar(seq[i], t));
     }
     return std::move(seq2);
   }
@@ -218,8 +218,8 @@ private:
   CUDA F<Alloc> map_avar(const F<Alloc>& f, const F<Alloc>& t) const {
     switch(f.index()) {
       case F<Alloc>::V: return t;
-      case F<Alloc>::Seq: return F<Alloc>::make_nary(f.sig(), map_seq(f.seq(), t), f.type(), f.seq().get_allocator());
-      case F<Alloc>::ESeq: return F<Alloc>::make_nary(f.esig(), map_seq(f.eseq(), t), f.type(), f.eseq().get_allocator());
+      case F<Alloc>::Seq: return F<Alloc>::make_nary(f.sig(), map_seq(f.seq(), t), f.type());
+      case F<Alloc>::ESeq: return F<Alloc>::make_nary(f.esig(), map_seq(f.eseq(), t), f.type());
       default: return f;
     }
   }

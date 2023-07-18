@@ -539,6 +539,14 @@ private:
 
   template <bool is_tell, class R, class F, class Env>
   CUDA void interpret_formula2(const F& f, Env& env, R& res) {
+    // For the predicate IN, we still wish to interpret it in the sub-domain because its decomposition in PC is very weak (disjunction).
+    if(is_tell && f.is(F::Seq) && f.sig() == IN) {
+      auto sub_tell = sub->interpret_tell_in(f.map_atype(sub->aty()), env);
+      if(sub_tell.has_value()) {
+        res.value().sub_tells.push_back(std::move(sub_tell.value()));
+        res.join_warnings(std::move(sub_tell));
+      }
+    }
     auto interpreted = interpret_formula<is_tell>(f, env);
     if(interpreted.has_value()) {
       res.value().props.push_back(std::move(interpreted.value()));
@@ -598,14 +606,6 @@ private:
       }
       for(int i = 0; i < ipc_formulas.seq().size(); ++i) {
         const auto& g = ipc_formulas.seq(i);
-        // For the predicate IN, we still wish to interpret it in the sub-domain because its decomposition in PC is very weak (disjunction).
-        if(is_tell && g.is(F::Seq) && g.sig() == IN) {
-          auto sub_tell = sub->interpret_tell_in(g.map_atype(sub->aty()), env);
-          if(sub_tell.has_value()) {
-            res.value().sub_tells.push_back(std::move(sub_tell.value()));
-            res.join_warnings(std::move(sub_tell));
-          }
-        }
         interpret_formula2<is_tell>(ipc_formulas.seq(i), env, res);
         if(!res.has_value()) {
           return std::move(std::move(res).join_errors(std::move(sub_err)));

@@ -458,10 +458,67 @@ L interpret_type_and_tell(const char* fzn, VarEnv<standard_allocator>& env) {
 TEST(IPCTest, InConstraint1) {
   VarEnv<standard_allocator> env;
   IPC ipc = interpret_type_and_tell<IPC>("var {1, 3}: x; var 2..3: y;", env);
-  ipc.deinterpret(env).print(true);
-  printf("\n");
   refine_and_test(ipc, 1, {Itv(1, 3), Itv(2,3)}, false);
 
   interpret_and_tell(ipc, "constraint int_eq(x, y);", env);
   refine_and_test(ipc, 2, {Itv(1, 3), Itv(2, 3)}, {Itv(3,3), Itv(3,3)}, true);
+}
+
+// min(x, y) = z
+TEST(IPCTest, MinConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("var 0..4: x; var 2..5: y; var 0..10: z;\
+    constraint int_min(x, y, z);", env);
+  refine_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(0, 4)}, false);
+
+  interpret_and_tell(ipc, "constraint int_le(z, 3);", env);
+  refine_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 3)}, false);
+
+  interpret_and_tell(ipc, "constraint int_le(x, 1);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(2, 5), Itv(0, 3)}, {Itv(0, 1), Itv(2, 5), Itv(0, 1)}, false);
+
+  interpret_and_tell(ipc, "constraint int_le(x, 0);", env);
+  refine_and_test(ipc, 1, {Itv(0, 0), Itv(2, 5), Itv(0, 1)}, {Itv(0, 0), Itv(2, 5), Itv(0, 0)}, true);
+}
+
+// min(x, y) = z
+TEST(IPCTest, MinConstraint2) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("var 0..4: x; var 2..5: y; var 0..10: z;\
+    constraint int_min(x, y, z);", env);
+  refine_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(0, 4)}, false);
+
+  interpret_and_tell(ipc, "constraint int_le(z, 3);", env);
+  refine_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 3)}, false);
+
+  interpret_and_tell(ipc, "constraint int_eq(x, 4);", env);
+  refine_and_test(ipc, 1, {Itv(4, 4), Itv(2, 5), Itv(0, 3)}, {Itv(4, 4), Itv(2, 3), Itv(2, 3)}, false);
+}
+
+// max(x, y) = z
+TEST(IPCTest, MaxConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("var 0..4: x; var 2..5: y; var 0..10: z;\
+    constraint int_max(x, y, z);", env);
+  refine_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(2, 5)}, false);
+
+  interpret_and_tell(ipc, "constraint int_le(z, 3);", env);
+  refine_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(2, 3)}, false);
+
+  interpret_and_tell(ipc, "constraint int_le(x, 1);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(2, 5), Itv(2, 3)}, {Itv(0, 1), Itv(2, 3), Itv(2, 3)}, false);
+
+  interpret_and_tell(ipc, "constraint int_eq(y, 2);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(2, 2), Itv(2, 3)}, {Itv(0, 1), Itv(2, 2), Itv(2, 2)}, true);
+}
+
+// max(x, y) = z
+TEST(IPCTest, MaxConstraint2) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("var 0..4: x; var 2..5: y; var 0..10: z;\
+    constraint int_max(x, y, z);", env);
+  refine_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(2, 5)}, false);
+
+  interpret_and_tell(ipc, "constraint int_ge(z, 5);", env);
+  refine_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(5, 5)}, {Itv(0, 4), Itv(5, 5), Itv(5, 5)}, true);
 }

@@ -189,6 +189,8 @@ private:
       case FDIV: return T::make_fdiv(std::move(x), std::move(y));
       case CDIV: return T::make_cdiv(std::move(x), std::move(y));
       case EDIV: return T::make_ediv(std::move(x), std::move(y));
+      case MIN: return T::make_min(std::move(x), std::move(y));
+      case MAX: return T::make_max(std::move(x), std::move(y));
       default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported binary symbol.", f));
     }
   }
@@ -432,6 +434,17 @@ private:
     }
   }
 
+  template <class F>
+  CUDA F binarize(const F& f, size_t i) {
+    assert(f.is(F::Seq) && f.seq().size() >= 2);
+    if(i + 2 == f.seq().size()) {
+      return F::make_binary(f.seq(i), f.sig(), f.seq(i+1), f.type(), f.seq().get_allocator(), false);
+    }
+    else {
+      return F::make_binary(f.seq(i), f.sig(), binarize(f, i+1), f.type(), f.seq().get_allocator(), false);
+    }
+  }
+
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
   CUDA fresult<Alloc, F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
     assert(f.type() == aty() || f.is_untyped() || f.is_variable());
@@ -445,6 +458,9 @@ private:
     }
     else if(f.is(F::Seq) && f.sig() == IN) {
       return interpret_in_decomposition<is_tell>(f, env, neg_context);
+    }
+    else if(f.is(F::Seq) && f.seq().size() > 2 && (f.sig() == AND || f.sig() == OR || f.sig() == EQUIV)) {
+      return interpret_formula<is_tell>(binarize(f,0), env, neg_context);
     }
     else if(f.is_binary()) {
       Sig sig = f.sig();

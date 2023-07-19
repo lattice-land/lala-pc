@@ -165,6 +165,7 @@ struct GroupAdd {
     return inv1(a,b);
   }
 
+  static constexpr bool prefix_symbol = false;
   CUDA static char symbol() { return '+'; }
   CUDA static Sig sig() { return ADD; }
 };
@@ -185,6 +186,7 @@ struct GroupSub {
       U::template fun<SUB>(a, b));
   }
 
+  static constexpr bool prefix_symbol = false;
   CUDA static char symbol() { return '-'; }
   CUDA static Sig sig() { return SUB; }
 };
@@ -208,6 +210,7 @@ struct GroupMul {
     return inv1(a, b);
   }
 
+  static constexpr bool prefix_symbol = false;
   CUDA static char symbol() { return '*'; }
   CUDA static Sig sig() { return MUL; }
 };
@@ -227,8 +230,36 @@ struct GroupDiv {
     return U::template fun<divsig>(b, a);
   }
 
+  static constexpr bool prefix_symbol = false;
   CUDA static char symbol() { return '/'; }
   CUDA static Sig sig() { return divsig; }
+};
+
+template<class Universe, Sig msig>
+struct GroupMinMax {
+  static_assert(msig == MIN || msig == MAX);
+
+  using U = Universe;
+  CUDA static U op(const U& a, const U& b) {
+    return U::template fun<msig>(a, b);
+  }
+
+  CUDA static U inv1(const U& a, const U& b) {
+    if(join(a, b).is_top()) {
+      return a;
+    }
+    else {
+      return U::bot();
+    }
+  }
+
+  CUDA static U inv2(const U& a, const U& b) {
+    return inv1(a, b);
+  }
+
+  static constexpr bool prefix_symbol = true;
+  CUDA static const char* symbol() { return msig == MIN ? "min" : "max"; }
+  CUDA static Sig sig() { return msig; }
 };
 
 template <class AD, class Group, class Allocator>
@@ -295,9 +326,18 @@ public:
   }
 
   CUDA void print(const A& a) const {
-    x().print(a);
-    printf(" %c ", G::symbol());
-    y().print(a);
+    if constexpr(G::prefix_symbol) {
+      printf("%s(", G::symbol());
+      x().print(a);
+      printf(", ");
+      x().print(a);
+      printf(")");
+    }
+    else {
+      x().print(a);
+      printf(" %c ", G::symbol());
+      y().print(a);
+    }
   }
 
   template <class Alloc>
@@ -400,6 +440,8 @@ public:
   using FDiv = Binary<A, GroupDiv<U, FDIV>, allocator_type>;
   using CDiv = Binary<A, GroupDiv<U, CDIV>, allocator_type>;
   using EDiv = Binary<A, GroupDiv<U, EDIV>, allocator_type>;
+  using Min = Binary<A, GroupMinMax<U, MIN>, allocator_type>;
+  using Max = Binary<A, GroupMinMax<U, MAX>, allocator_type>;
   using NaryAdd = Nary<Add>;
   using NaryMul = Nary<Mul>;
 
@@ -414,7 +456,9 @@ public:
   static constexpr size_t IFDiv = ITDiv + 1;
   static constexpr size_t ICDiv = IFDiv + 1;
   static constexpr size_t IEDiv = ICDiv + 1;
-  static constexpr size_t INaryAdd = IEDiv + 1;
+  static constexpr size_t IMin = IEDiv + 1;
+  static constexpr size_t IMax = IMin + 1;
+  static constexpr size_t INaryAdd = IMax + 1;
   static constexpr size_t INaryMul = INaryAdd + 1;
 
   template <class A2, class Alloc2>
@@ -433,6 +477,8 @@ private:
     FDiv,
     CDiv,
     EDiv,
+    Min,
+    Max,
     NaryAdd,
     NaryMul
   >;
@@ -460,6 +506,8 @@ private:
       case IFDiv: return create_one<IFDiv, FDiv>(other, allocator);
       case ICDiv: return create_one<ICDiv, CDiv>(other, allocator);
       case IEDiv: return create_one<IEDiv, EDiv>(other, allocator);
+      case IMin: return create_one<IMin, Min>(other, allocator);
+      case IMax: return create_one<IMax, Max>(other, allocator);
       case INaryAdd: return create_one<INaryAdd, NaryAdd>(other, allocator);
       case INaryMul: return create_one<INaryMul, NaryMul>(other, allocator);
       default:
@@ -485,6 +533,8 @@ private:
       case IFDiv: return f(battery::get<IFDiv>(term));
       case ICDiv: return f(battery::get<ICDiv>(term));
       case IEDiv: return f(battery::get<IEDiv>(term));
+      case IMin: return f(battery::get<IMin>(term));
+      case IMax: return f(battery::get<IMax>(term));
       case INaryAdd: return f(battery::get<INaryAdd>(term));
       case INaryMul: return f(battery::get<INaryMul>(term));
       default:
@@ -551,6 +601,14 @@ public:
 
   CUDA static this_type make_ediv(this_ptr&& left, this_ptr&& right) {
     return make<IEDiv>(EDiv(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_min(this_ptr&& left, this_ptr&& right) {
+    return make<IMin>(Min(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_max(this_ptr&& left, this_ptr&& right) {
+    return make<IMax>(Max(std::move(left), std::move(right)));
   }
 
   CUDA static this_type make_naryadd(battery::vector<this_type, allocator_type>&& sub_terms) {

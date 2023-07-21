@@ -90,8 +90,30 @@ struct NegOp {
     return U::template fun<NEG>(a);
   }
 
-  CUDA static char symbol() { return '-'; }
+  CUDA static U inv(const U& a) {
+    return op(a); // negation is its own inverse.
+  }
+
+  static constexpr bool function_symbol = false;
+  CUDA static const char* symbol() { return "-"; }
   CUDA static Sig sig() { return NEG; }
+};
+
+template<class Universe>
+struct AbsOp {
+  using U = Universe;
+
+  CUDA static U op(const U& a) {
+    return U::template fun<ABS>(a);
+  }
+
+  CUDA static U inv(const U& a) {
+    return meet(a, U::template fun<NEG>(a));
+  }
+
+  static constexpr bool function_symbol = true;
+  CUDA static const char* symbol() { return "abs"; }
+  CUDA static Sig sig() { return ABS; }
 };
 
 template <class AD, class UnaryOp, class Allocator>
@@ -124,7 +146,7 @@ public:
 
   CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
     if(x().is_top(a)) { return; }
-    x().tell(a, UnaryOp::op(u), has_changed);
+    x().tell(a, UnaryOp::inv(u), has_changed);
   }
 
   CUDA U project(const A& a) const {
@@ -136,8 +158,10 @@ public:
   }
 
   CUDA void print(const A& a) const {
-    printf("%c", UnaryOp::symbol());
+    printf("%s", UnaryOp::symbol());
+    if constexpr(UnaryOp::function_symbol) { printf("("); }
     x().print(a);
+    if constexpr(UnaryOp::function_symbol) { printf(")"); }
   }
 
   template <class Alloc>
@@ -433,6 +457,7 @@ public:
   using this_ptr = battery::unique_ptr<Term<A, allocator_type>, allocator_type>;
   using formula_ptr = battery::unique_ptr<Formula<A, allocator_type>, allocator_type>;
   using Neg = Unary<A, NegOp<U>, allocator_type>;
+  using Abs = Unary<A, AbsOp<U>, allocator_type>;
   using Add = Binary<A, GroupAdd<U>, allocator_type>;
   using Sub = Binary<A, GroupSub<U>, allocator_type>;
   using Mul = Binary<A, GroupMul<U, EDIV>, allocator_type>;
@@ -449,7 +474,8 @@ public:
   static constexpr size_t IConstant = IVar + 1;
   static constexpr size_t IFormula = IConstant + 1;
   static constexpr size_t INeg = IFormula + 1;
-  static constexpr size_t IAdd = INeg + 1;
+  static constexpr size_t IAbs = INeg + 1;
+  static constexpr size_t IAdd = IAbs + 1;
   static constexpr size_t ISub = IAdd + 1;
   static constexpr size_t IMul = ISub + 1;
   static constexpr size_t ITDiv = IMul + 1;
@@ -470,6 +496,7 @@ private:
     Constant<A>,
     formula_ptr,
     Neg,
+    Abs,
     Add,
     Sub,
     Mul,
@@ -499,6 +526,7 @@ private:
         return VTerm::template create<IFormula>(battery::allocate_unique<Formula<A, allocator_type>>(
           allocator, *battery::get<IFormula>(other.term)));
       case INeg: return create_one<INeg, Neg>(other, allocator);
+      case IAbs: return create_one<IAbs, Abs>(other, allocator);
       case IAdd: return create_one<IAdd, Add>(other, allocator);
       case ISub: return create_one<ISub, Sub>(other, allocator);
       case IMul: return create_one<IMul, Mul>(other, allocator);
@@ -526,6 +554,7 @@ private:
       case IConstant: return f(battery::get<IConstant>(term));
       case IFormula: return f(*battery::get<IFormula>(term));
       case INeg: return f(battery::get<INeg>(term));
+      case IAbs: return f(battery::get<IAbs>(term));
       case IAdd: return f(battery::get<IAdd>(term));
       case ISub: return f(battery::get<ISub>(term));
       case IMul: return f(battery::get<IMul>(term));
@@ -573,6 +602,10 @@ public:
 
   CUDA static this_type make_neg(this_ptr&& sub_term) {
     return make<INeg>(Neg(std::move(sub_term)));
+  }
+
+  CUDA static this_type make_abs(this_ptr&& sub_term) {
+    return make<IAbs>(Abs(std::move(sub_term)));
   }
 
   CUDA static this_type make_add(this_ptr&& left, this_ptr&& right) {

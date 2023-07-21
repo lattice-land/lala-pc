@@ -173,6 +173,7 @@ private:
     Alloc alloc = a.get_allocator();
     switch(f.sig()) {
       case NEG: return T::make_neg(std::move(a));
+      case ABS: return T::make_abs(std::move(a));
       default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported unary symbol.", f));
     }
   }
@@ -220,8 +221,9 @@ private:
         if(!p.has_value()) {
           return std::move(t.join_errors(std::move(p)));
         }
-        t.value() = T::make_formula(
-          battery::allocate_unique<pc::Formula<A, Alloc>>(alloc, std::move(p.value())));
+        t = tresult<Alloc, F>(T::make_formula(
+          battery::allocate_unique<pc::Formula<A, Alloc>>(alloc, std::move(p.value()))));
+        t.join_warnings(std::move(p));
       }
       subterms.push_back(std::move(t.value()));
     }
@@ -544,10 +546,6 @@ private:
     // Logical negation
     else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT) {
       return interpret_negation<is_tell>(f, env, neg_context);
-    }
-    // Singleton formula
-    else if(f.is(F::Seq) && f.seq().size() == 1) {
-      return interpret_formula<is_tell>(f.seq(0), env, neg_context);
     }
     else {
       return fresult<Alloc, F>(IError<F>(true, name, "The shape of this formula is not supported.", f));

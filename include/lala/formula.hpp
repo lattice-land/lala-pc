@@ -40,6 +40,16 @@ private:
     }
   }
 
+  template <bool negate>
+  CUDA void refine_impl(A& a, local::BInc& has_changed) const {
+    if constexpr(negate) {
+      a.tell(avar, U::eq_zero(), has_changed);
+    }
+    else {
+      a.tell(avar, U::eq_one(), has_changed);
+    }
+  }
+
 public:
   /** Given a variable `x` taking a value in a universe `U` denoted by \f$ a(x) \f$.
    *   - \f$ a \vDash x \f$ holds iff \f$ \lnot (a(x) \leq [\![x = 0]\!]_U) \f$.
@@ -48,21 +58,27 @@ public:
     return ask_impl<neg>(a);
   }
 
-  /** Similar to `ask` where \f$ \lnot{\lnot{x}} = x \f$. */
+  /** Given a variable `x` taking a value in a universe `U` denoted by \f$ a(x) \f$.
+   *   - \f$ a \nvDash x \f$ holds iff \f$ a(x) \geq [\![x = 0]\!]_U \f$.
+   *   - \f$ a \nvDash \lnot{x} \f$ holds iff \f$ \lnot (a(x) \leq [\![x = 0]\!]_U) \f$. */
   CUDA local::BInc nask(const A& a) const {
     return ask_impl<!neg>(a);
   }
 
   CUDA void preprocess(A&, local::BInc&) {}
 
-  /** Perform \f$ x = a(x) \sqcup [\![x = 1]\!]_U \f$. */
+  /** Perform:
+   *    * Positive literal: \f$ x = a(x) \sqcup [\![x = 1]\!]_U \f$
+   *    * Negative literal: \f$ x = a(x) \sqcup [\![x = 0]\!]_U \f$. */
   CUDA void refine(A& a, local::BInc& has_changed) const {
-    a.tell(avar, U::eq_one(), has_changed);
+    refine_impl<neg>(a, has_changed);
   }
 
-  /** Perform \f$ x = a(x) \sqcup [\![x = 0]\!]_U \f$. */
+  /** Perform:
+   *    * Positive literal: \f$ x = a(x) \sqcup [\![x = 0]\!]_U \f$
+   *    * Negative literal: \f$ x = a(x) \sqcup [\![x = 1]\!]_U \f$. */
   CUDA void nrefine(A& a, local::BInc& has_changed) const {
-    a.tell(avar, U::eq_zero(), has_changed);
+    refine_impl<!neg>(a, has_changed);
   }
 
   CUDA local::BInc is_top(const A& a) const {
@@ -75,8 +91,12 @@ public:
   }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc&, AType) const {
-    return TFormula<Alloc>::make_avar(avar);
+  CUDA TFormula<Alloc> deinterpret(const Alloc&, AType apc) const {
+    auto f = TFormula<Alloc>::make_avar(avar);
+    if(neg) {
+      f = TFormula<Alloc>::make_unary(NOT, f, apc);
+    }
+    return f;
   }
 };
 

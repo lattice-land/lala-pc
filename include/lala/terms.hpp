@@ -223,7 +223,7 @@ struct GroupMul {
   }
 
   CUDA static U rev_op(const U& a, const U& b) {
-    return U::template fun<divsig>(a, b); // probably not ideal? Could think more about that.
+    return U::template fun<divsig>(a, b);
   }
 
   CUDA static U inv1(const U& a, const U& b) {

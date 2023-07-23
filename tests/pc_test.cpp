@@ -522,3 +522,77 @@ TEST(IPCTest, MaxConstraint2) {
   interpret_and_tell(ipc, "constraint int_ge(z, 5);", env);
   refine_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(5, 5)}, {Itv(0, 4), Itv(5, 5), Itv(5, 5)}, true);
 }
+
+TEST(IPCTest, BooleanClause1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(x[1], true);", env);
+  refine_and_test(ipc, 1, {Itv(1, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, true);
+}
+
+TEST(IPCTest, BooleanClause2) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(y[1], false);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 0), Itv(0, 1)}, true);
+}
+
+TEST(IPCTest, BooleanClause3) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(x[1], false);", env);
+  refine_and_test(ipc, 1, {Itv(0, 0), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(x[2], false);", env);
+  refine_and_test(ipc, 1, {Itv(0, 0), Itv(0, 0), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(y[1], true);", env);
+  refine_and_test(ipc, 1, {Itv(0, 0), Itv(0, 0), Itv(1, 1), Itv(0, 1)},  {Itv(0, 0), Itv(0, 0), Itv(1, 1), Itv(0, 0)}, true);
+}
+
+TEST(IPCTest, BooleanClause4) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(x[1], false);", env);
+  refine_and_test(ipc, 1, {Itv(0, 0), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(y[1], true);", env);
+  refine_and_test(ipc, 1, {Itv(0, 0), Itv(0, 1), Itv(1, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(y[2], true);", env);
+  refine_and_test(ipc, 1, {Itv(0, 0), Itv(0, 1), Itv(1, 1), Itv(1, 1)},  {Itv(0, 0), Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
+}
+
+TEST(IPCTest, IntTimes1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var 0..1: x;\
+    var 0..1: y;\
+    var 0..1: z;\
+    constraint int_times(x,y,z);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(x, 1);", env);
+  refine_and_test(ipc, 1, {Itv(1, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(y, 1);", env);
+  refine_and_test(ipc, 1, {Itv(1, 1), Itv(1, 1), Itv(0, 1)}, {Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
+}
+
+TEST(IPCTest, IntTimes2) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var 0..1: x;\
+    var 0..1: y;\
+    var 0..1: z;\
+    constraint int_times(x,y,z);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_and_tell(ipc, "constraint int_eq(z, 1);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(1, 1)}, {Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
+}

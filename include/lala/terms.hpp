@@ -173,8 +173,14 @@ public:
 template<class Universe>
 struct GroupAdd {
   using U = Universe;
+  static constexpr bool has_absorbing_element = false;
+
   CUDA static U op(const U& a, const U& b) {
     return U::template fun<ADD>(a, b);
+  }
+
+  CUDA static bool is_absorbing(const U& a) {
+    return false;
   }
 
   CUDA static U rev_op(const U& a, const U& b) {
@@ -197,6 +203,8 @@ struct GroupAdd {
 template<class Universe>
 struct GroupSub {
   using U = Universe;
+  static constexpr bool has_absorbing_element = false;
+
   CUDA static U op(const U& a, const U& b) {
     return U::template fun<SUB>(a, b);
   }
@@ -218,16 +226,25 @@ struct GroupSub {
 template<class Universe, Sig divsig>
 struct GroupMul {
   using U = Universe;
+
   CUDA static U op(const U& a, const U& b) {
     return U::template fun<MUL>(a, b);
   }
 
+  CUDA static bool is_absorbing(const U& a) {
+    return a == U::eq_zero();
+  }
+
+  /** \pre `is_absorbing(b)` must be `false`. */
   CUDA static U rev_op(const U& a, const U& b) {
     return U::template fun<divsig>(a, b);
   }
 
+  /** If `a` or `b` contains 0, then we cannot say anything on the inverse since 0 is absorbing and the inverse could be anything. */
   CUDA static U inv1(const U& a, const U& b) {
-    return U::template fun<divsig>(a, b);
+    return b <= U::eq_zero() && a <= U::eq_zero()
+      ? U::bot()
+      : U::template fun<divsig>(a, b);
   }
 
   CUDA static U inv2(const U& a, const U& b) {
@@ -242,6 +259,7 @@ struct GroupMul {
 template<class Universe, Sig divsig>
 struct GroupDiv {
   using U = Universe;
+
   CUDA static U op(const U& a, const U& b) {
     return U::template fun<divsig>(a, b);
   }
@@ -251,7 +269,7 @@ struct GroupDiv {
   }
 
   CUDA static U inv2(const U& a, const U& b) {
-    return U::template fun<divsig>(b, a);
+    return b <= U::eq_zero() ? U::bot() : U::template fun<divsig>(b, a);
   }
 
   static constexpr bool prefix_symbol = false;
@@ -414,6 +432,9 @@ public:
 
   CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
     U all = project(a);
+    if(G::is_absorbing(all)) {
+      return;
+    }
     for(int i = 0; i < terms.size(); ++i) {
       t(i).tell(a, G::inv1(u, G::rev_op(all, t(i).project(a))), has_changed);
     }

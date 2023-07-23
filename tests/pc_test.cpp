@@ -80,12 +80,12 @@ template<class L>
 void refine_and_test(L& ipc, int num_refine, const std::vector<Itv>& before, const std::vector<Itv>& after, bool is_ua, bool expect_changed = true) {
   EXPECT_EQ(ipc.num_refinements(), num_refine);
   for(int i = 0; i < before.size(); ++i) {
-    EXPECT_EQ(ipc[i], before[i]);
+    EXPECT_EQ(ipc[i], before[i]) << "ipc[" << i << "]";
   }
   local::BInc has_changed = GaussSeidelIteration{}.fixpoint(ipc);
   EXPECT_EQ(has_changed, expect_changed);
   for(int i = 0; i < after.size(); ++i) {
-    EXPECT_EQ(ipc[i], after[i]);
+    EXPECT_EQ(ipc[i], after[i]) << "ipc[" << i << "]";
   }
   test_extract(ipc, is_ua);
 }
@@ -595,4 +595,44 @@ TEST(IPCTest, IntTimes2) {
   refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
   interpret_and_tell(ipc, "constraint int_eq(z, 1);", env);
   refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(1, 1)}, {Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
+}
+
+TEST(IPCTest, IntTimes3) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var 0..0: x; \
+    var 0..1: y; \
+    var 0..1: z; \
+    constraint int_times(x, y, z);", env);
+  refine_and_test(ipc, 1, {Itv(0, 0), Itv(0, 1), Itv(0, 1)}, {Itv(0, 0), Itv(0, 1), Itv(0, 0)}, true);
+}
+
+TEST(IPCTest, IntTimes4) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var 0..1: x; \
+    var 0..0: y; \
+    var 0..1: z; \
+    constraint int_times(x, y, z);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(0, 0), Itv(0, 1)}, {Itv(0, 1), Itv(0, 0), Itv(0, 0)}, true);
+}
+
+TEST(IPCTest, IntTimes5) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var 1..2: x; \
+    var 0..1: y; \
+    var 0..0: z; \
+    constraint int_times(x, y, z);", env);
+  refine_and_test(ipc, 1, {Itv(1, 2), Itv(0, 1), Itv(0, 0)}, {Itv(1, 2), Itv(0, 0), Itv(0, 0)}, true);
+}
+
+TEST(IPCTest, IntTimes6) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var 0..1: x; \
+    var 1..2: y; \
+    var 0..0: z; \
+    constraint int_times(x, y, z);", env);
+  refine_and_test(ipc, 1, {Itv(0, 1), Itv(1, 2), Itv(0, 0)}, {Itv(0, 0), Itv(1, 2), Itv(0, 0)}, true);
 }

@@ -85,13 +85,13 @@ public:
     return a.project(avar).is_top();
   }
 
-  CUDA void print(const A& a) const {
+  CUDA NI void print(const A& a) const {
     if constexpr(neg) { printf("not "); }
     printf("(%d,%d)", avar.aty(), avar.vid());
   }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc&, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc&, AType apc) const {
     auto f = TFormula<Alloc>::make_avar(avar);
     if(neg) {
       f = TFormula<Alloc>::make_unary(NOT, f, apc);
@@ -126,10 +126,10 @@ public:
   }
   CUDA void nrefine(A&, local::BInc&) const {}
   CUDA local::BInc is_top(const A&) const { return true; }
-  CUDA void print(const A& a) const { printf("false"); }
+  CUDA NI void print(const A& a) const { printf("false"); }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc&, AType) const {
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc&, AType) const {
     return TFormula<Alloc>::make_false();
   }
 };
@@ -215,7 +215,7 @@ public:
     left.tell(a, right, has_changed);
   }
 
-  CUDA void print(const A& a) const {
+  CUDA NI void print(const A& a) const {
     left.print(a);
     printf(" >= ");
     right.print();
@@ -246,7 +246,7 @@ private:
 
 public:
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     // We deinterpret the constant with a placeholder variable that is then replaced by the interpretation of the left term.
     VarEnv<Alloc> empty_env{alloc};
     auto uf = right.deinterpret(AVar{}, empty_env);
@@ -355,14 +355,14 @@ public:
     return f->is_top(a) || g->is_top(a);
   }
 
-  CUDA void print(const A& a) const {
+  CUDA NI void print(const A& a) const {
     f->print(a);
     printf(" /\\ ");
     g->print(a);
   }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     auto left = f->deinterpret(alloc, apc);
     auto right = g->deinterpret(alloc, apc);
     if(left.is_true()) { return right; }
@@ -430,14 +430,14 @@ public:
     return f->is_top(a) || g->is_top(a);
   }
 
-  CUDA void print(const A& a) const {
+  CUDA NI void print(const A& a) const {
     f->print(a);
     printf(" \\/ ");
     g->print(a);
   }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     auto left = f->deinterpret(alloc, apc);
     auto right = g->deinterpret(alloc, apc);
     if(left.is_true()) { return left; }
@@ -515,14 +515,14 @@ public:
     return f->is_top(a) || g->is_top(a);
   }
 
-  CUDA void print(const A& a) const {
+  CUDA NI void print(const A& a) const {
     f->print(a);
     printf(" <=> ");
     g->print(a);
   }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     return TFormula<Alloc>::make_binary(
       f->deinterpret(alloc, apc), EQUIV, g->deinterpret(alloc, apc), apc, alloc);
   }
@@ -585,14 +585,14 @@ public:
     return f->is_top(a) || g->is_top(a);
   }
 
-  CUDA void print(const A& a) const {
+  CUDA NI void print(const A& a) const {
     f->print(a);
     printf(" => ");
     g->print(a);
   }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     return TFormula<Alloc>::make_binary(
       f->deinterpret(alloc, apc), IMPLY, g->deinterpret(alloc, apc), apc, alloc);
   }
@@ -661,14 +661,14 @@ public:
     return f->is_top(a) || g->is_top(a);
   }
 
-  CUDA void print(const A& a) const {
+  CUDA NI void print(const A& a) const {
     f->print(a);
     printf(" xor ");
     g->print(a);
   }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     return TFormula<Alloc>::make_binary(
       f->deinterpret(alloc, apc), XOR, g->deinterpret(alloc, apc), apc, alloc);
   }
@@ -742,7 +742,7 @@ private:
   }
 
   template <class A2, class Alloc2>
-  CUDA static VFormula create(const Formula<A2, Alloc2>& other, const allocator_type& allocator) {
+  CUDA NI static VFormula create(const Formula<A2, Alloc2>& other, const allocator_type& allocator) {
     switch(other.formula.index()) {
       case IPVarLit: return create_one<IPVarLit, PVarLit>(other, allocator);
       case INVarLit: return create_one<INVarLit, NVarLit>(other, allocator);
@@ -765,7 +765,7 @@ private:
   CUDA Formula(VFormula&& formula): formula(std::move(formula)) {}
 
   template <class F>
-  CUDA auto forward(F&& f) const {
+  CUDA NI auto forward(F&& f) const {
     switch(formula.index()) {
       case IPVarLit: return f(battery::get<IPVarLit>(formula));
       case INVarLit: return f(battery::get<INVarLit>(formula));
@@ -786,7 +786,7 @@ private:
   }
 
   template <class F>
-  CUDA auto forward(F&& f) {
+  CUDA NI auto forward(F&& f) {
     switch(formula.index()) {
       case IPVarLit: return f(battery::get<IPVarLit>(formula));
       case INVarLit: return f(battery::get<INVarLit>(formula));

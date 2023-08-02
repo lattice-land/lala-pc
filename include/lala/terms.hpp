@@ -157,7 +157,7 @@ public:
     return x().is_top(a);
   }
 
-  CUDA void print(const A& a) const {
+  CUDA NI void print(const A& a) const {
     printf("%s", UnaryOp::symbol());
     if constexpr(UnaryOp::function_symbol) { printf("("); }
     x().print(a);
@@ -367,7 +367,7 @@ public:
     return x().is_top(a) || y().is_top(a);
   }
 
-  CUDA void print(const A& a) const {
+  CUDA NI void print(const A& a) const {
     if constexpr(G::prefix_symbol) {
       printf("%s(", G::symbol());
       x().print(a);
@@ -383,7 +383,7 @@ public:
   }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& allocator, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc& allocator, AType apc) const {
     return TFormula<Alloc>::make_binary(
       x().deinterpret(allocator, apc),
       G::sig(),
@@ -449,7 +449,7 @@ public:
     return local::BInc::bot();
   }
 
-  CUDA void print(const A& a) const {
+  CUDA NI void print(const A& a) const {
     t(0).print(a);
     for(int i = 1; i < terms.size(); ++i) {
       printf(" %c ", G::symbol());
@@ -458,7 +458,7 @@ public:
   }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     using F = TFormula<Alloc>;
     typename F::Sequence seq{alloc};
     for(int i = 0; i < terms.size(); ++i) {
@@ -539,7 +539,7 @@ private:
   }
 
   template <class A2, class Alloc2>
-  CUDA static VTerm create(const Term<A2, Alloc2>& other, const allocator_type& allocator) {
+  CUDA NI static VTerm create(const Term<A2, Alloc2>& other, const allocator_type& allocator) {
     switch(other.term.index()) {
       case IVar: return create_one<IVar, Variable<A>>(other, allocator);
       case IConstant: return create_one<IConstant, Constant<A>>(other, allocator);
@@ -569,7 +569,7 @@ private:
   CUDA Term(VTerm&& term): term(std::move(term)) {}
 
   template <class F>
-  CUDA auto forward(F&& f) const {
+  CUDA NI auto forward(F&& f) const {
     switch(term.index()) {
       case IVar: return f(battery::get<IVar>(term));
       case IConstant: return f(battery::get<IConstant>(term));

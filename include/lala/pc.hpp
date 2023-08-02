@@ -94,7 +94,7 @@ public:
     interpreted_type& operator=(interpreted_type&&) = default;
     interpreted_type(const interpreted_type&) = default;
 
-    CUDA interpreted_type(const SubTellType& sub_tell, const Alloc2& alloc = Alloc2())
+    CUDA NI interpreted_type(const SubTellType& sub_tell, const Alloc2& alloc = Alloc2())
       : sub_tells(alloc), props(alloc)
     {
       sub_tells.reserve(1);
@@ -105,7 +105,7 @@ public:
       : sub_tells(alloc), props(alloc) {}
 
     template <class InterpretedType>
-    CUDA interpreted_type(const InterpretedType& other, const Alloc2& alloc = Alloc2())
+    CUDA NI interpreted_type(const InterpretedType& other, const Alloc2& alloc = Alloc2())
       : sub_tells(other.sub_tells, alloc)
       , props(other.props, alloc)
     {}
@@ -137,7 +137,7 @@ public:
   {}
 
   template<class A2, class Alloc2, class... Allocators>
-  CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
+  CUDA NI PC(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
    : atype(other.atype)
    , sub(deps.template clone<A>(other.sub))
    , props(other.props, deps.template get_allocator<allocator_type>())
@@ -168,7 +168,7 @@ public:
 
 private:
   template<class Alloc, class F>
-  CUDA static tresult<Alloc, F> interpret_unary(const F& f, term_ptr<Alloc>&& a) {
+  CUDA NI static tresult<Alloc, F> interpret_unary(const F& f, term_ptr<Alloc>&& a) {
     using T = pc::Term<A, Alloc>;
     Alloc alloc = a.get_allocator();
     switch(f.sig()) {
@@ -179,7 +179,7 @@ private:
   }
 
   template<class Alloc, class F>
-  CUDA static tresult<Alloc, F> interpret_binary(const F& f, term_ptr<Alloc>&& x, term_ptr<Alloc>&& y)
+  CUDA NI static tresult<Alloc, F> interpret_binary(const F& f, term_ptr<Alloc>&& x, term_ptr<Alloc>&& y)
   {
     using T = pc::Term<A, Alloc>;
     switch(f.sig()) {
@@ -197,7 +197,7 @@ private:
   }
 
   template<class Alloc, class F>
-  CUDA static tresult<Alloc, F> interpret_nary(const F& f, battery::vector<pc::Term<A, Alloc>, Alloc>&& subterms)
+  CUDA NI static tresult<Alloc, F> interpret_nary(const F& f, battery::vector<pc::Term<A, Alloc>, Alloc>&& subterms)
   {
     using T = pc::Term<A, Alloc>;
     switch(f.sig()) {
@@ -208,7 +208,7 @@ private:
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA tresult<Alloc, F> interpret_sequence(const F& f, Env& env)
+  CUDA NI tresult<Alloc, F> interpret_sequence(const F& f, Env& env)
   {
     using T = pc::Term<A, Alloc>;
     Alloc alloc = env.get_allocator();
@@ -242,7 +242,7 @@ private:
   }
 
   template <class F, class Env>
-  CUDA IResult<AVar, F> interpret_var(const F& f, Env& env) {
+  CUDA NI IResult<AVar, F> interpret_var(const F& f, Env& env) {
     if(f.is(F::V)) {
       assert(!f.v().is_untyped());
       return IResult<AVar, F>(f.v());
@@ -263,7 +263,7 @@ private:
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA tresult<Alloc, F> interpret_term(const F& f, Env& env) {
+  CUDA NI tresult<Alloc, F> interpret_term(const F& f, Env& env) {
     using T = pc::Term<A, Alloc>;
     Alloc alloc = env.get_allocator();
     if(f.is_variable()) {
@@ -297,7 +297,7 @@ private:
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_negation(const F& f, Env& env, bool neg_context) {
+  CUDA NI fresult<Alloc, F> interpret_negation(const F& f, Env& env, bool neg_context) {
     auto nf = negate(f);
     if(nf.has_value()) {
       return interpret_formula<is_tell>(*nf, env, neg_context);
@@ -308,7 +308,7 @@ private:
   }
 
   template<bool is_tell, class Create, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_binary_logical_connector(const F& f, const F& g, Env& env, bool neg_context, Create&& create) {
+  CUDA NI fresult<Alloc, F> interpret_binary_logical_connector(const F& f, const F& g, Env& env, bool neg_context, Create&& create) {
     using PF = pc::Formula<A, Alloc>;
     Alloc alloc = env.get_allocator();
     auto l = interpret_formula<is_tell>(f, env, neg_context);
@@ -332,42 +332,42 @@ private:
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_conjunction(const F& f, const F& g, Env& env, bool neg_context) {
+  CUDA NI fresult<Alloc, F> interpret_conjunction(const F& f, const F& g, Env& env, bool neg_context) {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<is_tell>(f, g, env, neg_context,
       [](auto&& l, auto&& k) { return PF::make_conj(std::move(l), std::move(k)); });
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_disjunction(const F& f, const F& g, Env& env) {
+  CUDA NI fresult<Alloc, F> interpret_disjunction(const F& f, const F& g, Env& env) {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<is_tell>(f, g, env, true,
       [](auto&& l, auto&& k) { return PF::make_disj(std::move(l), std::move(k)); });
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_biconditional(const F& f, const F& g, Env& env) {
+  CUDA NI fresult<Alloc, F> interpret_biconditional(const F& f, const F& g, Env& env) {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<is_tell>(f, g, env, true,
       [](auto&& l, auto&& k) { return PF::make_bicond(std::move(l), std::move(k)); });
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_implication(const F& f, const F& g, Env& env) {
+  CUDA NI fresult<Alloc, F> interpret_implication(const F& f, const F& g, Env& env) {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<is_tell>(f, g, env, true,
       [](auto&& l, auto&& k) { return PF::make_imply(std::move(l), std::move(k)); });
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_xor(const F& f, const F& g, Env& env) {
+  CUDA NI fresult<Alloc, F> interpret_xor(const F& f, const F& g, Env& env) {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<is_tell>(f, g, env, true,
       [](auto&& l, auto&& k) { return PF::make_xor(std::move(l), std::move(k)); });
   }
 
   template <bool neg, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_literal(const F& f, Env& env) {
+  CUDA NI fresult<Alloc, F> interpret_literal(const F& f, Env& env) {
     using PF = pc::Formula<A, Alloc>;
     auto avar = interpret_var(f, env);
     if(avar.has_value()) {
@@ -386,7 +386,7 @@ private:
   /** expr != k is transformed into expr < k \/ expr > k.
    * `k` needs to be an integer. */
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_neq_decomposition(const F& f, Env& env, bool neg_context) {
+  CUDA NI fresult<Alloc, F> interpret_neq_decomposition(const F& f, Env& env, bool neg_context) {
     if(f.sig() == NEQ && f.seq(1).is(F::Z)) {
       using F2 = TFormula<typename Env::allocator_type>;
       typename Env::allocator_type alloc = env.get_allocator();
@@ -407,7 +407,7 @@ private:
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_in_decomposition(const F& f, Env& env, bool neg_context) {
+  CUDA NI fresult<Alloc, F> interpret_in_decomposition(const F& f, Env& env, bool neg_context) {
     assert(f.seq(1).is(F::S));
     using F2 = TFormula<typename Env::allocator_type>;
     typename Env::allocator_type alloc = env.get_allocator();
@@ -437,7 +437,7 @@ private:
   }
 
   template <class F>
-  CUDA F binarize(const F& f, size_t i) {
+  CUDA NI F binarize(const F& f, size_t i) {
     assert(f.is(F::Seq) && f.seq().size() >= 2);
     if(i + 2 == f.seq().size()) {
       return F::make_binary(f.seq(i), f.sig(), f.seq(i+1), f.type(), f.seq().get_allocator(), false);
@@ -448,7 +448,7 @@ private:
   }
 
   template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA fresult<Alloc, F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
+  CUDA NI fresult<Alloc, F> interpret_formula(const F& f, Env& env, bool neg_context = false) {
     assert(f.type() == aty() || f.is_untyped() || f.is_variable());
     Alloc alloc = env.get_allocator();
     using PF = pc::Formula<A, Alloc>;
@@ -553,7 +553,7 @@ private:
   }
 
   template <bool is_tell, class R, class F, class Env>
-  CUDA void interpret_formula2(const F& f, Env& env, R& res) {
+  CUDA NI void interpret_formula2(const F& f, Env& env, R& res) {
     // For the predicate IN, we still wish to interpret it in the sub-domain because its decomposition in PC is very weak (disjunction).
     if(is_tell && f.is(F::Seq) && f.sig() == IN) {
       auto sub_tell = sub->interpret_tell_in(f.map_atype(sub->aty()), env);
@@ -576,7 +576,7 @@ private:
   }
 
   template <class R, bool is_tell, class F, class Env>
-  CUDA R interpret_in(const F& f, Env& env) {
+  CUDA NI R interpret_in(const F& f, Env& env) {
     using val_t = typename R::value_type;
     // If the formula is untyped, we first try to interpret it in the sub-domain.
     IResult<int, F> sub_err{0};
@@ -643,14 +643,14 @@ public:
     Moreover, we only treat exact conjunction (no under- or over-approximation of the conjunction).
     For now, \f$ T \neq k \f$ is not supported where \f$ T \f$ is an arithmetic term, containing function symbols supported in `terms.hpp`. */
   template <class F, class Env>
-  CUDA iresult_tell<F, Env> interpret_tell_in(const F& f, Env& env) {
+  CUDA NI iresult_tell<F, Env> interpret_tell_in(const F& f, Env& env) {
     return interpret_in<iresult_tell<F, Env>, true>(f, env);
   }
 
   /** Create an abstract domain and interpret the formulas `f` in this abstract domain.
    * The sub abstract domain is supposed to be able to represent variables, and its constructor is assumed to take a size, like for `VStore`. */
   template <class F, class Env>
-  CUDA static IResult<this_type, F> interpret_tell(const F& f, Env& env, allocator_type alloc = allocator_type()) {
+  CUDA NI static IResult<this_type, F> interpret_tell(const F& f, Env& env, allocator_type alloc = allocator_type()) {
     auto sub_ty = env.extends_abstract_dom();
     auto ipc_ty = env.extends_abstract_dom();
     this_type ipc(ipc_ty,
@@ -668,7 +668,7 @@ public:
   }
 
   template <class F, class Env>
-  CUDA iresult_ask<F, Env> interpret_ask_in(const F& f, const Env& env) const {
+  CUDA NI iresult_ask<F, Env> interpret_ask_in(const F& f, const Env& env) const {
     return interpret_in<iresult_ask<F, Env>, false>(f, env);
   }
 
@@ -760,7 +760,7 @@ public:
     return snapshot_type<Alloc2>(props.size(), sub->snapshot(alloc));
   }
 
-  template <class Alloc2 = allocator_type>
+  template <class Alloc2>
   CUDA void restore(const snapshot_type<Alloc2>& snap) {
     int n = props.size();
     for(int i = snap.num_props; i < n; ++i) {
@@ -792,7 +792,7 @@ public:
   }
 
   template<class Env>
-  CUDA TFormula<typename Env::allocator_type> deinterpret(const Env& env) const {
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const Env& env) const {
     using F = TFormula<typename Env::allocator_type>;
     F sub_f = sub->deinterpret(env);
     typename F::Sequence seq{env.get_allocator()};

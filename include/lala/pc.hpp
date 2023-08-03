@@ -45,7 +45,7 @@ public:
   template <class Alloc2>
   struct snapshot_type
   {
-    using sub_snap_type = typename A::snapshot_type<Alloc2>;
+    using sub_snap_type = A::template snapshot_type<Alloc2>;
     size_t num_props;
     sub_snap_type sub_snap;
 

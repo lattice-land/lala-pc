@@ -742,7 +742,7 @@ private:
   }
 
   template <class A2, class Alloc2>
-  CUDA static VFormula create(const Formula<A2, Alloc2>& other, const allocator_type& allocator) {
+  CUDA NI static VFormula create(const Formula<A2, Alloc2>& other, const allocator_type& allocator) {
     switch(other.formula.index()) {
       case IPVarLit: return create_one<IPVarLit, PVarLit>(other, allocator);
       case INVarLit: return create_one<INVarLit, NVarLit>(other, allocator);
@@ -765,7 +765,7 @@ private:
   CUDA Formula(VFormula&& formula): formula(std::move(formula)) {}
 
   template <class F>
-  CUDA auto forward(F&& f) const {
+  CUDA NI auto forward(F&& f) const {
     switch(formula.index()) {
       case IPVarLit: return f(battery::get<IPVarLit>(formula));
       case INVarLit: return f(battery::get<INVarLit>(formula));
@@ -786,7 +786,7 @@ private:
   }
 
   template <class F>
-  CUDA auto forward(F&& f) {
+  CUDA NI auto forward(F&& f) {
     switch(formula.index()) {
       case IPVarLit: return f(battery::get<IPVarLit>(formula));
       case INVarLit: return f(battery::get<INVarLit>(formula));

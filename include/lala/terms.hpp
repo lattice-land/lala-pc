@@ -539,7 +539,7 @@ private:
   }
 
   template <class A2, class Alloc2>
-  CUDA NI static VTerm create(const Term<A2, Alloc2>& other, const allocator_type& allocator) {
+  CUDA static VTerm create(const Term<A2, Alloc2>& other, const allocator_type& allocator) {
     switch(other.term.index()) {
       case IVar: return create_one<IVar, Variable<A>>(other, allocator);
       case IConstant: return create_one<IConstant, Constant<A>>(other, allocator);
@@ -569,7 +569,7 @@ private:
   CUDA Term(VTerm&& term): term(std::move(term)) {}
 
   template <class F>
-  CUDA NI auto forward(F&& f) const {
+  CUDA auto forward(F&& f) const {
     switch(term.index()) {
       case IVar: return f(battery::get<IVar>(term));
       case IConstant: return f(battery::get<IConstant>(term));

@@ -569,7 +569,7 @@ private:
   CUDA Term(VTerm&& term): term(std::move(term)) {}
 
   template <class F>
-  CUDA NI auto forward(F&& f) const {
+  CUDA auto forward(F&& f) const {
     switch(term.index()) {
       case IVar: return f(battery::get<IVar>(term));
       case IConstant: return f(battery::get<IConstant>(term));

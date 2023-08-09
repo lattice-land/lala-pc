@@ -765,7 +765,7 @@ private:
   CUDA Formula(VFormula&& formula): formula(std::move(formula)) {}
 
   template <class F>
-  CUDA NI auto forward(F&& f) const {
+  CUDA auto forward(F&& f) const {
     switch(formula.index()) {
       case IPVarLit: return f(battery::get<IPVarLit>(formula));
       case INVarLit: return f(battery::get<INVarLit>(formula));
@@ -786,7 +786,7 @@ private:
   }
 
   template <class F>
-  CUDA NI auto forward(F&& f) {
+  CUDA auto forward(F&& f) {
     switch(formula.index()) {
       case IPVarLit: return f(battery::get<IPVarLit>(formula));
       case INVarLit: return f(battery::get<INVarLit>(formula));

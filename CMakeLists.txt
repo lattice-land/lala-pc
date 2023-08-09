@@ -19,7 +19,7 @@ include(FetchContent)
 FetchContent_Declare(
   lala_core
   GIT_REPOSITORY "https://github.com/lattice-land/lala-core.git"
-  GIT_TAG        main
+  GIT_TAG        clang-bug64365
 )
 
 FetchContent_MakeAvailable(lala_core)

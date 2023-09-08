@@ -49,11 +49,15 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 include(GoogleTest)
 
-FetchContent_Declare(
-  lala_parsing
-  GIT_REPOSITORY "https://github.com/lattice-land/lala-parsing.git"
-  GIT_TAG        main
-)
+if(LOCAL_DEPS)
+  FetchContent_Declare(lala_parsing SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../lala-parsing/")
+else()
+  FetchContent_Declare(
+    lala_parsing
+    GIT_REPOSITORY "https://github.com/lattice-land/lala-parsing.git"
+    GIT_TAG        v1.0.0
+  )
+endif()
 FetchContent_MakeAvailable(lala_parsing)
 
 add_executable(pc_test tests/pc_test.cpp)

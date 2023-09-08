@@ -1,7 +1,7 @@
 // Copyright 2021 Pierre Talbot
 
-#ifndef TERMS_HPP
-#define TERMS_HPP
+#ifndef LALA_PC_TERMS_HPP
+#define LALA_PC_TERMS_HPP
 
 #include "battery/vector.hpp"
 #include "lala/universes/primitive_upset.hpp"

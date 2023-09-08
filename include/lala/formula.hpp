@@ -1,7 +1,7 @@
 // Copyright 2021 Pierre Talbot
 
-#ifndef FORMULA_HPP
-#define FORMULA_HPP
+#ifndef LALA_PC_FORMULA_HPP
+#define LALA_PC_FORMULA_HPP
 
 #include "lala/universes/primitive_upset.hpp"
 

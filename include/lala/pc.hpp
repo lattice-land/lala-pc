@@ -1,7 +1,7 @@
 // Copyright 2021 Pierre Talbot
 
-#ifndef IPC_HPP
-#define IPC_HPP
+#ifndef LALA_PC_IPC_HPP
+#define LALA_PC_IPC_HPP
 
 #include "battery/vector.hpp"
 #include "battery/unique_ptr.hpp"

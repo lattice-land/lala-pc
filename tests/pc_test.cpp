@@ -68,11 +68,14 @@ template <class L>
 void test_extract(const L& ipc, bool is_ua) {
   AbstractDeps<standard_allocator> deps(standard_allocator{});
   L copy1(ipc, deps);
-  EXPECT_EQ(ipc.extract(copy1), is_ua);
-  EXPECT_EQ(ipc.is_top(), copy1.is_top());
-  EXPECT_EQ(ipc.is_bot(), copy1.is_bot());
-  for(int i = 0; i < ipc.vars(); ++i) {
-    EXPECT_EQ(ipc[i], copy1[i]);
+  EXPECT_EQ(ipc.is_extractable(), is_ua);
+  if(ipc.is_extractable()) {
+    ipc.extract(copy1);
+    EXPECT_EQ(ipc.is_top(), copy1.is_top());
+    EXPECT_EQ(ipc.is_bot(), copy1.is_bot());
+    for(int i = 0; i < ipc.vars(); ++i) {
+      EXPECT_EQ(ipc[i], copy1[i]);
+    }
   }
 }
 
@@ -635,4 +638,13 @@ TEST(IPCTest, IntTimes6) {
     var 0..0: z; \
     constraint int_times(x, y, z);", env);
   refine_and_test(ipc, 1, {Itv(0, 1), Itv(1, 2), Itv(0, 0)}, {Itv(0, 0), Itv(1, 2), Itv(0, 0)}, true);
+}
+
+TEST(IPCTest, IntAbs1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var -15..5: x;\
+    var -10..10: y;\
+    constraint int_abs(x, y);", env);
+  refine_and_test(ipc, 1, {Itv(-15, 5), Itv(-10, 10)}, {Itv(-10, 5), Itv(0, 10)}, false);
 }

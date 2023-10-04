@@ -180,6 +180,7 @@ public:
 
   template <class A2, class Alloc2>
   friend class PLatticeOrderPredicate;
+
 protected:
   sub_type left;
   U right;

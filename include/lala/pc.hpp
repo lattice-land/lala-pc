@@ -769,12 +769,9 @@ public:
     sub->restore(snap.sub_snap);
   }
 
-  /** Extract an under-approximation of `this` in `ua` when all propagators are entailed.
-   * In all other cases, returns `false`.
-   * For efficiency reason, if `B` is a propagator completion, the propagators are not copied in `ua`.
-   *   (It is OK, since they are entailed, they don't bring information anymore.) */
-  template <class ExtractionStrategy = NonAtomicExtraction, class B>
-  CUDA bool extract(B& ua, const ExtractionStrategy& strategy = ExtractionStrategy()) const {
+  /** An abstract element is extractable when it is not equal to top, if all propagators are entailed and if the underlying abstract element is extractable. */
+  template <class ExtractionStrategy = NonAtomicExtraction>
+  CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy()) const {
     if(is_top()) {
       return false;
     }
@@ -783,11 +780,20 @@ public:
         return false;
       }
     }
+    return sub->is_extractable(strategy);
+  }
+
+  /** Extract the current element into `ua`.
+   * \pre `is_extractable()` must be `true`.
+   * For efficiency reason, if `B` is a propagator completion, the propagators are not copied in `ua`.
+   *   (It is OK, since they are entailed, they don't bring information anymore.) */
+  template <class B>
+  CUDA void extract(B& ua) const {
     if constexpr(impl::is_pc_like<B>::value) {
-      return sub->extract(*ua.sub, strategy);
+      sub->extract(*ua.sub);
     }
     else {
-      return sub->extract(ua, strategy);
+      sub->extract(ua);
     }
   }
 

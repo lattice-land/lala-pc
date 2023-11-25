@@ -669,7 +669,7 @@ public:
 
   template <class F, class Env>
   CUDA NI iresult_ask<F, Env> interpret_ask_in(const F& f, const Env& env) const {
-    return interpret_in<iresult_ask<F, Env>, false>(f, env);
+    return const_cast<this_type*>(this)->interpret_in<iresult_ask<F, Env>, false>(f, const_cast<Env&>(env)); // ugly const_cast, but `env` will not be modified, just for factorization purposes with interpret_tell_in.
   }
 
   /** Note that we cannot add propagators in parallel (but modifying the underlying domain is ok).

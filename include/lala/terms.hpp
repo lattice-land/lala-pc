@@ -595,6 +595,9 @@ private:
   }
 
 public:
+  Term() = default;
+  this_type& operator=(this_type&&) = default;
+
   template <class A2, class Alloc2>
   CUDA Term(const Term<A2, Alloc2>& other, const allocator_type& allocator = allocator_type())
     : term(create(other, allocator))

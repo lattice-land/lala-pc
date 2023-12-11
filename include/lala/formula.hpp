@@ -20,10 +20,12 @@ public:
 
   template <class A2, bool neg2>
   friend class VariableLiteral;
+
 private:
   AVar avar;
 
 public:
+  VariableLiteral() = default;
   CUDA VariableLiteral(AVar avar): avar(avar) {}
 
   template <class A2, class Alloc>
@@ -809,6 +811,9 @@ private:
   }
 
 public:
+  Formula() = default;
+  this_type& operator=(this_type&&) = default;
+
   template <class A2, class Alloc2>
   CUDA Formula(const Formula<A2, Alloc2>& other, const Allocator& allocator = Allocator())
     : formula(create(other, allocator))

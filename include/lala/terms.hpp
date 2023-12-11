@@ -31,7 +31,8 @@ public:
   template <class A2, class Alloc>
   CUDA Constant(const Constant<A2>& other, const Alloc&): k(other.k) {}
 
-  CUDA void tell(A&, const U&, local::BInc&) const {}
+  template <class Mem>
+  CUDA void tell(A&, const U&, BInc<Mem>&) const {}
   CUDA U project(const A&) const { return k; }
   CUDA local::BInc is_top(const A&) const { return false; }
   CUDA void print(const A&) const { ::battery::print(k); }
@@ -62,7 +63,8 @@ public:
   template <class A2, class Alloc>
   CUDA Variable(const Variable<A2>& other, const Alloc&): avar(other.avar) {}
 
-  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
     a.tell(avar, u, has_changed);
   }
 
@@ -144,7 +146,8 @@ public:
     x_term(battery::allocate_unique<sub_type>(allocator, *other.x_term))
   {}
 
-  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
     if(x().is_top(a)) { return; }
     x().tell(a, UnaryOp::inv(u), has_changed);
   }
@@ -347,7 +350,8 @@ public:
 
   /** Enforce `x <op> y >= u` where >= is the lattice order of the underlying abstract universe.
       For instance, over the interval abstract universe, `x + y >= [2..5]` will ensure that `x + y` is eventually at least `2` and at most `5`. */
-  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
     auto xt = x().project(a);
     auto yt = y().project(a);
     if(xt.is_top() || yt.is_top()) { return; }
@@ -430,7 +434,8 @@ public:
     return accu;
   }
 
-  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
     U all = project(a);
     if(G::is_absorbing(all)) {
       return;
@@ -596,6 +601,7 @@ private:
 
 public:
   Term() = default;
+  Term(this_type&&) = default;
   this_type& operator=(this_type&&) = default;
 
   template <class A2, class Alloc2>
@@ -676,7 +682,8 @@ public:
     return make<INaryMul>(NaryMul(std::move(sub_terms)));
   }
 
-  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
     forward([&](const auto& t) { t.tell(a, u, has_changed); });
   }
 

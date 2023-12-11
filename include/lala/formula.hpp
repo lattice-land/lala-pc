@@ -42,8 +42,8 @@ private:
     }
   }
 
-  template <bool negate>
-  CUDA void refine_impl(A& a, local::BInc& has_changed) const {
+  template <bool negate, class Mem>
+  CUDA void refine_impl(A& a, BInc<Mem>& has_changed) const {
     if constexpr(negate) {
       a.tell(avar, U::eq_zero(), has_changed);
     }
@@ -67,19 +67,22 @@ public:
     return ask_impl<!neg>(a);
   }
 
-  CUDA void preprocess(A&, local::BInc&) {}
+  template <class Mem>
+  CUDA void preprocess(A&, BInc<Mem>&) {}
 
   /** Perform:
    *    * Positive literal: \f$ x = a(x) \sqcup [\![x = 1]\!]_U \f$
    *    * Negative literal: \f$ x = a(x) \sqcup [\![x = 0]\!]_U \f$. */
-  CUDA void refine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
     refine_impl<neg>(a, has_changed);
   }
 
   /** Perform:
    *    * Positive literal: \f$ x = a(x) \sqcup [\![x = 0]\!]_U \f$
    *    * Negative literal: \f$ x = a(x) \sqcup [\![x = 1]\!]_U \f$. */
-  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     refine_impl<!neg>(a, has_changed);
   }
 
@@ -119,14 +122,20 @@ public:
 
   CUDA local::BInc ask(const A& a) const { return a.is_top(); }
   CUDA local::BInc nask(const A&) const { return true; }
-  CUDA void preprocess(A&, local::BInc&) {}
-  CUDA void refine(A& a, local::BInc& has_changed) const {
+
+  template <class Mem>
+  CUDA void preprocess(A&, BInc<Mem>&) {}
+
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
     if(!a.is_top()) {
       has_changed.tell_top();
       a.tell_top();
     }
   }
-  CUDA void nrefine(A&, local::BInc&) const {}
+
+  template <class Mem>
+  CUDA void nrefine(A&, BInc<Mem>&) const {}
   CUDA local::BInc is_top(const A&) const { return true; }
   CUDA NI void print(const A& a) const { printf("false"); }
 
@@ -153,9 +162,9 @@ public:
 
   CUDA local::BInc ask(const A& a) const { return true; }
   CUDA local::BInc nask(const A& a) const { return a.is_top(); }
-  CUDA void preprocess(A&, local::BInc&) {}
-  CUDA void refine(A&, local::BInc&) const {}
-  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+  template <class Mem> CUDA void preprocess(A&, BInc<Mem>&) {}
+  template <class Mem> CUDA void refine(A&, BInc<Mem>&) const {}
+  template <class Mem> CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     if(!a.is_top()) {
       has_changed.tell_top();
       a.tell_top();
@@ -202,19 +211,21 @@ public:
   }
 
   CUDA local::BInc nask(const A&) const { assert(false); return local::BInc::bot(); }
-  CUDA void nrefine(A&, local::BInc&) const { assert(false); }
-  CUDA void tell(A&, const U&, local::BInc&) const { assert(false); }
+  template <class Mem> CUDA void nrefine(A&, BInc<Mem>&) const { assert(false); }
+  template <class Mem> CUDA void tell(A&, const U&, BInc<Mem>&) const { assert(false); }
   CUDA U project(const A&) const { assert(false); return U::top(); }
 
   CUDA local::BInc is_top(const A& a) const {
     return left.is_top(a);
   }
 
-  CUDA void preprocess(A& a, local::BInc& has_changed) {
+  template <class Mem>
+  CUDA void preprocess(A& a, BInc<Mem>& has_changed) {
     right.tell(left.project(a), has_changed);
   }
 
-  CUDA void refine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
     left.tell(a, right, has_changed);
   }
 
@@ -294,11 +305,13 @@ public:
     return not_f->ask(a);
   }
 
-  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     not_f->refine(a, has_changed);
   }
 
-  CUDA void preprocess(A& a, local::BInc& has_changed) {
+  template <class Mem>
+  CUDA void preprocess(A& a, BInc<Mem>& has_changed) {
     base_type::preprocess(a, has_changed);
     not_f->preprocess(a, has_changed);
   }
@@ -339,17 +352,20 @@ public:
     return f->nask(a) || g->nask(a);
   }
 
-  CUDA void preprocess(A& a, local::BInc& has_changed) {
+  template <class Mem>
+  CUDA void preprocess(A& a, BInc<Mem>& has_changed) {
     f->preprocess(a, has_changed);
     g->preprocess(a, has_changed);
   }
 
-  CUDA void refine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
     f->refine(a, has_changed);
     g->refine(a, has_changed);
   }
 
-  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     if(f->ask(a)) { g->nrefine(a, has_changed); }
     else if(g->ask(a)) { f->nrefine(a, has_changed); }
   }
@@ -414,17 +430,20 @@ public:
     return f->nask(a) && g->nask(a);
   }
 
-  CUDA void preprocess(A& a, local::BInc& has_changed) {
+  template <class Mem>
+  CUDA void preprocess(A& a, BInc<Mem>& has_changed) {
     f->preprocess(a, has_changed);
     g->preprocess(a, has_changed);
   }
 
-  CUDA void refine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
     if(f->nask(a)) { g->refine(a, has_changed); }
     else if(g->nask(a)) { f->refine(a, has_changed); }
   }
 
-  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     f->nrefine(a, has_changed);
     g->nrefine(a, has_changed);
   }
@@ -494,12 +513,14 @@ public:
       (f->nask(a) && g->ask(a));
   }
 
-  CUDA void preprocess(A& a, local::BInc& has_changed) {
+  template <class Mem>
+  CUDA void preprocess(A& a, BInc<Mem>& has_changed) {
     f->preprocess(a, has_changed);
     g->preprocess(a, has_changed);
   }
 
-  CUDA void refine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
     if(f->ask(a)) { g->refine(a, has_changed); }
     else if(f->nask(a)) { g->nrefine(a, has_changed); }
     else if(g->ask(a)) { f->refine(a, has_changed); }
@@ -507,7 +528,8 @@ public:
   }
 
   // note that not(f <=> g) is equivalent to (f <=> not g)
-  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     if(f->ask(a)) { g->nrefine(a, has_changed); }
     else if(f->nask(a)) { g->refine(a, has_changed); }
     else if(g->ask(a)) { f->nrefine(a, has_changed); }
@@ -569,17 +591,20 @@ public:
     return f->ask(a) && g->nask(a);
   }
 
-  CUDA void preprocess(A& a, local::BInc& has_changed) {
+  template <class Mem>
+  CUDA void preprocess(A& a, BInc<Mem>& has_changed) {
     f->preprocess(a, has_changed);
     g->preprocess(a, has_changed);
   }
 
-  CUDA void refine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
     if(f->ask(a)) { g->refine(a, has_changed); }
     else if(g->nask(a)) { f->nrefine(a, has_changed); }
   }
 
-  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     if(f->ask(a)) { g->nrefine(a, has_changed); }
     else if(g->nask(a)) { f->refine(a, has_changed); }
   }
@@ -641,19 +666,22 @@ public:
       (f->ask(a) && g->nask(a));
   }
 
-  CUDA void preprocess(A& a, local::BInc& has_changed) {
+  template <class Mem>
+  CUDA void preprocess(A& a, BInc<Mem>& has_changed) {
     f->preprocess(a, has_changed);
     g->preprocess(a, has_changed);
   }
 
-  CUDA void refine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
     if(f->ask(a)) { g->nrefine(a, has_changed); }
     else if(f->nask(a)) { g->refine(a, has_changed); }
     else if(g->ask(a)) { f->nrefine(a, has_changed); }
     else if(g->nask(a)) { f->refine(a, has_changed); }
   }
 
-  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     if(f->ask(a)) { g->refine(a, has_changed); }
     else if(f->nask(a)) { g->nrefine(a, has_changed); }
     else if(g->ask(a)) { f->refine(a, has_changed); }
@@ -812,6 +840,7 @@ private:
 
 public:
   Formula() = default;
+  Formula(this_type&&) = default;
   this_type& operator=(this_type&&) = default;
 
   template <class A2, class Alloc2>
@@ -873,7 +902,8 @@ public:
   }
 
   /** Call `refine` iff \f$ u \geq  [\![x = 1]\!]_U \f$ and `nrefine` iff \f$ u \geq  [\![x = 0]\!] \f$. */
-  CUDA void tell(A& a, const U& u, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
     if(u >= U::eq_one()) { refine(a, has_changed); }
     else if(u >= U::eq_zero()) { nrefine(a, has_changed); }
   }
@@ -914,17 +944,20 @@ public:
   /** An optional preprocessing operator that is only called at the root node.
    * This is because refinement operators are supposed to be stateless, hence are never backtracked.
    * It prepares the data of the formula to improve the refinement of subsequent calls to `refine`. */
-  CUDA void preprocess(A& a, local::BInc& has_changed) {
+  template <class Mem>
+  CUDA void preprocess(A& a, BInc<Mem>& has_changed) {
     return forward([&](auto& t) { t.preprocess(a, has_changed); });
   }
 
   /** Refine the formula by supposing it must be true. */
-  CUDA void refine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
     return forward([&](const auto& t) { t.refine(a, has_changed); });
   }
 
   /** Refine the negation of the formula, hence we suppose the original formula needs to be false. */
-  CUDA void nrefine(A& a, local::BInc& has_changed) const {
+  template <class Mem>
+  CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     return forward([&](const auto& t) { t.nrefine(a, has_changed); });
   }
 };

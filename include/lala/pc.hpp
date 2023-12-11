@@ -42,10 +42,10 @@ public:
   using sub_allocator_type = typename A::allocator_type;
   using this_type = PC<sub_type, allocator_type>;
 
-  template <class Alloc2>
+  template <class Alloc>
   struct snapshot_type
   {
-    using sub_snap_type = A::template snapshot_type<Alloc2>;
+    using sub_snap_type = A::template snapshot_type<Alloc>;
     size_t num_props;
     sub_snap_type sub_snap;
 
@@ -54,13 +54,13 @@ public:
       , sub_snap(std::move(sub_snap))
     {}
 
-    snapshot_type(const snapshot_type<Alloc2>&) = default;
-    snapshot_type(snapshot_type<Alloc2>&&) = default;
-    snapshot_type<Alloc2>& operator=(snapshot_type<Alloc2>&&) = default;
-    snapshot_type<Alloc2>& operator=(const snapshot_type<Alloc2>&) = default;
+    snapshot_type(const snapshot_type<Alloc>&) = default;
+    snapshot_type(snapshot_type<Alloc>&&) = default;
+    snapshot_type<Alloc>& operator=(snapshot_type<Alloc>&&) = default;
+    snapshot_type<Alloc>& operator=(const snapshot_type<Alloc>&) = default;
 
     template <class SnapshotType>
-    CUDA snapshot_type(const SnapshotType& other, const Alloc2& alloc = Alloc2())
+    CUDA snapshot_type(const SnapshotType& other, const Alloc& alloc = Alloc{})
       : num_props(other.num_props)
       , sub_snap(other.sub_snap, alloc)
     {}
@@ -68,6 +68,16 @@ public:
 
   using sub_ptr = abstract_ptr<sub_type>;
 
+  constexpr static const bool is_abstract_universe = false;
+  constexpr static const bool sequential = sub_type::sequential;
+  constexpr static const bool is_totally_ordered = false;
+  constexpr static const bool preserve_bot = true;
+  // The next properties should be checked more seriously, relying on the sub-domain might be uneccessarily restrictive.
+  constexpr static const bool preserve_top = sub_type::preserve_top;
+  constexpr static const bool preserve_join = sub_type::preserve_join;
+  constexpr static const bool preserve_meet = sub_type::preserve_meet;
+  constexpr static const bool injective_concretization = sub_type::injective_concretization;
+  constexpr static const bool preserve_concrete_covers = sub_type::preserve_concrete_covers;
   constexpr static const char* name = "PC";
 
   template <class A2, class Alloc2>
@@ -83,43 +93,45 @@ private:
   battery::vector<formula_type, allocator_type> props;
 
 public:
-  template <class Alloc2>
-  using formula_seq = battery::vector<pc::Formula<A, Alloc2>, Alloc2>;
+  template <class Alloc>
+  using formula_seq = battery::vector<pc::Formula<A, Alloc>, Alloc>;
 
-  template <class Alloc2, class SubType>
+  template <class Alloc>
+  using term_seq = battery::vector<pc::Term<A, Alloc>, Alloc>;
+
+  template <class Alloc, class SubType>
   struct interpreted_type {
     SubType sub_value;
-    formula_seq props;
+    formula_seq<Alloc> props;
 
     interpreted_type(interpreted_type&&) = default;
     interpreted_type& operator=(interpreted_type&&) = default;
     interpreted_type(const interpreted_type&) = default;
 
-    CUDA interpreted_type(const SubType& sub_value, const Alloc2& alloc = Alloc2())
+    CUDA interpreted_type(const SubType& sub_value, const Alloc& alloc = Alloc{})
       : sub_value(sub_value), props(alloc)
     {}
 
-    CUDA interpreted_type(const Alloc2& alloc = Alloc2())
+    CUDA interpreted_type(const Alloc& alloc = Alloc{})
       : sub_value(alloc), props(alloc) {}
 
     template <class InterpretedType>
-    CUDA interpreted_type(const InterpretedType& other, const Alloc2& alloc = Alloc2())
+    CUDA interpreted_type(const InterpretedType& other, const Alloc& alloc = Alloc{})
       : sub_value(other.sub_value, alloc)
       , props(other.props, alloc)
     {}
 
-    template <class Alloc3, class SubType2>
+    template <class Alloc2, class SubType2>
     friend struct interpreted_type;
   };
 
-  template <class Alloc2>
-  using tell_type = interpreted_type<Alloc2, typename sub_type::template tell_type<Alloc2>>;
+  template <class Alloc>
+  using tell_type = interpreted_type<Alloc, typename sub_type::template tell_type<Alloc>>;
 
-  template <class Alloc2>
-  using ask_type = interpreted_type<Alloc2, typename sub_type::template ask_type<Alloc2>>;
+  template <class Alloc>
+  using ask_type = interpreted_type<Alloc, typename sub_type::template ask_type<Alloc>>;
 
-public:
-  CUDA PC(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type())
+  CUDA PC(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type{})
    : atype(atype), sub(std::move(sub)), props(alloc)  {}
 
   CUDA PC(PC&& other)
@@ -129,7 +141,7 @@ public:
   {}
 
   template<class A2, class Alloc2, class... Allocators>
-  CUDA NI PC(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
+  CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
    : atype(other.atype)
    , sub(deps.template clone<A>(other.sub))
    , props(other.props, deps.template get_allocator<allocator_type>())
@@ -144,103 +156,134 @@ public:
   }
 
   CUDA static this_type bot(AType atype = UNTYPED,
+    AType atype_sub = UNTYPED,
     const allocator_type& alloc = allocator_type(),
     const sub_allocator_type& sub_alloc = sub_allocator_type())
   {
-    return PC(atype, battery::allocate_shared<sub_type>(alloc, sub_type::bot(UNTYPED, sub_alloc)), alloc);
+    return PC{atype, battery::allocate_shared<sub_type>(alloc, sub_type::bot(atype_sub, sub_alloc)), alloc};
   }
 
   /** A special symbolic element representing top. */
   CUDA static this_type top(AType atype = UNTYPED,
+    AType atype_sub = UNTYPED,
     const allocator_type& alloc = allocator_type(),
     const sub_allocator_type& sub_alloc = sub_allocator_type())
   {
-    return PC(atype, battery::allocate_shared<sub_type>(sub_alloc, sub_type::top(UNTYPED, sub_alloc)), alloc);
+    return PC{atype, battery::allocate_shared<sub_type>(sub_alloc, sub_type::top(atype_sub, sub_alloc)), alloc};
+  }
+
+  template <class Env>
+  CUDA static this_type bot(Env& env,
+    const allocator_type& alloc = allocator_type(),
+    const sub_allocator_type& sub_alloc = sub_allocator_type())
+  {
+    AType atype_sub = env.extends_abstract_dom();
+    AType atype = env.extends_abstract_dom();
+    return bot(atype, atype_sub, alloc, sub_alloc);
+  }
+
+  template <class Env>
+  CUDA static this_type top(Env& env,
+    const allocator_type& alloc = allocator_type(),
+    const sub_allocator_type& sub_alloc = sub_allocator_type())
+  {
+    AType atype_sub = env.extends_abstract_dom();
+    AType atype = env.extends_abstract_dom();
+    return top(atype, atype_sub, alloc, sub_alloc);
   }
 
 private:
-  template<class Alloc, class F>
-  CUDA NI static tresult<Alloc, F> interpret_unary(const F& f, term_ptr<Alloc>&& a) {
+  template <bool diagnose, class F, class Alloc>
+  CUDA bool interpret_unary(const F& f, term_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, term_ptr<Alloc>&& x) const {
     using T = pc::Term<A, Alloc>;
-    Alloc alloc = a.get_allocator();
+    Alloc alloc = x.get_allocator();
     switch(f.sig()) {
-      case NEG: return T::make_neg(std::move(a));
-      case ABS: return T::make_abs(std::move(a));
-      default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported unary symbol.", f));
+      case NEG: intermediate.push_back(T::make_neg(std::move(x))); break;
+      case ABS: intermediate.push_back(T::make_abs(std::move(x))); break;
+      default: RETURN_INTERPRETATION_ERROR("Unsupported unary symbol in a term.");
     }
+    return true;
   }
 
-  template<class Alloc, class F>
-  CUDA NI static tresult<Alloc, F> interpret_binary(const F& f, term_ptr<Alloc>&& x, term_ptr<Alloc>&& y)
+  template <bool diagnose, class F, class Alloc>
+  CUDA bool interpret_binary(const F& f, term_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, term_ptr<Alloc>&& x, term_ptr<Alloc>&& y) const
   {
     using T = pc::Term<A, Alloc>;
     switch(f.sig()) {
-      case ADD: return T::make_add(std::move(x), std::move(y));
-      case SUB: return T::make_sub(std::move(x), std::move(y));
-      case MUL: return T::make_mul(std::move(x), std::move(y));
-      case TDIV: return T::make_tdiv(std::move(x), std::move(y));
-      case FDIV: return T::make_fdiv(std::move(x), std::move(y));
-      case CDIV: return T::make_cdiv(std::move(x), std::move(y));
-      case EDIV: return T::make_ediv(std::move(x), std::move(y));
-      case MIN: return T::make_min(std::move(x), std::move(y));
-      case MAX: return T::make_max(std::move(x), std::move(y));
-      default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported binary symbol.", f));
+      case ADD: intermediate.push_back(T::make_add(std::move(x), std::move(y))); break;
+      case SUB: intermediate.push_back(T::make_sub(std::move(x), std::move(y))); break;
+      case MUL: intermediate.push_back(T::make_mul(std::move(x), std::move(y))); break;
+      case TDIV: intermediate.push_back(T::make_tdiv(std::move(x), std::move(y))); break;
+      case FDIV: intermediate.push_back(T::make_fdiv(std::move(x), std::move(y))); break;
+      case CDIV: intermediate.push_back(T::make_cdiv(std::move(x), std::move(y))); break;
+      case EDIV: intermediate.push_back(T::make_ediv(std::move(x), std::move(y))); break;
+      case MIN: intermediate.push_back(T::make_min(std::move(x), std::move(y))); break;
+      case MAX: intermediate.push_back(T::make_max(std::move(x), std::move(y))); break;
+      default: RETURN_INTERPRETATION_ERROR("Unsupported binary symbol in a term.");
     }
+    return true;
   }
 
-  template<class Alloc, class F>
-  CUDA NI static tresult<Alloc, F> interpret_nary(const F& f, battery::vector<pc::Term<A, Alloc>, Alloc>&& subterms)
+  template <bool diagnose, class F, class Alloc>
+  CUDA bool interpret_nary(const F& f, term_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, term_seq<Alloc>&& operands) const
   {
     using T = pc::Term<A, Alloc>;
     switch(f.sig()) {
-      case ADD: return T::make_naryadd(std::move(subterms));
-      case MUL: return T::make_narymul(std::move(subterms));
-      default: return tresult<Alloc, F>(IError<F>(true, name, "Unsupported nary symbol.", f));
+      case ADD: intermediate.push_back(T::make_naryadd(std::move(operands))); break;
+      case MUL: intermediate.push_back(T::make_narymul(std::move(operands))); break;
+      default: RETURN_INTERPRETATION_ERROR("Unsupported nary symbol in a term.");
     }
+    return true;
   }
 
-  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA NI tresult<Alloc, F> interpret_sequence(const F& f, Env& env)
+  template <IKind kind, bool diagnose, class F, class Env, class Alloc>
+  CUDA bool interpret_sequence(const F& f, Env& env, term_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const
   {
     using T = pc::Term<A, Alloc>;
-    Alloc alloc = env.get_allocator();
-    battery::vector<T, Alloc> subterms(alloc);
-    subterms.reserve(f.seq().size());
+    Alloc alloc = intermediate.get_allocator();
+    term_seq<Alloc> subterms{alloc};
+    formula_seq<Alloc> subformulas{alloc};
     for(int i = 0; i < f.seq().size(); ++i) {
-      auto t = interpret_term<is_tell>(f.seq(i), env);
-      if(!t.has_value()) {
-        auto p = interpret_formula<is_tell>(f.seq(i), env, true);
-        if(!p.has_value()) {
-          return std::move(t.join_errors(std::move(p)));
+      // We first try to interpret the formula `f.seq(i)` as a term, if that fails, try as a formula and wrap it in a term.
+      if(!interpret_term<kind, diagnose>(f.seq(i), env, subterms, diagnostics)) {
+        if(!interpret_formula<kind, diagnose>(f.seq(i), env, subformulas, diagnostics, true)) {
+          return false;
         }
-        t = tresult<Alloc, F>(T::make_formula(
-          battery::allocate_unique<pc::Formula<A, Alloc>>(alloc, std::move(p.value()))));
-        t.join_warnings(std::move(p));
+        else {
+          subterms.push_back(T::make_formula(
+            battery::allocate_unique<pc::Formula<A, Alloc>>(alloc, std::move(subformulas.back()))));
+        }
       }
-      subterms.push_back(std::move(t.value()));
     }
     if(subterms.size() == 1) {
-      return interpret_unary(f,
+      return interpret_unary<diagnose>(f,
+        intermediate,
+        diagnostics,
         battery::allocate_unique<T>(alloc, std::move(subterms[0])));
     }
     else if(subterms.size() == 2) {
-      return interpret_binary(f,
+      return interpret_binary<diagnose>(f,
+        intermediate,
+        diagnostics,
         battery::allocate_unique<T>(alloc, std::move(subterms[0])),
         battery::allocate_unique<T>(alloc, std::move(subterms[1])));
     }
     else {
-      return interpret_nary(f, std::move(subterms));
+      return interpret_nary<diagnose>(f,
+        intermediate,
+        diagnostics,
+        std::move(subterms));
     }
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_term(const F& f, Env& env, pc::Term<A, Alloc>& term, IDiagnostics<F>& diagnostics, const Alloc& alloc, bool neg_context) {
+  CUDA bool interpret_term(const F& f, Env& env, term_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context = false) const {
     using T = pc::Term<A, Alloc>;
     using F2 = TFormula<Alloc>;
     if(f.is_variable()) {
       AVar avar;
       if(env.template interpret<diagnose>(f, avar, diagnostics)) {
-        term = T::make_var(avar);
+        intermediate.push_back(T::make_var(avar));
         return true;
       }
       else {
@@ -248,10 +291,10 @@ private:
       }
     }
     else if(f.is_constant()) {
-      auto constant = F2::make_binary(F2::make_avar(AVar{}), EQ, f, UNTYPED, alloc);
+      auto constant = F2::make_binary(F2::make_avar(AVar{}), EQ, f, UNTYPED, intermediate.get_allocator());
       universe_type k{universe_type::bot()};
       if(universe_type::template interpret<kind, diagnose>(constant, env, k, diagnostics)) {
-        term = T::make_constant(std::move(k));
+        intermediate.push_back(T::make_constant(std::move(k)));
         return true;
       }
       else {
@@ -259,97 +302,87 @@ private:
       }
     }
     else if(f.is(F::Seq)) {
-      return interpret_sequence<kind, diagnose>(f, env, term, diagnostics, alloc);
+      return interpret_sequence<kind, diagnose>(f, env, intermediate, diagnostics);
     }
     else {
       RETURN_INTERPRETATION_ERROR("The shape of the formula is not supported in PC, and could not be interpreted as a term.");
     }
   }
 
-  template <bool is_tell, class F, class Env, class Alloc = typename Env::allocator_type>
-  CUDA NI fresult<Alloc, F> interpret_negation(const F& f, Env& env, bool neg_context) {
+  template <IKind kind, bool diagnose, class F, class Env, class Alloc>
+  CUDA bool interpret_negation(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context) const {
     auto nf = negate(f);
     if(nf.has_value()) {
-      return interpret_formula<is_tell>(*nf, env, neg_context);
+      return interpret_formula<kind, diagnose>(*nf, env, intermediate, diagnostics, neg_context);
     }
     else {
-      return fresult<Alloc, F>(IError<F>(true, name, "We must query this formula for disentailement, but we could not compute its negation.", f));
+      RETURN_INTERPRETATION_ERROR("We must query this formula for disentailement, but we could not compute its negation.");
     }
   }
 
-
-  template <IKind kind, bool diagnose, class Create, class F, class Env, class Alloc>
-  CUDA bool interpret_binary_logical_connector(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context, Create&& create)  {
+  template <IKind kind, bool diagnose, class F, class Env, class Alloc, class Create>
+  CUDA bool interpret_binary_logical_connector(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context, Create&& create) const {
     using PF = pc::Formula<A, Alloc>;
-    Alloc alloc = seq.get_allocator();
-
-KEEP GOING HERE!
-
-    auto l = interpret_formula<kind, diagnose>(f, env, intermediate, diagnostics, neg_context);
-    if(l.has_value()) {
-      auto k = interpret_formula<kind, diagnose>(g, env, intermediate, diagnostics, neg_context);
-      if(k.has_value()) {
-        return std::move(fresult<Alloc, F>(create(
-            battery::allocate_unique<PF>(alloc, std::move(l.value())),
-            battery::allocate_unique<PF>(alloc, std::move(k.value())))
-          )
-          .join_warnings(std::move(l))
-          .join_warnings(std::move(k)));
-        }
-      else {
-        return std::move(k);
-      }
+    Alloc alloc = intermediate.get_allocator();
+    formula_seq<Alloc> operands{alloc};
+    if( interpret_formula<kind, diagnose>(f, env, operands, diagnostics, neg_context)
+     && interpret_formula<kind, diagnose>(g, env, operands, diagnostics, neg_context))
+    {
+      intermediate.push_back(create(
+        battery::allocate_unique<PF>(alloc, std::move(operands[0])),
+        battery::allocate_unique<PF>(alloc, std::move(operands[1]))));
+      return true;
     }
     else {
-      return std::move(l);
+      return false;
     }
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_conjunction(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) {
+  CUDA bool interpret_conjunction(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context) const {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, neg_context,
       [](auto&& l, auto&& k) { return PF::make_conj(std::move(l), std::move(k)); });
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_disjunction(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) {
+  CUDA bool interpret_disjunction(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, true,
       [](auto&& l, auto&& k) { return PF::make_disj(std::move(l), std::move(k)); });
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_biconditional(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) {
+  CUDA bool interpret_biconditional(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, true,
       [](auto&& l, auto&& k) { return PF::make_bicond(std::move(l), std::move(k)); });
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_implication(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) {
+  CUDA bool interpret_implication(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, true,
       [](auto&& l, auto&& k) { return PF::make_imply(std::move(l), std::move(k)); });
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_xor(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) {
+  CUDA bool interpret_xor(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, true,
       [](auto&& l, auto&& k) { return PF::make_xor(std::move(l), std::move(k)); });
   }
 
   template <bool neg, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_literal(const F& f, Env& env, formula_seq<Alloc>& seq, IDiagnostics<F>& diagnostics) {
+  CUDA bool interpret_literal(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
     AVar avar{};
     if(env.template interpret<diagnose>(f, avar, diagnostics)) {
       if constexpr(neg) {
-        seq.push_back(PF::make_nvarlit(avar));
+        intermediate.push_back(PF::make_nvarlit(avar));
       }
       else {
-        seq.push_back(PF::make_pvarlit(avar));
+        intermediate.push_back(PF::make_pvarlit(avar));
       }
       return true;
     }
@@ -359,7 +392,7 @@ KEEP GOING HERE!
   /** expr != k is transformed into expr < k \/ expr > k.
    * `k` needs to be an integer. */
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_neq_decomposition(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context) {
+  CUDA bool interpret_neq_decomposition(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context) const {
     if(f.sig() == NEQ && f.seq(1).is(F::Z)) {
       using F2 = TFormula<Alloc>;
       Alloc alloc = intermediate.get_allocator();
@@ -383,7 +416,8 @@ KEEP GOING HERE!
 
   /** Given an interval occuring in a set (LogicSet), we decompose it as a formula. */
   template <class F, class Alloc>
-  CUDA F itv_to_formula(AType ty, const F& f, const battery::tuple<F, F>& itv, const Alloc& alloc) {
+  CUDA F itv_to_formula(AType ty, const F& f, const battery::tuple<F, F>& itv, const Alloc& alloc) const {
+    using F2 = TFormula<Alloc>;
     if(battery::get<0>(itv) == battery::get<1>(itv)) {
       return F2::make_binary(f, EQ, battery::get<0>(itv), ty, alloc);
     }
@@ -399,7 +433,7 @@ KEEP GOING HERE!
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_in_decomposition(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context = false) {
+  CUDA bool interpret_in_decomposition(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context = false) const {
     assert(f.seq(1).is(F::S));
     using F2 = TFormula<Alloc>;
     Alloc alloc = intermediate.get_allocator();
@@ -411,9 +445,10 @@ KEEP GOING HERE!
         env, intermediate, diagnostics, neg_context);
     }
     else {
-      typename F2::Sequence disjunction{set.size(), alloc};
+      typename F2::Sequence disjunction{alloc};
+      disjunction.reserve(set.size());
       for(size_t i = 0; i < set.size(); ++i) {
-        disjunction[i] = itv_to_formula(f.seq(0), set[i], alloc);
+        disjunction.push_back(itv_to_formula(f.type(), f.seq(0), set[i], alloc));
       }
       return interpret_formula<kind, diagnose>(
         F2::make_nary(OR, std::move(disjunction), f.type()),
@@ -422,7 +457,7 @@ KEEP GOING HERE!
   }
 
   template <class F>
-  CUDA F binarize(const F& f, size_t i) {
+  CUDA F binarize(const F& f, size_t i) const {
     assert(f.is(F::Seq) && f.seq().size() >= 2);
     if(i + 2 == f.seq().size()) {
       return F::make_binary(f.seq(i), f.sig(), f.seq(i+1), f.type(), f.seq().get_allocator(), false);
@@ -436,7 +471,7 @@ KEEP GOING HERE!
    * It is convenient to use a vector because it carries the allocator, and it is the type of the `props` component of the tell/ask type.
    */
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_formula(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context = false) {
+  CUDA bool interpret_formula(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context = false) const {
     using PF = pc::Formula<A, Alloc>;
     using F2 = TFormula<Alloc>;
     if(f.type() != aty() && !f.is_untyped() && !f.is_variable()) {
@@ -487,8 +522,8 @@ KEEP GOING HERE!
           }
           // We continue with the interpretation of the left-hand side of the formula.
           else {
-            pc::Term<A, Alloc> term;
-            if(!interpret_term<kind, diagnose>(fn.seq(0), env, term, diagnostics)) {
+            term_seq<Alloc> terms{alloc};
+            if(!interpret_term<kind, diagnose>(fn.seq(0), env, terms, diagnostics)) {
               RETURN_INTERPRETATION_ERROR("We cannot interpret the term on the LHS of the formula in PC.");
             }
             else {
@@ -504,14 +539,14 @@ KEEP GOING HERE!
                     RETURN_INTERPRETATION_ERROR("We must query this formula for disentailement, but we could not interpret its negation.");
                   }
                   else {
-                    intermediate.push_back(PF::make_nlop(std::move(term), std::move(u),
+                    intermediate.push_back(PF::make_nlop(std::move(terms.back()), std::move(u),
                       battery::allocate_unique<PF>(alloc, std::move(nf.back()))));
                     return true;
                   }
                 }
               }
               else {
-                intermediate.push_back(PF::make_plop(std::move(term), std::move(u)));
+                intermediate.push_back(PF::make_plop(std::move(terms.back()), std::move(u)));
                 return true;
               }
             }
@@ -530,7 +565,7 @@ KEEP GOING HERE!
     }
     // Logical negation
     else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT) {
-      return interpret_negation<kind, diagnostics>(f, env, intermediate, diagnostics, neg_context);
+      return interpret_negation<kind, diagnose>(f.seq(0), env, intermediate, diagnostics, neg_context);
     }
     else {
       RETURN_INTERPRETATION_ERROR("The shape of this formula is not supported.");
@@ -538,13 +573,44 @@ KEEP GOING HERE!
   }
 
 public:
+  // template <IKind kind, bool diagnose = false, class F, class Env, class I>
+  // CUDA NI bool interpret(const F& f, Env& env, I& intermediate, IDiagnostics<F>& diagnostics) const {
+  //   CALL_WITH_ERROR_CONTEXT(
+  //     "Uninterpretable formula in both PC and its sub-domain.",
+  //     // When the IN predicate has more than one interval, we interpret it in both sub-domain and PC.
+  //     // This should be improved depending on the sub-domain (in case the sub-domain supports "holes").
+  //     (   (sub->template interpret<kind, diagnose>(f, env, intermediate.sub_value, diagnostics)
+  //      && !(f.is_binary() && f.sig() == IN && f.seq(0).is_variable() && f.seq(1).is(F::S) && f.seq(1).s().size() > 1))
+  //     || interpret_formula<kind, diagnose>(f, env, intermediate.props, diagnostics)));
+  // }
+
   template <IKind kind, bool diagnose = false, class F, class Env, class I>
   CUDA NI bool interpret(const F& f, Env& env, I& intermediate, IDiagnostics<F>& diagnostics) const {
-    CALL_WITH_ERROR_CONTEXT(
-      "Uninterpretable formula in both PC and its sub-domain.",
-      (sub->template interpret<kind, diagnose>(f, env, intermediate.sub_value, diagnostics) ||
-      interpret_formula<kind, diagnose>(f, env, intermediate.props, diagnostics)));
+    size_t error_context = 0;
+    if constexpr(diagnose) {
+      diagnostics.add_suberror(IDiagnostics<F>(false, name, "Uninterpretable formula in both PC and its sub-domain.", f));
+      error_context = diagnostics.num_suberrors();
+    }
+    bool res = false;
+    AType current = f.type();
+    const_cast<F&>(f).type_as(sub->aty()); // We restore the type after the call to sub->interpret.
+    if(sub->template interpret<kind, diagnose>(f, env, intermediate.sub_value, diagnostics)) {
+      // When the IN predicate has more than one interval, we interpret it in both sub-domain and PC.
+      // This should be improved depending on the sub-domain (in case the sub-domain supports "holes").
+      if(!(f.is_binary() && f.sig() == IN && f.seq(0).is_variable() && f.seq(1).is(F::S) && f.seq(1).s().size() > 1)) {
+        res = true;
+      }
+    }
+    const_cast<F&>(f).type_as(current);
+    if(!res) {
+      res |= interpret_formula<kind, diagnose>(f, env, intermediate.props, diagnostics);
+    }
+    if constexpr(diagnose) {
+      diagnostics.merge(res, error_context);
+    }
+    return res;
   }
+
 
   /** PC expects a non-conjunctive formula \f$ c \f$ which can either be interpreted in the sub-domain `A` or in the current domain.
   */
@@ -566,20 +632,16 @@ public:
         * 2. If a propagator has the same shape but different constant `U`, join them in place.  */
   template <class Alloc2, class Mem>
   CUDA this_type& tell(const tell_type<Alloc2>& t, BInc<Mem>& has_changed) {
-    for(int i = 0; i < t.sub_tells.size(); ++i) {
-      sub->tell(t.sub_tells[i], has_changed);
-    }
+    sub->tell(t.sub_value, has_changed);
     if(t.props.size() > 0) {
       has_changed.tell_top();
     }
     size_t n = props.size();
     props.reserve(n + t.props.size());
-    local::BInc has_changed2;
     for(int i = 0; i < t.props.size(); ++i) {
       props.push_back(formula_type(t.props[i], get_allocator()));
-      props[n + i].preprocess(*sub, has_changed2);
+      props[n + i].preprocess(*sub, has_changed);
     }
-    has_changed.tell(has_changed2);
     return *this;
   }
 
@@ -590,16 +652,14 @@ public:
   }
 
   template <class Alloc2>
-  CUDA local::BInc ask(const tell_type<Alloc2>& t) const {
+  CUDA local::BInc ask(const ask_type<Alloc2>& t) const {
     for(int i = 0; i < t.props.size(); ++i) {
       if(!t.props[i].ask(*sub)) {
         return false;
       }
     }
-    for(int i = 0; i < t.sub_tells.size(); ++i) {
-      if(!sub->ask(t.sub_tells[i])) {
-        return false;
-      }
+    if(!sub->ask(t.sub_value)) {
+      return false;
     }
     return true;
   }
@@ -612,9 +672,7 @@ public:
   CUDA void refine(size_t i, BInc<Mem>& has_changed) {
     assert(i < num_refinements());
     if(is_top()) { return; }
-    local::BInc has_changed2; // Due to inheritance, `refine` takes a `local::BInc` (virtual methods cannot be templated).
-    props[i].refine(*sub, has_changed2);
-    has_changed.tell(has_changed2);
+    props[i].refine(*sub, has_changed);
   }
 
   // Functions forwarded to the sub-domain `A`.

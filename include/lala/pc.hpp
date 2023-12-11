@@ -77,36 +77,31 @@ private:
   using formula_type = pc::Formula<A, allocator_type>;
   using term_type = pc::Term<A, allocator_type>;
   template<class Alloc> using term_ptr = battery::unique_ptr<pc::Term<A, Alloc>, Alloc>;
-  template<class Alloc, class F> using fresult = IResult<pc::Formula<A, Alloc>, F>;
-  template<class Alloc, class F> using tresult = IResult<pc::Term<A, Alloc>, F>;
 
   AType atype;
   sub_ptr sub;
   battery::vector<formula_type, allocator_type> props;
 
 public:
-  template <class Alloc2, class SubTellType>
+  template <class Alloc2, class SubType>
   struct interpreted_type {
-    battery::vector<SubTellType, Alloc2> sub_tells;
+    SubType sub_value;
     battery::vector<pc::Formula<A, Alloc2>, Alloc2> props;
 
     interpreted_type(interpreted_type&&) = default;
     interpreted_type& operator=(interpreted_type&&) = default;
     interpreted_type(const interpreted_type&) = default;
 
-    CUDA NI interpreted_type(const SubTellType& sub_tell, const Alloc2& alloc = Alloc2())
-      : sub_tells(alloc), props(alloc)
-    {
-      sub_tells.reserve(1);
-      sub_tells.push_back(sub_tell);
-    }
+    CUDA interpreted_type(const SubType& sub_value, const Alloc2& alloc = Alloc2())
+      : sub_value(sub_value), props(alloc)
+    {}
 
     CUDA interpreted_type(const Alloc2& alloc = Alloc2())
-      : sub_tells(alloc), props(alloc) {}
+      : sub_value(alloc), props(alloc) {}
 
     template <class InterpretedType>
-    CUDA NI interpreted_type(const InterpretedType& other, const Alloc2& alloc = Alloc2())
-      : sub_tells(other.sub_tells, alloc)
+    CUDA interpreted_type(const InterpretedType& other, const Alloc2& alloc = Alloc2())
+      : sub_value(other.sub_value, alloc)
       , props(other.props, alloc)
     {}
 
@@ -119,12 +114,6 @@ public:
 
   template <class Alloc2>
   using ask_type = interpreted_type<Alloc2, typename sub_type::template ask_type<Alloc2>>;
-
-  template<class F, class Env>
-  using iresult_tell = IResult<tell_type<typename Env::allocator_type>, F>;
-
-  template<class F, class Env>
-  using iresult_ask = IResult<ask_type<typename Env::allocator_type>, F>;
 
 public:
   CUDA PC(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type())
@@ -575,12 +564,13 @@ private:
     }
   }
 
-  template <class R, bool is_tell, class F, class Env>
-  CUDA NI R interpret_in(const F& f, Env& env) {
+  template <bool diagnose, IKind kind, class F, class Env, class Alloc2, class I>
+  CUDA NI bool interpret_impl(const F& f, Env& env, I& intermediate, IDiagnostics<F>& diagnostics) const {
     using val_t = typename R::value_type;
     // If the formula is untyped, we first try to interpret it in the sub-domain.
     IResult<int, F> sub_err{0};
     if(f.is_untyped() || f.type() != aty()) {
+      bool res = sub->template interpret<kind, diagnose>(f, env, intermediate.sub_value, diagnostics);
       auto r = is_tell ? sub->interpret_tell_in(f, env) : sub->interpret_ask_in(f, env);
       if(r.has_value()) {
         return std::move(r).map(val_t(std::move(r.value()), env.get_allocator()));
@@ -639,37 +629,16 @@ private:
   }
 
 public:
-  /** PC expects a conjunction of the form \f$ c_1 \land \ldots \land c_n \f$ where sub-formulas \f$ c_i \f$ can either be interpreted in the sub-domain `A` or in the current domain.
-    Moreover, we only treat exact conjunction (no under- or over-approximation of the conjunction).
-    For now, \f$ T \neq k \f$ is not supported where \f$ T \f$ is an arithmetic term, containing function symbols supported in `terms.hpp`. */
-  template <class F, class Env>
-  CUDA NI iresult_tell<F, Env> interpret_tell_in(const F& f, Env& env) {
-    return interpret_in<iresult_tell<F, Env>, true>(f, env);
+  /** PC expects a non-conjunctive formula \f$ c \f$ which can either be interpreted in the sub-domain `A` or in the current domain.
+  */
+  template <bool diagnose = false, class F, class Env, class Alloc2>
+  CUDA NI bool interpret_tell(const F& f, Env& env, tell_type<Alloc2>& tell, IDiagnostics<F>& diagnostics) const {
+    return interpret_impl<diagnose, IKind::TELL>(f, env, tell, diagnostics);
   }
 
-  /** Create an abstract domain and interpret the formulas `f` in this abstract domain.
-   * The sub abstract domain is supposed to be able to represent variables, and its constructor is assumed to take a size, like for `VStore`. */
-  template <class F, class Env>
-  CUDA NI static IResult<this_type, F> interpret_tell(const F& f, Env& env, allocator_type alloc = allocator_type()) {
-    auto sub_ty = env.extends_abstract_dom();
-    auto ipc_ty = env.extends_abstract_dom();
-    this_type ipc(ipc_ty,
-      battery::allocate_shared<sub_type>(alloc, sub_ty,
-        num_quantified_vars(f, UNTYPED) + num_quantified_vars(f, sub_ty)),
-        alloc);
-    auto r = ipc.interpret_tell_in(f, env);
-    if(r.has_value()) {
-      ipc.tell(r.value());
-      return std::move(IResult<this_type, F>(std::move(ipc)).join_warnings(std::move(r)));
-    }
-    else {
-      return std::move(r).template map_error<this_type>();
-    }
-  }
-
-  template <class F, class Env>
-  CUDA NI iresult_ask<F, Env> interpret_ask_in(const F& f, const Env& env) const {
-    return const_cast<this_type*>(this)->interpret_in<iresult_ask<F, Env>, false>(f, const_cast<Env&>(env)); // ugly const_cast, but `env` will not be modified, just for factorization purposes with interpret_tell_in.
+  template <bool diagnose = false, class F, class Env, class Alloc2>
+  CUDA NI bool interpret_ask(const F& f, const Env& env, ask_type<Alloc2>& ask, IDiagnostics<F>& diagnostics) const {
+    return const_cast<this_type*>(this)->interpret_impl<diagnose, IKind::ASK>(f, const_cast<Env&>(env), ask, diagnostics);
   }
 
   /** Note that we cannot add propagators in parallel (but modifying the underlying domain is ok).

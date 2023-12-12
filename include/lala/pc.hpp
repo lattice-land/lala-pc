@@ -38,6 +38,7 @@ class PC {
 public:
   using sub_type = A;
   using universe_type = typename A::universe_type;
+  using local_universe_type = typename universe_type::local_type;
   using allocator_type = Allocator;
   using sub_allocator_type = typename A::allocator_type;
   using this_type = PC<sub_type, allocator_type>;
@@ -194,7 +195,7 @@ public:
 
 private:
   template <bool diagnose, class F, class Alloc>
-  CUDA bool interpret_unary(const F& f, term_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, term_ptr<Alloc>&& x) const {
+  CUDA bool interpret_unary(const F& f, term_seq<Alloc>& intermediate, IDiagnostics& diagnostics, term_ptr<Alloc>&& x) const {
     using T = pc::Term<A, Alloc>;
     Alloc alloc = x.get_allocator();
     switch(f.sig()) {
@@ -206,7 +207,7 @@ private:
   }
 
   template <bool diagnose, class F, class Alloc>
-  CUDA bool interpret_binary(const F& f, term_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, term_ptr<Alloc>&& x, term_ptr<Alloc>&& y) const
+  CUDA bool interpret_binary(const F& f, term_seq<Alloc>& intermediate, IDiagnostics& diagnostics, term_ptr<Alloc>&& x, term_ptr<Alloc>&& y) const
   {
     using T = pc::Term<A, Alloc>;
     switch(f.sig()) {
@@ -225,7 +226,7 @@ private:
   }
 
   template <bool diagnose, class F, class Alloc>
-  CUDA bool interpret_nary(const F& f, term_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, term_seq<Alloc>&& operands) const
+  CUDA bool interpret_nary(const F& f, term_seq<Alloc>& intermediate, IDiagnostics& diagnostics, term_seq<Alloc>&& operands) const
   {
     using T = pc::Term<A, Alloc>;
     switch(f.sig()) {
@@ -237,7 +238,7 @@ private:
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_sequence(const F& f, Env& env, term_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const
+  CUDA bool interpret_sequence(const F& f, Env& env, term_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const
   {
     using T = pc::Term<A, Alloc>;
     Alloc alloc = intermediate.get_allocator();
@@ -277,7 +278,7 @@ private:
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_term(const F& f, Env& env, term_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context = false) const {
+  CUDA bool interpret_term(const F& f, Env& env, term_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context = false) const {
     using T = pc::Term<A, Alloc>;
     using F2 = TFormula<Alloc>;
     if(f.is_variable()) {
@@ -292,8 +293,8 @@ private:
     }
     else if(f.is_constant()) {
       auto constant = F2::make_binary(F2::make_avar(AVar{}), EQ, f, UNTYPED, intermediate.get_allocator());
-      universe_type k{universe_type::bot()};
-      if(universe_type::template interpret<kind, diagnose>(constant, env, k, diagnostics)) {
+      local_universe_type k{local_universe_type::bot()};
+      if(local_universe_type::template interpret<kind, diagnose>(constant, env, k, diagnostics)) {
         intermediate.push_back(T::make_constant(std::move(k)));
         return true;
       }
@@ -310,7 +311,7 @@ private:
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_negation(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context) const {
+  CUDA bool interpret_negation(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context) const {
     auto nf = negate(f);
     if(nf.has_value()) {
       return interpret_formula<kind, diagnose>(*nf, env, intermediate, diagnostics, neg_context);
@@ -321,7 +322,7 @@ private:
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc, class Create>
-  CUDA bool interpret_binary_logical_connector(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context, Create&& create) const {
+  CUDA bool interpret_binary_logical_connector(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context, Create&& create) const {
     using PF = pc::Formula<A, Alloc>;
     Alloc alloc = intermediate.get_allocator();
     formula_seq<Alloc> operands{alloc};
@@ -339,42 +340,42 @@ private:
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_conjunction(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context) const {
+  CUDA bool interpret_conjunction(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context) const {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, neg_context,
       [](auto&& l, auto&& k) { return PF::make_conj(std::move(l), std::move(k)); });
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_disjunction(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const {
+  CUDA bool interpret_disjunction(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, true,
       [](auto&& l, auto&& k) { return PF::make_disj(std::move(l), std::move(k)); });
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_biconditional(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const {
+  CUDA bool interpret_biconditional(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, true,
       [](auto&& l, auto&& k) { return PF::make_bicond(std::move(l), std::move(k)); });
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_implication(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const {
+  CUDA bool interpret_implication(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, true,
       [](auto&& l, auto&& k) { return PF::make_imply(std::move(l), std::move(k)); });
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_xor(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const {
+  CUDA bool interpret_xor(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, true,
       [](auto&& l, auto&& k) { return PF::make_xor(std::move(l), std::move(k)); });
   }
 
   template <bool neg, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_literal(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics) const {
+  CUDA bool interpret_literal(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
     AVar avar{};
     if(env.template interpret<diagnose>(f, avar, diagnostics)) {
@@ -392,7 +393,7 @@ private:
   /** expr != k is transformed into expr < k \/ expr > k.
    * `k` needs to be an integer. */
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_neq_decomposition(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context) const {
+  CUDA bool interpret_neq_decomposition(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context) const {
     if(f.sig() == NEQ && f.seq(1).is(F::Z)) {
       using F2 = TFormula<Alloc>;
       Alloc alloc = intermediate.get_allocator();
@@ -433,7 +434,7 @@ private:
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_in_decomposition(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context = false) const {
+  CUDA bool interpret_in_decomposition(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context = false) const {
     assert(f.seq(1).is(F::S));
     using F2 = TFormula<Alloc>;
     Alloc alloc = intermediate.get_allocator();
@@ -471,7 +472,7 @@ private:
    * It is convenient to use a vector because it carries the allocator, and it is the type of the `props` component of the tell/ask type.
    */
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_formula(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics<F>& diagnostics, bool neg_context = false) const {
+  CUDA bool interpret_formula(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context = false) const {
     using PF = pc::Formula<A, Alloc>;
     using F2 = TFormula<Alloc>;
     if(f.type() != aty() && !f.is_untyped() && !f.is_variable()) {
@@ -509,9 +510,9 @@ private:
         default:
           auto fn = move_constants_on_rhs(f);
           auto fu = F2::make_binary(F2::make_avar(AVar{}), fn.sig(), fn.seq(1), fn.type(), alloc);
-          universe_type u{universe_type::bot()};
+          local_universe_type u{local_universe_type::bot()};
           // We first try to interpret the right-hand side of the formula.
-          if(!universe_type::template interpret<kind, diagnose>(fu, env, u, diagnostics)) {
+          if(!local_universe_type::template interpret<kind, diagnose>(fu, env, u, diagnostics)) {
             // Sometimes the underlying universe cannot interpret disequality, so we decompose it.
             if(fn.sig() == NEQ) {
               return interpret_neq_decomposition<kind, diagnose>(fn, env, intermediate, diagnostics, neg_context);
@@ -567,28 +568,15 @@ private:
     else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT) {
       return interpret_negation<kind, diagnose>(f.seq(0), env, intermediate, diagnostics, neg_context);
     }
-    else {
-      RETURN_INTERPRETATION_ERROR("The shape of this formula is not supported.");
-    }
+    RETURN_INTERPRETATION_ERROR("The shape of this formula is not supported.");
   }
 
 public:
-  // template <IKind kind, bool diagnose = false, class F, class Env, class I>
-  // CUDA NI bool interpret(const F& f, Env& env, I& intermediate, IDiagnostics<F>& diagnostics) const {
-  //   CALL_WITH_ERROR_CONTEXT(
-  //     "Uninterpretable formula in both PC and its sub-domain.",
-  //     // When the IN predicate has more than one interval, we interpret it in both sub-domain and PC.
-  //     // This should be improved depending on the sub-domain (in case the sub-domain supports "holes").
-  //     (   (sub->template interpret<kind, diagnose>(f, env, intermediate.sub_value, diagnostics)
-  //      && !(f.is_binary() && f.sig() == IN && f.seq(0).is_variable() && f.seq(1).is(F::S) && f.seq(1).s().size() > 1))
-  //     || interpret_formula<kind, diagnose>(f, env, intermediate.props, diagnostics)));
-  // }
-
   template <IKind kind, bool diagnose = false, class F, class Env, class I>
-  CUDA NI bool interpret(const F& f, Env& env, I& intermediate, IDiagnostics<F>& diagnostics) const {
+  CUDA NI bool interpret(const F& f, Env& env, I& intermediate, IDiagnostics& diagnostics) const {
     size_t error_context = 0;
     if constexpr(diagnose) {
-      diagnostics.add_suberror(IDiagnostics<F>(false, name, "Uninterpretable formula in both PC and its sub-domain.", f));
+      diagnostics.add_suberror(IDiagnostics(false, name, "Uninterpretable formula in both PC and its sub-domain.", f));
       error_context = diagnostics.num_suberrors();
     }
     bool res = false;
@@ -615,12 +603,12 @@ public:
   /** PC expects a non-conjunctive formula \f$ c \f$ which can either be interpreted in the sub-domain `A` or in the current domain.
   */
   template <bool diagnose = false, class F, class Env, class Alloc2>
-  CUDA NI bool interpret_tell(const F& f, Env& env, tell_type<Alloc2>& tell, IDiagnostics<F>& diagnostics) const {
+  CUDA NI bool interpret_tell(const F& f, Env& env, tell_type<Alloc2>& tell, IDiagnostics& diagnostics) const {
     return interpret<IKind::TELL, diagnose>(f, env, tell, diagnostics);
   }
 
   template <bool diagnose = false, class F, class Env, class Alloc2>
-  CUDA NI bool interpret_ask(const F& f, const Env& env, ask_type<Alloc2>& ask, IDiagnostics<F>& diagnostics) const {
+  CUDA NI bool interpret_ask(const F& f, const Env& env, ask_type<Alloc2>& ask, IDiagnostics& diagnostics) const {
     return const_cast<this_type*>(this)->interpret<IKind::ASK, diagnose>(f, const_cast<Env&>(env), ask, diagnostics);
   }
 

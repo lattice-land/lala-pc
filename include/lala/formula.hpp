@@ -262,7 +262,7 @@ public:
   template <class Alloc>
   CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     // We deinterpret the constant with a placeholder variable that is then replaced by the interpretation of the left term.
-    VarEnv<Alloc> empty_env{alloc};
+    VarEnv<Alloc> empty_env = VarEnv<Alloc>(alloc);
     auto uf = right.deinterpret(AVar{}, empty_env);
     auto tf = left.deinterpret(alloc, apc);
     return map_avar(uf, tf);

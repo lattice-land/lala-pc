@@ -465,7 +465,7 @@ public:
   template <class Alloc>
   CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     using F = TFormula<Alloc>;
-    typename F::Sequence seq{alloc};
+    typename F::Sequence seq = typename F::Sequence(alloc);
     for(int i = 0; i < terms.size(); ++i) {
       seq.push_back(t(i).deinterpret(alloc, apc));
     }

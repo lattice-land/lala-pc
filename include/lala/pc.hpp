@@ -242,8 +242,8 @@ private:
   {
     using T = pc::Term<A, Alloc>;
     Alloc alloc = intermediate.get_allocator();
-    term_seq<Alloc> subterms{alloc};
-    formula_seq<Alloc> subformulas{alloc};
+    term_seq<Alloc> subterms = term_seq<Alloc>(alloc);
+    formula_seq<Alloc> subformulas = formula_seq<Alloc>(alloc);
     for(int i = 0; i < f.seq().size(); ++i) {
       // We first try to interpret the formula `f.seq(i)` as a term, if that fails, try as a formula and wrap it in a term.
       if(!interpret_term<kind, diagnose>(f.seq(i), env, subterms, diagnostics)) {
@@ -325,7 +325,7 @@ private:
   CUDA bool interpret_binary_logical_connector(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context, Create&& create) const {
     using PF = pc::Formula<A, Alloc>;
     Alloc alloc = intermediate.get_allocator();
-    formula_seq<Alloc> operands{alloc};
+    formula_seq<Alloc> operands = formula_seq<Alloc>(alloc);
     if( interpret_formula<kind, diagnose>(f, env, operands, diagnostics, neg_context)
      && interpret_formula<kind, diagnose>(g, env, operands, diagnostics, neg_context))
     {
@@ -446,7 +446,7 @@ private:
         env, intermediate, diagnostics, neg_context);
     }
     else {
-      typename F2::Sequence disjunction{alloc};
+      typename F2::Sequence disjunction = typename F2::Sequence(alloc);
       disjunction.reserve(set.size());
       for(size_t i = 0; i < set.size(); ++i) {
         disjunction.push_back(itv_to_formula(f.type(), f.seq(0), set[i], alloc));
@@ -523,7 +523,7 @@ private:
           }
           // We continue with the interpretation of the left-hand side of the formula.
           else {
-            term_seq<Alloc> terms{alloc};
+            term_seq<Alloc> terms = term_seq<Alloc>(alloc);
             if(!interpret_term<kind, diagnose>(fn.seq(0), env, terms, diagnostics)) {
               RETURN_INTERPRETATION_ERROR("We cannot interpret the term on the LHS of the formula in PC.");
             }

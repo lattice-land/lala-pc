@@ -599,7 +599,6 @@ public:
     return res;
   }
 
-
   /** PC expects a non-conjunctive formula \f$ c \f$ which can either be interpreted in the sub-domain `A` or in the current domain.
   */
   template <bool diagnose = false, class F, class Env, class Alloc2>
@@ -639,6 +638,17 @@ public:
     return tell(t, has_changed);
   }
 
+  CUDA this_type& tell(AVar x, const universe_type& dom) {
+    sub->tell(x, dom);
+    return *this;
+  }
+
+  template <class Mem>
+  CUDA this_type& tell(AVar x, const universe_type& dom, BInc<Mem>& has_changed) {
+    sub->tell(x, dom, has_changed);
+    return *this;
+  }
+
   template <class Alloc2>
   CUDA local::BInc ask(const ask_type<Alloc2>& t) const {
     for(int i = 0; i < t.props.size(); ++i) {
@@ -646,10 +656,7 @@ public:
         return false;
       }
     }
-    if(!sub->ask(t.sub_value)) {
-      return false;
-    }
-    return true;
+    return sub->ask(t.sub_value);
   }
 
   CUDA size_t num_refinements() const {

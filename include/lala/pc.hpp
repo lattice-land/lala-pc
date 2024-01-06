@@ -701,8 +701,8 @@ public:
 
   template <class Alloc2>
   CUDA void restore(const snapshot_type<Alloc2>& snap) {
-    int n = props.size();
-    for(int i = snap.num_props; i < n; ++i) {
+    size_t n = props.size();
+    for(size_t i = snap.num_props; i < n; ++i) {
       props.pop_back();
     }
     sub->restore(snap.sub_snap);

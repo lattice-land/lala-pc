@@ -278,7 +278,7 @@ private:
   }
 
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_term(const F& f, Env& env, term_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context = false) const {
+  CUDA bool interpret_term(const F& f, Env& env, term_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
     using T = pc::Term<A, Alloc>;
     using F2 = TFormula<Alloc>;
     if(f.is_variable()) {
@@ -372,6 +372,24 @@ private:
     using PF = pc::Formula<A, Alloc>;
     return interpret_binary_logical_connector<kind, diagnose>(f, g, env, intermediate, diagnostics, true,
       [](auto&& l, auto&& k) { return PF::make_xor(std::move(l), std::move(k)); });
+  }
+
+  template <IKind kind, bool diagnose, class F, class Env, class Alloc>
+  CUDA bool interpret_disequality(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const
+  {
+    using PF = pc::Formula<A, Alloc>;
+    using T = pc::Term<A, Alloc>;
+    Alloc alloc = intermediate.get_allocator();
+    term_seq<Alloc> operands = term_seq<Alloc>(alloc);
+    if( interpret_term<kind, diagnose>(f, env, operands, diagnostics)
+     && interpret_term<kind, diagnose>(g, env, operands, diagnostics))
+    {
+      intermediate.push_back(PF::make_neq(std::move(operands[0]), std::move(operands[1])));
+      return true;
+    }
+    else {
+      return false;
+    }
   }
 
   template <bool neg, bool diagnose, class F, class Env, class Alloc>
@@ -501,13 +519,17 @@ private:
         case EQUIV: return interpret_biconditional<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
         case IMPLY: return interpret_implication<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
         case XOR: return interpret_xor<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
-        case EQ: // Whenever an operand of `=` is a formula with logical connectors, we interpret `=` as `<=>`.
-          if(f.seq(0).is_logical() || f.seq(1).is_logical()) {
-            return interpret_biconditional<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
-          }
         // Expect the shape of the constraint to be `T <op> u`.
         // If `T` is a variable (`x <op> u`), then it is interpreted in the underlying universe.
         default:
+          // Whenever an operand of `=` is a formula with logical connectors, we interpret `=` as `<=>`.
+          if(sig == EQ && (f.seq(0).is_logical() || f.seq(1).is_logical())) {
+            return interpret_biconditional<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
+          }
+          // When the underlying universe is complemented, we can directly interpret disequality and obtain stronger propagation.
+          else if(sig == NEQ) {
+            return interpret_disequality<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
+          }
           auto fn = move_constants_on_rhs(f);
           auto fu = F2::make_binary(F2::make_avar(AVar{}), fn.sig(), fn.seq(1), fn.type(), alloc);
           local_universe_type u{local_universe_type::bot()};

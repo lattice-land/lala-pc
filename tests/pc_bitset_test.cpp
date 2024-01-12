@@ -76,103 +76,78 @@ TEST(BitPCTest, NotEqualConstraint2) {
 TEST(BitPCTest, NotEqualConstraint3) {
   VarEnv<standard_allocator> env;
   BitPC bpc = create_and_interpret_and_tell<BitPC>("var 1..10: x; constraint int_ne(x, 4);", env);
-  refine_and_test(bpc, 0, {NBit::from_set({1,2,3,5,6,7,8,9})}, {NBit::from_set({1,2,3,5,6,7,8,9})}, true, false);
+  refine_and_test(bpc, 0, {NBit::from_set({1,2,3,5,6,7,8,9,10})}, {NBit::from_set({1,2,3,5,6,7,8,9,10})}, true, false);
 }
 
 TEST(BitPCTest, NotEqualConstraint4) {
   VarEnv<standard_allocator> env;
   BitPC bpc = create_and_interpret_and_tell<BitPC>("var 1..10: x; var 4..4: y; constraint int_ne(x, y);", env);
-  refine_and_test(bpc, 1, {NBit(1,10), NBit(4,4)}, {NBit::from_set({1,2,3,5,6,7,8,9}), NBit(4)}, true);
+  refine_and_test(bpc, 1, {NBit(1,10), NBit(4,4)}, {NBit::from_set({1,2,3,5,6,7,8,9,10}), NBit(4)}, true);
 }
 
-// template <class F>
-// void type_in_predicate(F& f, AType ty) {
-//   switch(f.index()) {
-//     case F::Seq:
-//       if(f.sig() == IN && f.seq(1).is(F::S) && f.seq(1).s().size() > 1) {
-//         f.type_as(ty);
-//         return;
-//       }
-//       for(int i = 0; i < f.seq().size(); ++i) {
-//         type_in_predicate(f.seq(i), ty);
-//       }
-//       break;
-//     case F::ESeq:
-//       for(int i = 0; i < f.eseq().size(); ++i) {
-//         type_in_predicate(f.eseq(i), ty);
-//       }
-//       break;
-//   }
-// }
+// Constraint of the form "x in {1,3}".
+TEST(BitPCTest, InConstraint1) {
+  VarEnv<standard_allocator> env;
+  BitPC bpc = create_and_interpret_and_tell<BitPC>("var {1, 3}: x; var 2..3: y;", env);
+  refine_and_test(bpc, 0, {NBit::from_set({1, 3}), NBit(2,3)}, true);
 
-// template <class L>
-// L interpret_type_and_tell(const char* fzn, VarEnv<standard_allocator>& env) {
-//   return create_and_interpret_and_type_and_tell<L>(fzn, env, [](auto& f) { type_in_predicate(f, 1); });
-// }
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x, y);", bpc, env);
+  refine_and_test(bpc, 1, {NBit::from_set({1, 3}), NBit(2,3)}, {NBit(3), NBit(3)}, true);
+}
 
-// // Constraint of the form "x in {1,3}".
-// TEST(BitPCTest, InConstraint1) {
-//   VarEnv<standard_allocator> env;
-//   BitPC bpc = interpret_type_and_tell<BitPC>("var {1, 3}: x; var 2..3: y;", env);
-//   refine_and_test(bpc, 1, {NBit(1, 3), NBit(2,3)}, false);
+TEST(BitPCTest, BooleanClause1) {
+  VarEnv<standard_allocator> env;
+  BitPC bpc =  create_and_interpret_and_tell<BitPC>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  refine_and_test(bpc, 1, {NBit(0, 1), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], true);", bpc, env);
+  refine_and_test(bpc, 1, {NBit(1, 1), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, true);
+}
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x, y);", bpc, env);
-//   refine_and_test(bpc, 2, {NBit(1, 3), NBit(2, 3)}, {NBit(3,3), NBit(3,3)}, true);
-// }
+TEST(BitPCTest, BooleanClause2) {
+  VarEnv<standard_allocator> env;
+  BitPC bpc =  create_and_interpret_and_tell<BitPC>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  refine_and_test(bpc, 1, {NBit(0, 1), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], false);", bpc, env);
+  refine_and_test(bpc, 1, {NBit(0, 1), NBit(0, 1), NBit(0, 0), NBit(0, 1)}, true);
+}
 
-// TEST(BitPCTest, BooleanClause1) {
-//   VarEnv<standard_allocator> env;
-//   BitPC bpc = interpret_type_and_tell<BitPC>("array[1..2] of var bool: x;\
-//     array[1..2] of var bool: y;\
-//     constraint bool_clause(x, y);", env);
-//   refine_and_test(bpc, 1, {NBit(0, 1), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], true);", bpc, env);
-//   refine_and_test(bpc, 1, {NBit(1, 1), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, true);
-// }
+TEST(BitPCTest, BooleanClause3) {
+  VarEnv<standard_allocator> env;
+  BitPC bpc =  create_and_interpret_and_tell<BitPC>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  refine_and_test(bpc, 1, {NBit(0, 1), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], false);", bpc, env);
+  refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x[2], false);", bpc, env);
+  refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 0), NBit(0, 1), NBit(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], true);", bpc, env);
+  refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 0), NBit(1, 1), NBit(0, 1)},  {NBit(0, 0), NBit(0, 0), NBit(1, 1), NBit(0, 0)}, true);
+}
 
-// TEST(BitPCTest, BooleanClause2) {
-//   VarEnv<standard_allocator> env;
-//   BitPC bpc = interpret_type_and_tell<BitPC>("array[1..2] of var bool: x;\
-//     array[1..2] of var bool: y;\
-//     constraint bool_clause(x, y);", env);
-//   refine_and_test(bpc, 1, {NBit(0, 1), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], false);", bpc, env);
-//   refine_and_test(bpc, 1, {NBit(0, 1), NBit(0, 1), NBit(0, 0), NBit(0, 1)}, true);
-// }
+TEST(BitPCTest, BooleanClause4) {
+  VarEnv<standard_allocator> env;
+  BitPC bpc =  create_and_interpret_and_tell<BitPC>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  refine_and_test(bpc, 1, {NBit(0, 1), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], false);", bpc, env);
+  refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], true);", bpc, env);
+  refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 1), NBit(1, 1), NBit(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y[2], true);", bpc, env);
+  refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 1), NBit(1, 1), NBit(1, 1)},  {NBit(0, 0), NBit(1, 1), NBit(1, 1), NBit(1, 1)}, true);
+}
 
-// TEST(BitPCTest, BooleanClause3) {
-//   VarEnv<standard_allocator> env;
-//   BitPC bpc = interpret_type_and_tell<BitPC>("array[1..2] of var bool: x;\
-//     array[1..2] of var bool: y;\
-//     constraint bool_clause(x, y);", env);
-//   refine_and_test(bpc, 1, {NBit(0, 1), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], false);", bpc, env);
-//   refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x[2], false);", bpc, env);
-//   refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 0), NBit(0, 1), NBit(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], true);", bpc, env);
-//   refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 0), NBit(1, 1), NBit(0, 1)},  {NBit(0, 0), NBit(0, 0), NBit(1, 1), NBit(0, 0)}, true);
-// }
-
-// TEST(BitPCTest, BooleanClause4) {
-//   VarEnv<standard_allocator> env;
-//   BitPC bpc = interpret_type_and_tell<BitPC>("array[1..2] of var bool: x;\
-//     array[1..2] of var bool: y;\
-//     constraint bool_clause(x, y);", env);
-//   refine_and_test(bpc, 1, {NBit(0, 1), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], false);", bpc, env);
-//   refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 1), NBit(0, 1), NBit(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], true);", bpc, env);
-//   refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 1), NBit(1, 1), NBit(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y[2], true);", bpc, env);
-//   refine_and_test(bpc, 1, {NBit(0, 0), NBit(0, 1), NBit(1, 1), NBit(1, 1)},  {NBit(0, 0), NBit(1, 1), NBit(1, 1), NBit(1, 1)}, true);
-// }
-
-// TEST(BitPCTest, IntAbs1) {
-//   VarEnv<standard_allocator> env;
-//   BitPC bpc = interpret_type_and_tell<BitPC>("\
-//     var -15..5: x;\
-//     var -10..10: y;\
-//     constraint int_abs(x, y);", env);
-//   refine_and_test(bpc, 1, {NBit(-15, 5), NBit(-10, 10)}, {NBit(-10, 5), NBit(0, 10)}, false);
-// }
+TEST(BitPCTest, IntAbs1) {
+  VarEnv<standard_allocator> env;
+  BitPC bpc =  create_and_interpret_and_tell<BitPC>("\
+    var -15..5: x;\
+    var -10..10: y;\
+    constraint int_abs(x, y);", env, true);
+  refine_and_test(bpc, 1, {NBit(-1, 5), NBit(-1, 10)}, {NBit(-1, 5), NBit(0, 10)}, false);
+}

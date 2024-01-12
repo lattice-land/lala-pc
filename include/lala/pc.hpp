@@ -374,8 +374,8 @@ private:
       [](auto&& l, auto&& k) { return PF::make_xor(std::move(l), std::move(k)); });
   }
 
-  template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_disequality(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const
+  template <IKind kind, bool diagnose, class F, class Env, class Alloc, class Create>
+  CUDA bool interpret_binary_predicate(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, Create&& create) const
   {
     using PF = pc::Formula<A, Alloc>;
     using T = pc::Term<A, Alloc>;
@@ -384,12 +384,26 @@ private:
     if( interpret_term<kind, diagnose>(f, env, operands, diagnostics)
      && interpret_term<kind, diagnose>(g, env, operands, diagnostics))
     {
-      intermediate.push_back(PF::make_neq(std::move(operands[0]), std::move(operands[1])));
+      intermediate.push_back(create(std::move(operands[0]), std::move(operands[1])));
       return true;
     }
     else {
       return false;
     }
+  }
+
+  template <IKind kind, bool diagnose, class F, class Env, class Alloc>
+  CUDA bool interpret_equality(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
+    using PF = pc::Formula<A, Alloc>;
+    return interpret_binary_predicate<kind, diagnose>(f, g, env, intermediate, diagnostics,
+      [](auto&& l, auto&& k) { return PF::make_eq(std::move(l), std::move(k)); });
+  }
+
+  template <IKind kind, bool diagnose, class F, class Env, class Alloc>
+  CUDA bool interpret_disequality(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
+    using PF = pc::Formula<A, Alloc>;
+    return interpret_binary_predicate<kind, diagnose>(f, g, env, intermediate, diagnostics,
+      [](auto&& l, auto&& k) { return PF::make_neq(std::move(l), std::move(k)); });
   }
 
   template <bool neg, bool diagnose, class F, class Env, class Alloc>
@@ -519,17 +533,19 @@ private:
         case EQUIV: return interpret_biconditional<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
         case IMPLY: return interpret_implication<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
         case XOR: return interpret_xor<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
+        case EQ: {
+          // Whenever an operand of `=` is a formula with logical connectors, we interpret `=` as `<=>`.
+          if(f.seq(0).is_logical() || f.seq(1).is_logical()) {
+            return interpret_biconditional<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
+          }
+          else {
+            return interpret_equality<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
+          }
+        }
+        case NEQ: return interpret_disequality<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
         // Expect the shape of the constraint to be `T <op> u`.
         // If `T` is a variable (`x <op> u`), then it is interpreted in the underlying universe.
         default:
-          // Whenever an operand of `=` is a formula with logical connectors, we interpret `=` as `<=>`.
-          if(sig == EQ && (f.seq(0).is_logical() || f.seq(1).is_logical())) {
-            return interpret_biconditional<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
-          }
-          // When the underlying universe is complemented, we can directly interpret disequality and obtain stronger propagation.
-          else if(sig == NEQ) {
-            return interpret_disequality<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
-          }
           auto fn = move_constants_on_rhs(f);
           auto fu = F2::make_binary(F2::make_avar(AVar{}), fn.sig(), fn.seq(1), fn.type(), alloc);
           local_universe_type u{local_universe_type::bot()};
@@ -605,15 +621,19 @@ public:
     AType current = f.type();
     const_cast<F&>(f).type_as(sub->aty()); // We restore the type after the call to sub->interpret.
     if(sub->template interpret<kind, diagnose>(f, env, intermediate.sub_value, diagnostics)) {
-      // When the IN predicate has more than one interval, we interpret it in both sub-domain and PC.
-      // This should be improved depending on the sub-domain (in case the sub-domain supports "holes").
+      // A successful interpretation in the sub-domain does not mean it is interpreted exactly.
+      // Sometimes, we can improve the precision by interpreting it in PC.
+      // This is the case of `x in S` predicate for sub-domain that do not preserve meet.
       if(!(f.is_binary() && f.sig() == IN && f.seq(0).is_variable() && f.seq(1).is(F::S) && f.seq(1).s().size() > 1)) {
-        res = true;
+        res = true; // it is not a formula `x in S`.
+      }
+      else {
+        res = universe_type::preserve_meet; // it is `x in S` but it preserves meet.
       }
     }
     const_cast<F&>(f).type_as(current);
     if(!res) {
-      res |= interpret_formula<kind, diagnose>(f, env, intermediate.props, diagnostics);
+      res = interpret_formula<kind, diagnose>(f, env, intermediate.props, diagnostics);
     }
     if constexpr(diagnose) {
       diagnostics.merge(res, error_context);
@@ -630,7 +650,7 @@ public:
 
   template <bool diagnose = false, class F, class Env, class Alloc2>
   CUDA NI bool interpret_ask(const F& f, const Env& env, ask_type<Alloc2>& ask, IDiagnostics& diagnostics) const {
-    return const_cast<this_type*>(this)->interpret<IKind::ASK, diagnose>(f, const_cast<Env&>(env), ask, diagnostics);
+    return interpret<IKind::ASK, diagnose>(f, const_cast<Env&>(env), ask, diagnostics);
   }
 
   /** Note that we cannot add propagators in parallel (but modifying the underlying domain is ok).

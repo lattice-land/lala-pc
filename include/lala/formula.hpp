@@ -705,6 +705,129 @@ public:
   }
 };
 
+template<class AD, class Allocator, bool neg = false>
+class Equality {
+public:
+  using A = AD;
+  using U = typename A::local_universe;
+  using allocator_type = Allocator;
+  using this_type = Equality<A, allocator_type, neg>;
+  using sub_type = Term<A, allocator_type>;
+
+  template <class A2, class Alloc2, bool neg2>
+  friend class Equality;
+
+private:
+  using LB = typename U::LB::local_type;
+  using UB = typename U::UB::local_type;
+
+  sub_type left;
+  sub_type right;
+
+public:
+  CUDA Equality(sub_type&& left, sub_type&& right): left(std::move(left)), right(std::move(right)) {}
+  CUDA Equality(this_type&& other): Equality(std::move(other.left), std::move(other.right)) {}
+
+  template <class A2, class Alloc2>
+  CUDA Equality(const Equality<A2, Alloc2, neg>& other, const allocator_type& alloc):
+    left(other.left, alloc),
+    right(other.right, alloc)
+  {}
+
+private:
+  template <bool negate>
+  CUDA local::BInc ask_impl(const A& a) const {
+    if constexpr(negate) {
+      return join(left.project(a), right.project(a)).is_top();
+    }
+    else {
+      auto l = left.project(a);
+      auto r = right.project(a);
+      return l == r && l.lb() == dual<LB>(l.ub());
+    }
+  }
+
+  template <bool negate, class Mem>
+  CUDA void refine_impl(A& a, BInc<Mem>& has_changed) const {
+    if constexpr(negate) {
+      auto l = left.project(a);
+      auto r = right.project(a);
+      if(l.lb() == dual<LB>(l.ub())) {
+        if constexpr(U::complemented) {
+          right.tell(a, l.complement(), has_changed);
+        }
+        else {
+          right.tell(a, meet(
+            U(r).tell_ub(UB::next(l.ub())),
+            U(r).tell_lb(LB::next(l.lb()))), has_changed);
+        }
+      }
+      if(r.lb() == dual<LB>(r.ub())) {
+        if constexpr(U::complemented) {
+          left.tell(a, r.complement(), has_changed);
+        }
+        else {
+          left.tell(a, meet(
+            U(l).tell_ub(UB::next(r.ub())),
+            U(l).tell_lb(LB::next(r.lb()))), has_changed);
+        }
+      }
+    }
+    else {
+      left.tell(a, right.project(a), has_changed);
+      right.tell(a, left.project(a), has_changed);
+    }
+  }
+
+public:
+  CUDA local::BInc ask(const A& a) const {
+    return ask_impl<neg>(a);
+  }
+
+  CUDA local::BInc nask(const A& a) const {
+    return ask_impl<!neg>(a);
+  }
+
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
+    return refine_impl<neg>(a, has_changed);
+  }
+
+  template <class Mem>
+  CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
+    return refine_impl<!neg>(a, has_changed);
+  }
+
+  CUDA local::BInc is_top(const A& a) const {
+    return left.is_top(a) || right.is_top(a);
+  }
+
+  template <class Mem>
+  CUDA void preprocess(A&, BInc<Mem>&) {}
+
+  CUDA NI void print(const A& a) const {
+    left.print(a);
+    if constexpr(neg) {
+      printf(" != ");
+    }
+    else {
+      printf(" == ");
+    }
+    right.print(a);
+  }
+
+public:
+  template <class Alloc>
+  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+    auto lf = left.deinterpret(alloc, apc);
+    auto rf = right.deinterpret(alloc, apc);
+    return TFormula<Alloc>::make_binary(std::move(lf), neg ? NEQ : EQ, std::move(rf), apc, alloc);
+  }
+};
+
+template<class AD, class Allocator>
+using Disequality = Equality<AD, Allocator, true>;
+
 /**
  * A formula can occur in a term, e.g., `(x = 2) + (y = 2) + (z = 2) >= 2`
  * In that case, the entailment of the formula is mapped onto a sublattice of `U` supporting initialization from `0` and `1`.
@@ -734,6 +857,8 @@ public:
   using Bicond = Biconditional<A, allocator_type>;
   using Imply = Implication<A, allocator_type>;
   using Xor = ExclusiveDisjunction<A, allocator_type>;
+  using Eq = Equality<A, allocator_type>;
+  using Neq = Disequality<A, allocator_type>;
 
   static constexpr size_t IPVarLit = 0;
   static constexpr size_t INVarLit = IPVarLit + 1;
@@ -746,6 +871,8 @@ public:
   static constexpr size_t IBicond = IDisj + 1;
   static constexpr size_t IImply = IBicond + 1;
   static constexpr size_t IXor = IImply + 1;
+  static constexpr size_t IEq = IXor + 1;
+  static constexpr size_t INeq = IEq + 1;
 
   template <class A2, class Alloc2>
   friend class Formula;
@@ -762,7 +889,9 @@ private:
     Disj,
     Bicond,
     Imply,
-    Xor
+    Xor,
+    Eq,
+    Neq
   >;
 
   VFormula formula;
@@ -786,6 +915,8 @@ private:
       case IBicond: return create_one<IBicond, Bicond>(other, allocator);
       case IImply: return create_one<IImply, Imply>(other, allocator);
       case IXor: return create_one<IXor, Xor>(other, allocator);
+      case IEq: return create_one<IEq, Eq>(other, allocator);
+      case INeq: return create_one<INeq, Neq>(other, allocator);
       default:
         printf("BUG: formula not handled.\n");
         assert(false);
@@ -809,6 +940,8 @@ private:
       case IBicond: return f(battery::get<IBicond>(formula));
       case IImply: return f(battery::get<IImply>(formula));
       case IXor: return f(battery::get<IXor>(formula));
+      case IEq: return f(battery::get<IEq>(formula));
+      case INeq: return f(battery::get<INeq>(formula));
       default:
         printf("BUG: formula not handled.\n");
         assert(false);
@@ -830,6 +963,8 @@ private:
       case IBicond: return f(battery::get<IBicond>(formula));
       case IImply: return f(battery::get<IImply>(formula));
       case IXor: return f(battery::get<IXor>(formula));
+      case IEq: return f(battery::get<IEq>(formula));
+      case INeq: return f(battery::get<INeq>(formula));
       default:
         printf("BUG: formula not handled.\n");
         assert(false);
@@ -899,6 +1034,14 @@ public:
 
   CUDA static this_type make_xor(this_ptr&& left, this_ptr&& right) {
     return make<IXor>(Xor(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_eq(term_type&& left, term_type&& right) {
+    return make<IEq>(Eq(std::move(left), std::move(right)));
+  }
+
+  CUDA static this_type make_neq(term_type&& left, term_type&& right) {
+    return make<INeq>(Neq(std::move(left), std::move(right)));
   }
 
   /** Call `refine` iff \f$ u \geq  [\![x = 1]\!]_U \f$ and `nrefine` iff \f$ u \geq  [\![x = 0]\!] \f$. */

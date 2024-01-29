@@ -1,9 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 cmake_policy(SET CMP0135 NEW)
 
-if("$ENV{CUDAARCHS}" STREQUAL "")
-  set(CMAKE_CUDA_ARCHITECTURES native CACHE STRING "Targeted CUDA architectures")
-endif()
+set(CMAKE_CUDA_ARCHITECTURES native CACHE STRING "Targeted CUDA architectures")
 
 if(MSVC)
   set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "Available configuration types to select")
@@ -66,10 +64,14 @@ else()
 endif()
 FetchContent_MakeAvailable(lala_parsing)
 
-add_executable(pc_test tests/pc_test.cpp)
-target_include_directories(pc_test PRIVATE "${lala-core_SOURCE_DIR}/tests/include")
-target_link_libraries(pc_test lala_parsing lala_pc gtest_main)
-gtest_discover_tests(pc_test)
+file(GLOB cpu_test_files tests/*_test.cpp)
+foreach(file ${cpu_test_files})
+  cmake_path(GET file STEM test_name)
+  add_executable(${test_name} ${file})
+  target_link_libraries(${test_name} lala_parsing lala_pc gtest_main)
+  target_include_directories(${test_name} PRIVATE "${lala-core_SOURCE_DIR}/tests/include")
+  gtest_discover_tests(${test_name})
+endforeach()
 
 endif()
 

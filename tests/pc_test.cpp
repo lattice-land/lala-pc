@@ -383,6 +383,12 @@ TEST(IPCTest, NotEqualConstraint2) {
   refine_and_test(ipc, 1, {Itv(1,10), Itv(10,10)}, {Itv(1,9), Itv(10,10)}, true);
 }
 
+TEST(IPCTest, NotEqualConstraint3) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = create_and_interpret_and_tell<IPC>("var 1..10: x; constraint bool_not(int_eq(x, 10));", env);
+  refine_and_test(ipc, 1, {Itv(1,10)}, {Itv(1,9)}, true);
+}
+
 // Constraint of the form "a[b] = c".
 TEST(IPCTest, ElementConstraint1) {
   VarEnv<standard_allocator> env;

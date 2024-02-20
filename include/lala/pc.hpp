@@ -604,7 +604,7 @@ private:
     }
     // Logical negation
     else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT) {
-      return interpret_negation<kind, diagnose>(f, env, intermediate, diagnostics, neg_context);
+      return interpret_negation<kind, diagnose>(f.seq(0), env, intermediate, diagnostics, neg_context);
     }
     RETURN_INTERPRETATION_ERROR("The shape of this formula is not supported.");
   }

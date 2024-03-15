@@ -604,7 +604,7 @@ private:
     }
     // Logical negation
     else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT) {
-      return interpret_negation<kind, diagnose>(f, env, intermediate, diagnostics, neg_context);
+      return interpret_negation<kind, diagnose>(f.seq(0), env, intermediate, diagnostics, neg_context);
     }
     RETURN_INTERPRETATION_ERROR("The shape of this formula is not supported.");
   }
@@ -743,8 +743,8 @@ public:
 
   template <class Alloc2>
   CUDA void restore(const snapshot_type<Alloc2>& snap) {
-    int n = props.size();
-    for(int i = snap.num_props; i < n; ++i) {
+    size_t n = props.size();
+    for(size_t i = snap.num_props; i < n; ++i) {
       props.pop_back();
     }
     sub->restore(snap.sub_snap);

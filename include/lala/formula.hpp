@@ -987,6 +987,10 @@ public:
     return formula.index() == kind;
   }
 
+  CUDA size_t kind() const {
+    return formula.index();
+  }
+
   template <size_t I, class SubFormula>
   CUDA static this_type make(SubFormula&& sub_formula) {
     return Formula(VFormula::template create<I>(std::move(sub_formula)));

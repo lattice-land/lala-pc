@@ -671,6 +671,10 @@ public:
       props.push_back(formula_type(t.props[i], get_allocator()));
       props[n + i].preprocess(*sub, has_changed);
     }
+    battery::sort(props,
+      [](const formula_type& a, const formula_type& b) {
+        return a.kind() < b.kind();
+      });
     return *this;
   }
 

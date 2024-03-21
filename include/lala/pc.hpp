@@ -664,17 +664,17 @@ public:
     sub->tell(t.sub_value, has_changed);
     if(t.props.size() > 0) {
       has_changed.tell_top();
+      size_t n = props.size();
+      props.reserve(n + t.props.size());
+      for(int i = 0; i < t.props.size(); ++i) {
+        props.push_back(formula_type(t.props[i], get_allocator()));
+        props[n + i].preprocess(*sub, has_changed);
+      }
+      battery::sort(props,
+        [](const formula_type& a, const formula_type& b) {
+          return a.kind() < b.kind();
+        });
     }
-    size_t n = props.size();
-    props.reserve(n + t.props.size());
-    for(int i = 0; i < t.props.size(); ++i) {
-      props.push_back(formula_type(t.props[i], get_allocator()));
-      props[n + i].preprocess(*sub, has_changed);
-    }
-    // battery::sort(props,
-    //   [](const formula_type& a, const formula_type& b) {
-    //     return a.kind() < b.kind();
-    //   });
     return *this;
   }
 

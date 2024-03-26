@@ -92,7 +92,8 @@ private:
 
   AType atype;
   sub_ptr sub;
-  battery::vector<formula_type, allocator_type> props;
+  using props_type = battery::vector<formula_type, allocator_type>;
+  battery::shared_ptr<props_type, allocator_type> props;
 
 public:
   template <class Alloc>
@@ -134,7 +135,8 @@ public:
   using ask_type = interpreted_type<Alloc, typename sub_type::template ask_type<Alloc>>;
 
   CUDA PC(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type{})
-   : atype(atype), sub(std::move(sub)), props(alloc)  {}
+   : atype(atype), sub(std::move(sub))
+   , props(battery::allocate_shared<props_type, allocator_type>(alloc, alloc))  {}
 
   CUDA PC(PC&& other)
     : atype(other.atype)
@@ -146,8 +148,19 @@ public:
   CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
    : atype(other.atype)
    , sub(deps.template clone<A>(other.sub))
-   , props(other.props, deps.template get_allocator<allocator_type>())
+   , props(battery::allocate_shared<props_type, allocator_type>(
+       deps.template get_allocator<allocator_type>(), *(other.props), deps.template get_allocator<allocator_type>()))
   {}
+
+  // /** This copy constructor does not copy the propagators array but shared it between the two abstract elements.
+  //  * The subdomain and other local data are still copied.
+  // */
+  // template<class A2, class... Allocators>
+  // CUDA PC(const PC<A2, allocator_type>& other, AbstractDeps<Allocators...>& deps)
+  //  : atype(other.atype)
+  //  , sub(deps.template clone<A>(other.sub))
+  //  , props(other.props)
+  // {}
 
   CUDA allocator_type get_allocator() const {
     return props.get_allocator();
@@ -665,19 +678,20 @@ public:
     sub->tell(t.sub_value, has_changed);
     if(t.props.size() > 0) {
       has_changed.tell_top();
-      size_t n = props.size();
-      props.reserve(n + t.props.size());
+      auto& props2 = *props;
+      size_t n = props2.size();
+      props2.reserve(n + t.props.size());
       for(int i = 0; i < t.props.size(); ++i) {
-        props.push_back(formula_type(t.props[i], get_allocator()));
-        props[n + i].preprocess(*sub, has_changed);
+        props2.push_back(formula_type(t.props[i], get_allocator()));
+        props2[n + i].preprocess(*sub, has_changed);
       }
-      battery::vector<size_t> lengths(props.size());
-      for(int i = 0; i < props.size(); ++i) {
-        lengths[i] = props[i].length();
+      battery::vector<size_t> lengths(props2.size());
+      for(int i = 0; i < props2.size(); ++i) {
+        lengths[i] = props2[i].length();
       }
-      battery::sorti(props,
+      battery::sorti(props2,
         [&](int i, int j) {
-          return props[i].kind() < props[j].kind() || (props[i].kind() == props[j].kind() && lengths[i] < lengths[j]);
+          return props2[i].kind() < props2[j].kind() || (props2[i].kind() == props2[j].kind() && lengths[i] < lengths[j]);
         });
     }
     return *this;
@@ -711,14 +725,14 @@ public:
   }
 
   CUDA size_t num_refinements() const {
-    return props.size();
+    return props->size();
   }
 
   template <class Mem>
   CUDA void refine(size_t i, BInc<Mem>& has_changed) {
     assert(i < num_refinements());
     if(is_top()) { return; }
-    props[i].refine(*sub, has_changed);
+    (*props)[i].refine(*sub, has_changed);
   }
 
   // Functions forwarded to the sub-domain `A`.
@@ -730,7 +744,7 @@ public:
 
   /** `true` if the underlying abstract element is bot and there is no refinement function, `false` otherwise. */
   CUDA local::BDec is_bot() const {
-    return sub->is_bot() && props.size() == 0;
+    return sub->is_bot() && props->size() == 0;
   }
 
   CUDA const universe_type& operator[](int x) const {
@@ -747,14 +761,14 @@ public:
 
   template <class Alloc2 = allocator_type>
   CUDA snapshot_type<Alloc2> snapshot(const Alloc2& alloc = Alloc2()) const {
-    return snapshot_type<Alloc2>(props.size(), sub->snapshot(alloc));
+    return snapshot_type<Alloc2>(props->size(), sub->snapshot(alloc));
   }
 
   template <class Alloc2>
   CUDA void restore(const snapshot_type<Alloc2>& snap) {
-    size_t n = props.size();
+    size_t n = props->size();
     for(size_t i = snap.num_props; i < n; ++i) {
-      props.pop_back();
+      props->pop_back();
     }
     sub->restore(snap.sub_snap);
   }
@@ -765,8 +779,8 @@ public:
     if(is_top()) {
       return false;
     }
-    for(int i = 0; i < props.size(); ++i) {
-      if(!props[i].ask(*sub)) {
+    for(int i = 0; i < props->size(); ++i) {
+      if(!(*props)[i].ask(*sub)) {
         return false;
       }
     }
@@ -800,8 +814,8 @@ public:
     else {
       seq.push_back(sub_f);
     }
-    for(int i = 0; i < props.size(); ++i) {
-      seq.push_back(props[i].deinterpret(env.get_allocator(), aty()));
+    for(int i = 0; i < props->size(); ++i) {
+      seq.push_back((*props)[i].deinterpret(env.get_allocator(), aty()));
       map_avar_to_lvar(seq.back(), env);
     }
     return F::make_nary(AND, std::move(seq), aty());

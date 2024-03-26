@@ -671,9 +671,13 @@ public:
         props.push_back(formula_type(t.props[i], get_allocator()));
         props[n + i].preprocess(*sub, has_changed);
       }
-      battery::sort(props,
-        [&](const formula_type& a, const formula_type& b) {
-          return a.kind() < b.kind();
+      battery::vector<size_t> lengths(props.size());
+      for(int i = 0; i < props.size(); ++i) {
+        lengths[i] = props[i].length();
+      }
+      battery::sorti(props,
+        [&](int i, int j) {
+          return props[i].kind() < props[j].kind() || (props[i].kind() == props[j].kind() && lengths[i] < lengths[j]);
         });
     }
     return *this;

@@ -7,6 +7,7 @@
 #include "battery/unique_ptr.hpp"
 #include "battery/shared_ptr.hpp"
 #include "battery/allocator.hpp"
+#include "battery/algorithm.hpp"
 
 #include "lala/logic/logic.hpp"
 #include "lala/universes/primitive_upset.hpp"
@@ -671,7 +672,7 @@ public:
         props[n + i].preprocess(*sub, has_changed);
       }
       battery::sort(props,
-        [](const formula_type& a, const formula_type& b) {
+        [&](const formula_type& a, const formula_type& b) {
           return a.kind() < b.kind();
         });
     }

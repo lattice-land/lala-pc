@@ -40,6 +40,7 @@ public:
   CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     return k.template deinterpret<TFormula<Alloc>>();
   }
+  CUDA size_t length() const { return 1; }
 
   template <class A2>
   friend class Constant;
@@ -79,6 +80,8 @@ public:
   CUDA TFormula<Alloc> deinterpret(const Alloc&, AType) const {
     return TFormula<Alloc>::make_avar(avar);
   }
+
+  CUDA size_t length() const { return 1; }
 
   template <class A2>
   friend class Variable;
@@ -171,6 +174,8 @@ public:
   CUDA TFormula<Alloc> deinterpret(const Alloc& allocator, AType apc) const {
     return TFormula<Alloc>::make_unary(UnaryOp::sig(), x().deinterpret(allocator, apc), apc, allocator);
   }
+
+  CUDA size_t length() const { return 1 + x().length(); }
 };
 
 template<class Universe>
@@ -395,6 +400,8 @@ public:
       apc,
       allocator);
   }
+
+  CUDA size_t length() const { return 1 + x().length() + y().length(); }
 };
 
 // Nary is only valid for commutative group (e.g., addition and multiplication).
@@ -470,6 +477,14 @@ public:
       seq.push_back(t(i).deinterpret(alloc, apc));
     }
     return TFormula<Alloc>::make_nary(G::sig(), std::move(seq), apc);
+  }
+
+  CUDA size_t length() const {
+    size_t len = 1;
+    for(int i = 0; i < terms.size(); ++i) {
+      len += t(i).length();
+    }
+    return len;
   }
 };
 
@@ -702,6 +717,10 @@ public:
   template <class Alloc>
   CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     return forward([&](const auto& t) { return t.deinterpret(alloc, apc); });
+  }
+
+  CUDA size_t length() const {
+    return forward([&](const auto& t) { return t.length(); });
   }
 };
 

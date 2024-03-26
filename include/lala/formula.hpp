@@ -103,6 +103,8 @@ public:
     }
     return f;
   }
+
+  CUDA size_t length() const { return 1; }
 };
 
 template<class AD>
@@ -143,6 +145,8 @@ public:
   CUDA NI TFormula<Alloc> deinterpret(const Alloc&, AType) const {
     return TFormula<Alloc>::make_false();
   }
+
+  CUDA size_t length() const { return 1; }
 };
 
 template<class AD>
@@ -177,6 +181,8 @@ public:
   CUDA TFormula<Alloc> deinterpret(const Alloc&, AType) const {
     return TFormula<Alloc>::make_true();
   }
+
+  CUDA size_t length() const { return 1; }
 };
 
 /** A predicate of the form `t >= u` where `t` is a term, `u` an element of an abstract universe, and `>=` the lattice order of this abstract universe. */
@@ -267,6 +273,8 @@ public:
     auto tf = left.deinterpret(alloc, apc);
     return map_avar(uf, tf);
   }
+
+  CUDA size_t length() const { return left.length() + 2; }
 };
 
 template<class AD, class Allocator>
@@ -392,6 +400,8 @@ public:
       return TFormula<Alloc>::make_binary(left, AND, right, apc, alloc);
     }
   }
+
+  CUDA size_t length() const { return 1 + f->length() + g->length(); }
 };
 
 template<class AD, class Allocator>
@@ -470,6 +480,8 @@ public:
       return TFormula<Alloc>::make_binary(left, OR, right, apc, alloc);
     }
   }
+
+  CUDA size_t length() const { return 1 + f->length() + g->length(); }
 };
 
 template<class AD, class Allocator>
@@ -551,6 +563,8 @@ public:
     return TFormula<Alloc>::make_binary(
       f->deinterpret(alloc, apc), EQUIV, g->deinterpret(alloc, apc), apc, alloc);
   }
+
+  CUDA size_t length() const { return 1 + f->length() + g->length(); }
 };
 
 template<class AD, class Allocator>
@@ -624,6 +638,8 @@ public:
     return TFormula<Alloc>::make_binary(
       f->deinterpret(alloc, apc), IMPLY, g->deinterpret(alloc, apc), apc, alloc);
   }
+
+  CUDA size_t length() const { return 1 + f->length() + g->length(); }
 };
 
 template<class AD, class Allocator>
@@ -703,6 +719,8 @@ public:
     return TFormula<Alloc>::make_binary(
       f->deinterpret(alloc, apc), XOR, g->deinterpret(alloc, apc), apc, alloc);
   }
+
+  CUDA size_t length() const { return 1 + f->length() + g->length(); }
 };
 
 template<class AD, class Allocator, bool neg = false>
@@ -816,13 +834,14 @@ public:
     right.print(a);
   }
 
-public:
   template <class Alloc>
   CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
     auto lf = left.deinterpret(alloc, apc);
     auto rf = right.deinterpret(alloc, apc);
     return TFormula<Alloc>::make_binary(std::move(lf), neg ? NEQ : EQ, std::move(rf), apc, alloc);
   }
+
+  CUDA size_t length() const { return 1 + left.length() + right.length(); }
 };
 
 template<class AD, class Allocator>
@@ -1106,6 +1125,10 @@ public:
   template <class Mem>
   CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     return forward([&](const auto& t) { t.nrefine(a, has_changed); });
+  }
+
+  CUDA size_t length() const {
+    return forward([](const auto& t) { return t.length(); });
   }
 };
 

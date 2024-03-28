@@ -152,7 +152,7 @@ private:
   CUDA static battery::root_ptr<props_type, allocator_type> init_props(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps) {
     auto alloc = deps.template get_allocator<allocator_type>();
     if constexpr(std::is_same_v<allocator_type, Alloc2>) {
-      if(deps.is_shared_copy() && alloc == other.get_allocator()) {
+      if(deps.is_shared_copy()) {
         return other.props;
       }
     }

@@ -6,6 +6,7 @@
 #include "battery/vector.hpp"
 #include "battery/unique_ptr.hpp"
 #include "battery/shared_ptr.hpp"
+#include "battery/root_ptr.hpp"
 #include "battery/allocator.hpp"
 #include "battery/algorithm.hpp"
 
@@ -93,7 +94,7 @@ private:
   AType atype;
   sub_ptr sub;
   using props_type = battery::vector<formula_type, allocator_type>;
-  battery::shared_ptr<props_type, allocator_type> props;
+  battery::root_ptr<props_type, allocator_type> props;
 
 public:
   template <class Alloc>
@@ -136,7 +137,7 @@ public:
 
   CUDA PC(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type{})
    : atype(atype), sub(std::move(sub))
-   , props(battery::allocate_shared<props_type, allocator_type>(alloc, alloc))  {}
+   , props(battery::allocate_root<props_type, allocator_type>(alloc, alloc))  {}
 
   CUDA PC(PC&& other)
     : atype(other.atype)
@@ -144,23 +145,28 @@ public:
     , sub(std::move(other.sub))
   {}
 
+private:
+  // When activated (`deps.is_shared_copy()`), we avoid copying the propagators and share them with the ones of the root `other`.
+  // This allows to save up memory and to avoid contention on L2 cache among blocks.
+  template<class A2, class Alloc2, class... Allocators>
+  CUDA static battery::root_ptr<props_type, allocator_type> init_props(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps) {
+    auto alloc = deps.template get_allocator<allocator_type>();
+    if constexpr(std::is_same_v<allocator_type, Alloc2>) {
+      if(deps.is_shared_copy() && alloc == other.get_allocator()) {
+        return other.props;
+      }
+    }
+    auto r = battery::allocate_root<props_type, allocator_type>(alloc, *(other.props), alloc);
+    return std::move(r);
+  }
+
+public:
   template<class A2, class Alloc2, class... Allocators>
   CUDA PC(const PC<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
    : atype(other.atype)
    , sub(deps.template clone<A>(other.sub))
-   , props(battery::allocate_shared<props_type, allocator_type>(
-       deps.template get_allocator<allocator_type>(), *(other.props), deps.template get_allocator<allocator_type>()))
+   , props(init_props(other, deps))
   {}
-
-  // /** This copy constructor does not copy the propagators array but shared it between the two abstract elements.
-  //  * The subdomain and other local data are still copied.
-  // */
-  // template<class A2, class... Allocators>
-  // CUDA PC(const PC<A2, allocator_type>& other, AbstractDeps<Allocators...>& deps)
-  //  : atype(other.atype)
-  //  , sub(deps.template clone<A>(other.sub))
-  //  , props(other.props)
-  // {}
 
   CUDA allocator_type get_allocator() const {
     return props.get_allocator();

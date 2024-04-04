@@ -753,11 +753,11 @@ public:
     return sub->is_bot() && props->size() == 0;
   }
 
-  CUDA const universe_type& operator[](int x) const {
+  CUDA auto /* universe_type or const universe_type& */ operator[](int x) const {
     return (*sub)[x];
   }
 
-  CUDA const universe_type& project(AVar x) const {
+  CUDA auto /* universe_type or const universe_type& */ project(AVar x) const {
     return sub->project(x);
   }
 

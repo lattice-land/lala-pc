@@ -821,7 +821,7 @@ public:
       seq.push_back(sub_f);
     }
     for(int i = 0; i < props->size(); ++i) {
-      seq.push_back((*props)[i].deinterpret(env.get_allocator(), aty()));
+      seq.push_back((*props)[i].deinterpret(*sub, env.get_allocator(), aty()));
       map_avar_to_lvar(seq.back(), env);
     }
     return F::make_nary(AND, std::move(seq), aty());

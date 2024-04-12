@@ -11,6 +11,80 @@ namespace pc {
 template <class AD, class Allocator>
 class Formula;
 
+// template <class AD, class Allocator>
+// class AbstractElement {
+// public:
+//   using A = AD;
+//   using U = typename A::local_universe;
+//   using allocator_type = Allocator;
+
+//   using tell_type = typename A::tell_type<allocator_type>;
+//   using ask_type = typename A::ask_type<allocator_type>;
+//   using this_type = AbstractElement<A, allocator_type>;
+
+//   template <class A2, class Alloc>
+//   friend class AbstractElement;
+
+// private:
+//   tell_type tellv;
+//   tell_type not_tellv;
+//   ask_type askv;
+//   ask_type not_askv;
+
+// public:
+//   CUDA AbstractElement() {}
+
+//   CUDA AbstractElement(
+//     tell_type&& tellv, tell_type&& not_tellv,
+//     ask_type&& askv, ask_type&& not_askv)
+//    : tellv(std::move(tellv)), not_tellv(std::move(not_tellv)), askv(std::move(askv)), not_askv(std::move(not_askv)) {}
+
+//   AbstractElement(this_type&& other) = default;
+//   this_type& operator=(this_type&& other) = default;
+
+//   template <class A2, class Alloc2>
+//   CUDA AbstractElement(const AbstractElement<A2, Alloc2>& other, const allocator_type& alloc)
+//    : tellv(other.tellv, alloc), not_tellv(other.not_tellv, alloc)
+//    , askv(other.askv, alloc), not_askv(other.not_askv, alloc) {}
+
+// public:
+//   CUDA local::BInc ask(const A& a) const {
+//     return a.ask(askv);
+//   }
+
+//   CUDA local::BInc nask(const A& a) const {
+//     return a.ask(not_askv);
+//   }
+
+//   template <class Mem>
+//   CUDA void preprocess(A&, BInc<Mem>&) {}
+
+//   template <class Mem>
+//   CUDA void refine(A& a, BInc<Mem>& has_changed) const {
+//     a.tell(tellv, has_changed);
+//   }
+
+//   template <class Mem>
+//   CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
+//     a.tell(not_tellv, has_changed);
+//   }
+
+//   CUDA local::BInc is_top(const A&) const {
+//     return false;
+//   }
+
+//   CUDA NI void print(const A& a) const {
+//     printf("<abstract element (%d)>", a.aty());
+//   }
+
+//   template <class Alloc>
+//   CUDA NI TFormula<Alloc> deinterpret(const A&, const A& a, const Alloc& alloc, AType) const {
+//     return tellv.deinterpret(alloc);
+//   }
+
+//   CUDA size_t length() const { return 1; }
+// };
+
 /** A Boolean variable defined on a universe of discourse supporting `0` for false and `1` for true. */
 template<class AD, bool neg>
 class VariableLiteral {
@@ -96,7 +170,7 @@ public:
   }
 
   template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc&, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const A&, const Alloc&, AType apc) const {
     auto f = TFormula<Alloc>::make_avar(avar);
     if(neg) {
       f = TFormula<Alloc>::make_unary(NOT, f, apc);
@@ -142,7 +216,7 @@ public:
   CUDA NI void print(const A& a) const { printf("false"); }
 
   template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc&, AType) const {
+  CUDA NI TFormula<Alloc> deinterpret(const A&, const Alloc&, AType) const {
     return TFormula<Alloc>::make_false();
   }
 
@@ -178,7 +252,7 @@ public:
   CUDA void print(const A& a) const { printf("true"); }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc&, AType) const {
+  CUDA TFormula<Alloc> deinterpret(const A&, const Alloc&, AType) const {
     return TFormula<Alloc>::make_true();
   }
 
@@ -266,7 +340,7 @@ private:
 
 public:
   template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const A&, const Alloc& alloc, AType apc) const {
     // We deinterpret the constant with a placeholder variable that is then replaced by the interpretation of the left term.
     VarEnv<Alloc> empty_env = VarEnv<Alloc>(alloc);
     auto uf = right.deinterpret(AVar{}, empty_env);
@@ -389,9 +463,9 @@ public:
   }
 
   template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
-    auto left = f->deinterpret(alloc, apc);
-    auto right = g->deinterpret(alloc, apc);
+  CUDA NI TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
+    auto left = f->deinterpret(a, alloc, apc);
+    auto right = g->deinterpret(a, alloc, apc);
     if(left.is_true()) { return right; }
     else if(right.is_true()) { return left; }
     else if(left.is_false()) { return left; }
@@ -469,9 +543,9 @@ public:
   }
 
   template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
-    auto left = f->deinterpret(alloc, apc);
-    auto right = g->deinterpret(alloc, apc);
+  CUDA NI TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
+    auto left = f->deinterpret(a, alloc, apc);
+    auto right = g->deinterpret(a, alloc, apc);
     if(left.is_true()) { return left; }
     else if(right.is_true()) { return right; }
     else if(left.is_false()) { return right; }
@@ -559,9 +633,9 @@ public:
   }
 
   template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
     return TFormula<Alloc>::make_binary(
-      f->deinterpret(alloc, apc), EQUIV, g->deinterpret(alloc, apc), apc, alloc);
+      f->deinterpret(a, alloc, apc), EQUIV, g->deinterpret(a, alloc, apc), apc, alloc);
   }
 
   CUDA size_t length() const { return 1 + f->length() + g->length(); }
@@ -634,9 +708,9 @@ public:
   }
 
   template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
     return TFormula<Alloc>::make_binary(
-      f->deinterpret(alloc, apc), IMPLY, g->deinterpret(alloc, apc), apc, alloc);
+      f->deinterpret(a, alloc, apc), IMPLY, g->deinterpret(a, alloc, apc), apc, alloc);
   }
 
   CUDA size_t length() const { return 1 + f->length() + g->length(); }
@@ -715,9 +789,9 @@ public:
   }
 
   template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
     return TFormula<Alloc>::make_binary(
-      f->deinterpret(alloc, apc), XOR, g->deinterpret(alloc, apc), apc, alloc);
+      f->deinterpret(a, alloc, apc), XOR, g->deinterpret(a, alloc, apc), apc, alloc);
   }
 
   CUDA size_t length() const { return 1 + f->length() + g->length(); }
@@ -835,7 +909,7 @@ public:
   }
 
   template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
+  CUDA NI TFormula<Alloc> deinterpret(const A&, const Alloc& alloc, AType apc) const {
     auto lf = left.deinterpret(alloc, apc);
     auto rf = right.deinterpret(alloc, apc);
     return TFormula<Alloc>::make_binary(std::move(lf), neg ? NEQ : EQ, std::move(rf), apc, alloc);
@@ -1092,8 +1166,8 @@ public:
   }
 
   template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
-    return forward([&](const auto& t) { return t.deinterpret(alloc, apc); });
+  CUDA TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
+    return forward([&](const auto& t) { return t.deinterpret(a, alloc, apc); });
   }
 
   /** Given a formula \f$ \varphi \f$, the ask operation \f$ a \vDash \varphi \f$ holds whenever we can deduce \f$ \varphi \f$ from \f$ a \f$.

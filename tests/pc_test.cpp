@@ -644,3 +644,60 @@ TEST(IPCTest, IntAbs1) {
     constraint int_abs(x, y);", env);
   refine_and_test(ipc, 1, {Itv(-15, 5), Itv(-10, 10)}, {Itv(-10, 5), Itv(0, 10)}, false);
 }
+
+template <class L>
+L interpret_type_and_tell2(const char* fzn, VarEnv<standard_allocator>& env) {
+  return create_and_interpret_and_type_and_tell<L>(fzn, env, [](auto& f) { f.seq(0).type_as(sty); f.seq(1).type_as(sty); });
+}
+
+TEST(IPCTest, AbstractElement1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell2<IPC>("\
+    var 0..10: x;\
+    var 0..10: y;\
+    constraint nbool_equiv(int_ge(x, 5), int_le(y, 5));", env);
+  refine_and_test(ipc, 1, {Itv(0, 10), Itv(0, 10)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 5);", ipc, env);
+  refine_and_test(ipc, 1, {Itv(5, 5), Itv(0, 10)}, {Itv(5, 5), Itv(0, 5)}, true);
+}
+
+TEST(IPCTest, AbstractElement2) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell2<IPC>("\
+    var 0..10: x;\
+    var 0..10: y;\
+    constraint nbool_equiv(int_ge(x, 5), int_le(y, 5));", env);
+  refine_and_test(ipc, 1, {Itv(0, 10), Itv(0, 10)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 4);", ipc, env);
+  refine_and_test(ipc, 1, {Itv(4, 4), Itv(0, 10)}, {Itv(4, 4), Itv(6, 10)}, true);
+}
+
+TEST(IPCTest, AbstractElement3) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell2<IPC>("\
+    var 0..10: x;\
+    var 0..10: y;\
+    constraint nbool_equiv(int_eq(x, 5), int_eq(y, 5));", env);
+  refine_and_test(ipc, 1, {Itv(0, 10), Itv(0, 10)}, false);
+  // As interval does not support hole, we cannot reduce the domain of `x`.
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 6);", ipc, env);
+  refine_and_test(ipc, 1, {Itv(0, 10), Itv(6, 6)}, false);
+  // In that case, the propagation is weaker but the result is still correct, this is not always the case, see below.
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 5);", ipc, env);
+  refine_and_test(ipc, 1, {Itv(5, 5), Itv(6, 6)}, {Itv(5, 5), Itv::top()}, false, true);
+}
+
+TEST(IPCTest, AbstractElement4) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell2<IPC>("\
+    var 0..10: x;\
+    var 0..10: y;\
+    constraint nbool_equiv(int_eq(x, 5), int_eq(y, 5));", env);
+  refine_and_test(ipc, 1, {Itv(0, 10), Itv(0, 10)}, false);
+  // As interval does not support hole, we cannot reduce the domain of `x`.
+  // Further, because y = 5 is going to be detected as false, and we will thus push x != 5, which does not reduce any domain, so what we obtain is not a solution (it is still an over-approximation though).
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 4);", ipc, env);
+  refine_and_test(ipc, 1, {Itv(0, 10), Itv(4, 4)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 5);", ipc, env);
+  refine_and_test(ipc, 1, {Itv(5, 5), Itv(4, 4)}, {Itv(5,5), Itv(5, 4)}, false, true);
+}

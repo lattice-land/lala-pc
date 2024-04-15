@@ -36,9 +36,9 @@ public:
   CUDA U project(const A&) const { return k; }
   CUDA local::BInc is_top(const A&) const { return false; }
   CUDA void print(const A&) const { ::battery::print(k); }
-  template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
-    return k.template deinterpret<TFormula<Alloc>>();
+  template <class Env>
+  CUDA TFormula<typename Env::allocator_type> deinterpret(const Env&, AType) const {
+    return k.template deinterpret<TFormula<typename Env::allocator_type>>();
   }
   CUDA size_t length() const { return 1; }
 
@@ -76,9 +76,10 @@ public:
   CUDA local::BInc is_top(const A& a) const { return project(a).is_top(); }
   CUDA void print(const A& a) const { printf("(%d,%d)", avar.aty(), avar.vid()); }
 
-  template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc&, AType) const {
-    return TFormula<Alloc>::make_avar(avar);
+  template <class Env>
+  CUDA TFormula<typename Env::allocator_type> deinterpret(const Env& env, AType) const {
+    using F = TFormula<typename Env::allocator_type>;
+    return F::make_lvar(avar.aty(), env.name_of(avar));
   }
 
   CUDA size_t length() const { return 1; }
@@ -170,9 +171,10 @@ public:
     if constexpr(UnaryOp::function_symbol) { printf(")"); }
   }
 
-  template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& allocator, AType apc) const {
-    return TFormula<Alloc>::make_unary(UnaryOp::sig(), x().deinterpret(allocator, apc), apc, allocator);
+  template <class Env>
+  CUDA TFormula<typename Env::allocator_type> deinterpret(const Env& env, AType apc) const {
+    using F = TFormula<typename Env::allocator_type>;
+    return F::make_unary(UnaryOp::sig(), x().deinterpret(env, apc), apc, env.get_allocator());
   }
 
   CUDA size_t length() const { return 1 + x().length(); }
@@ -391,14 +393,15 @@ public:
     }
   }
 
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc& allocator, AType apc) const {
-    return TFormula<Alloc>::make_binary(
-      x().deinterpret(allocator, apc),
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const Env& env, AType apc) const {
+    using F = TFormula<typename Env::allocator_type>;
+    return F::make_binary(
+      x().deinterpret(env, apc),
       G::sig(),
-      y().deinterpret(allocator, apc),
+      y().deinterpret(env, apc),
       apc,
-      allocator);
+      env.get_allocator());
   }
 
   CUDA size_t length() const { return 1 + x().length() + y().length(); }
@@ -469,14 +472,14 @@ public:
     }
   }
 
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
-    using F = TFormula<Alloc>;
-    typename F::Sequence seq = typename F::Sequence(alloc);
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const Env& env, AType apc) const {
+    using F = TFormula<typename Env::allocator_type>;
+    typename F::Sequence seq = typename F::Sequence(env.get_allocator());
     for(int i = 0; i < terms.size(); ++i) {
-      seq.push_back(t(i).deinterpret(alloc, apc));
+      seq.push_back(t(i).deinterpret(env, apc));
     }
-    return TFormula<Alloc>::make_nary(G::sig(), std::move(seq), apc);
+    return F::make_nary(G::sig(), std::move(seq), apc);
   }
 
   CUDA size_t length() const {
@@ -714,9 +717,9 @@ public:
     forward([&](const auto& t) { return t.print(a); });
   }
 
-  template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const Alloc& alloc, AType apc) const {
-    return forward([&](const auto& t) { return t.deinterpret(alloc, apc); });
+  template <class Env>
+  CUDA TFormula<typename Env::allocator_type> deinterpret(const Env& env, AType apc) const {
+    return forward([&](const auto& t) { return t.deinterpret(env, apc); });
   }
 
   CUDA size_t length() const {

@@ -11,79 +11,79 @@ namespace pc {
 template <class AD, class Allocator>
 class Formula;
 
-// template <class AD, class Allocator>
-// class AbstractElement {
-// public:
-//   using A = AD;
-//   using U = typename A::local_universe;
-//   using allocator_type = Allocator;
+template <class AD, class Allocator>
+class AbstractElement {
+public:
+  using A = AD;
+  using U = typename A::local_universe;
+  using allocator_type = Allocator;
 
-//   using tell_type = typename A::tell_type<allocator_type>;
-//   using ask_type = typename A::ask_type<allocator_type>;
-//   using this_type = AbstractElement<A, allocator_type>;
+  using tell_type = typename A::tell_type<allocator_type>;
+  using ask_type = typename A::ask_type<allocator_type>;
+  using this_type = AbstractElement<A, allocator_type>;
 
-//   template <class A2, class Alloc>
-//   friend class AbstractElement;
+  template <class A2, class Alloc>
+  friend class AbstractElement;
 
-// private:
-//   tell_type tellv;
-//   tell_type not_tellv;
-//   ask_type askv;
-//   ask_type not_askv;
+private:
+  tell_type tellv;
+  tell_type not_tellv;
+  ask_type askv;
+  ask_type not_askv;
 
-// public:
-//   CUDA AbstractElement() {}
+public:
+  CUDA AbstractElement() {}
 
-//   CUDA AbstractElement(
-//     tell_type&& tellv, tell_type&& not_tellv,
-//     ask_type&& askv, ask_type&& not_askv)
-//    : tellv(std::move(tellv)), not_tellv(std::move(not_tellv)), askv(std::move(askv)), not_askv(std::move(not_askv)) {}
+  CUDA AbstractElement(
+    tell_type&& tellv, tell_type&& not_tellv,
+    ask_type&& askv, ask_type&& not_askv)
+   : tellv(std::move(tellv)), not_tellv(std::move(not_tellv)), askv(std::move(askv)), not_askv(std::move(not_askv)) {}
 
-//   AbstractElement(this_type&& other) = default;
-//   this_type& operator=(this_type&& other) = default;
+  AbstractElement(this_type&& other) = default;
+  this_type& operator=(this_type&& other) = default;
 
-//   template <class A2, class Alloc2>
-//   CUDA AbstractElement(const AbstractElement<A2, Alloc2>& other, const allocator_type& alloc)
-//    : tellv(other.tellv, alloc), not_tellv(other.not_tellv, alloc)
-//    , askv(other.askv, alloc), not_askv(other.not_askv, alloc) {}
+  template <class A2, class Alloc2>
+  CUDA AbstractElement(const AbstractElement<A2, Alloc2>& other, const allocator_type& alloc)
+   : tellv(other.tellv, alloc), not_tellv(other.not_tellv, alloc)
+   , askv(other.askv, alloc), not_askv(other.not_askv, alloc) {}
 
-// public:
-//   CUDA local::BInc ask(const A& a) const {
-//     return a.ask(askv);
-//   }
+public:
+  CUDA local::BInc ask(const A& a) const {
+    return a.ask(askv);
+  }
 
-//   CUDA local::BInc nask(const A& a) const {
-//     return a.ask(not_askv);
-//   }
+  CUDA local::BInc nask(const A& a) const {
+    return a.ask(not_askv);
+  }
 
-//   template <class Mem>
-//   CUDA void preprocess(A&, BInc<Mem>&) {}
+  template <class Mem>
+  CUDA void preprocess(A&, BInc<Mem>&) {}
 
-//   template <class Mem>
-//   CUDA void refine(A& a, BInc<Mem>& has_changed) const {
-//     a.tell(tellv, has_changed);
-//   }
+  template <class Mem>
+  CUDA void refine(A& a, BInc<Mem>& has_changed) const {
+    a.tell(tellv, has_changed);
+  }
 
-//   template <class Mem>
-//   CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
-//     a.tell(not_tellv, has_changed);
-//   }
+  template <class Mem>
+  CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
+    a.tell(not_tellv, has_changed);
+  }
 
-//   CUDA local::BInc is_top(const A&) const {
-//     return false;
-//   }
+  CUDA local::BInc is_top(const A&) const {
+    return false;
+  }
 
-//   CUDA NI void print(const A& a) const {
-//     printf("<abstract element (%d)>", a.aty());
-//   }
+  CUDA NI void print(const A& a) const {
+    printf("<abstract element (%d)>", a.aty());
+  }
 
-//   template <class Alloc>
-//   CUDA NI TFormula<Alloc> deinterpret(const A&, const A& a, const Alloc& alloc, AType) const {
-//     return tellv.deinterpret(alloc);
-//   }
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A&, const A& a, const Env& env, AType) const {
+    return a.deinterpret(tellv, env);
+  }
 
-//   CUDA size_t length() const { return 1; }
-// };
+  CUDA size_t length() const { return 1; }
+};
 
 /** A Boolean variable defined on a universe of discourse supporting `0` for false and `1` for true. */
 template<class AD, bool neg>
@@ -169,11 +169,12 @@ public:
     printf("(%d,%d)", avar.aty(), avar.vid());
   }
 
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const A&, const Alloc&, AType apc) const {
-    auto f = TFormula<Alloc>::make_avar(avar);
-    if(neg) {
-      f = TFormula<Alloc>::make_unary(NOT, f, apc);
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A&, const Env& env, AType apc) const {
+    using F = TFormula<typename Env::allocator_type>;
+    auto f = F::make_lvar(avar.aty(), env.name_of(avar));
+    if constexpr(neg) {
+      f = F::make_unary(NOT, f, apc);
     }
     return f;
   }
@@ -215,9 +216,9 @@ public:
   CUDA local::BInc is_top(const A&) const { return true; }
   CUDA NI void print(const A& a) const { printf("false"); }
 
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const A&, const Alloc&, AType) const {
-    return TFormula<Alloc>::make_false();
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A&, const Env&, AType) const {
+    return TFormula<typename Env::allocator_type>::make_false();
   }
 
   CUDA size_t length() const { return 1; }
@@ -251,9 +252,9 @@ public:
   CUDA local::BInc is_top(const A&) const { return false; }
   CUDA void print(const A& a) const { printf("true"); }
 
-  template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const A&, const Alloc&, AType) const {
-    return TFormula<Alloc>::make_true();
+  template <class Env>
+  CUDA TFormula<typename Env::allocator_type> deinterpret(const A&, const Env&, AType) const {
+    return TFormula<typename Env::allocator_type>::make_true();
   }
 
   CUDA size_t length() const { return 1; }
@@ -339,12 +340,11 @@ private:
   }
 
 public:
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const A&, const Alloc& alloc, AType apc) const {
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A&, const Env& env, AType apc) const {
     // We deinterpret the constant with a placeholder variable that is then replaced by the interpretation of the left term.
-    VarEnv<Alloc> empty_env = VarEnv<Alloc>(alloc);
-    auto uf = right.deinterpret(AVar{}, empty_env);
-    auto tf = left.deinterpret(alloc, apc);
+    auto uf = right.deinterpret(AVar{}, env);
+    auto tf = left.deinterpret(env, apc);
     return map_avar(uf, tf);
   }
 
@@ -462,16 +462,16 @@ public:
     g->print(a);
   }
 
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
-    auto left = f->deinterpret(a, alloc, apc);
-    auto right = g->deinterpret(a, alloc, apc);
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
+    auto left = f->deinterpret(a, env, apc);
+    auto right = g->deinterpret(a, env, apc);
     if(left.is_true()) { return right; }
     else if(right.is_true()) { return left; }
     else if(left.is_false()) { return left; }
     else if(right.is_false()) { return right; }
     else {
-      return TFormula<Alloc>::make_binary(left, AND, right, apc, alloc);
+      return TFormula<typename Env::allocator_type>::make_binary(left, AND, right, apc, env.get_allocator());
     }
   }
 
@@ -542,16 +542,16 @@ public:
     g->print(a);
   }
 
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
-    auto left = f->deinterpret(a, alloc, apc);
-    auto right = g->deinterpret(a, alloc, apc);
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
+    auto left = f->deinterpret(a, env, apc);
+    auto right = g->deinterpret(a, env, apc);
     if(left.is_true()) { return left; }
     else if(right.is_true()) { return right; }
     else if(left.is_false()) { return right; }
     else if(right.is_false()) { return left; }
     else {
-      return TFormula<Alloc>::make_binary(left, OR, right, apc, alloc);
+      return TFormula<typename Env::allocator_type>::make_binary(left, OR, right, apc, env.get_allocator());
     }
   }
 
@@ -632,10 +632,10 @@ public:
     g->print(a);
   }
 
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
-    return TFormula<Alloc>::make_binary(
-      f->deinterpret(a, alloc, apc), EQUIV, g->deinterpret(a, alloc, apc), apc, alloc);
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
+    return TFormula<typename Env::allocator_type>::make_binary(
+      f->deinterpret(a, env, apc), EQUIV, g->deinterpret(a, env, apc), apc, env.get_allocator());
   }
 
   CUDA size_t length() const { return 1 + f->length() + g->length(); }
@@ -707,10 +707,10 @@ public:
     g->print(a);
   }
 
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
-    return TFormula<Alloc>::make_binary(
-      f->deinterpret(a, alloc, apc), IMPLY, g->deinterpret(a, alloc, apc), apc, alloc);
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
+    return TFormula<typename Env::allocator_type>::make_binary(
+      f->deinterpret(a, env, apc), IMPLY, g->deinterpret(a, env, apc), apc, env.get_allocator());
   }
 
   CUDA size_t length() const { return 1 + f->length() + g->length(); }
@@ -788,10 +788,10 @@ public:
     g->print(a);
   }
 
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
-    return TFormula<Alloc>::make_binary(
-      f->deinterpret(a, alloc, apc), XOR, g->deinterpret(a, alloc, apc), apc, alloc);
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
+    return TFormula<typename Env::allocator_type>::make_binary(
+      f->deinterpret(a, env, apc), XOR, g->deinterpret(a, env, apc), apc, env.get_allocator());
   }
 
   CUDA size_t length() const { return 1 + f->length() + g->length(); }
@@ -908,11 +908,11 @@ public:
     right.print(a);
   }
 
-  template <class Alloc>
-  CUDA NI TFormula<Alloc> deinterpret(const A&, const Alloc& alloc, AType apc) const {
-    auto lf = left.deinterpret(alloc, apc);
-    auto rf = right.deinterpret(alloc, apc);
-    return TFormula<Alloc>::make_binary(std::move(lf), neg ? NEQ : EQ, std::move(rf), apc, alloc);
+  template <class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A&, const Env& env, AType apc) const {
+    auto lf = left.deinterpret(env, apc);
+    auto rf = right.deinterpret(env, apc);
+    return TFormula<typename Env::allocator_type>::make_binary(std::move(lf), neg ? NEQ : EQ, std::move(rf), apc, env.get_allocator());
   }
 
   CUDA size_t length() const { return 1 + left.length() + right.length(); }
@@ -952,6 +952,7 @@ public:
   using Xor = ExclusiveDisjunction<A, allocator_type>;
   using Eq = Equality<A, allocator_type>;
   using Neq = Disequality<A, allocator_type>;
+  using AE = AbstractElement<A, allocator_type>;
 
   static constexpr size_t IPVarLit = 0;
   static constexpr size_t INVarLit = IPVarLit + 1;
@@ -966,6 +967,7 @@ public:
   static constexpr size_t IXor = IImply + 1;
   static constexpr size_t IEq = IXor + 1;
   static constexpr size_t INeq = IEq + 1;
+  static constexpr size_t IAE = INeq + 1;
 
   template <class A2, class Alloc2>
   friend class Formula;
@@ -984,7 +986,8 @@ private:
     Imply,
     Xor,
     Eq,
-    Neq
+    Neq,
+    AE
   >;
 
   VFormula formula;
@@ -1010,6 +1013,7 @@ private:
       case IXor: return create_one<IXor, Xor>(other, allocator);
       case IEq: return create_one<IEq, Eq>(other, allocator);
       case INeq: return create_one<INeq, Neq>(other, allocator);
+      case IAE: return create_one<IAE, AE>(other, allocator);
       default:
         printf("BUG: formula not handled.\n");
         assert(false);
@@ -1035,6 +1039,7 @@ private:
       case IXor: return f(battery::get<IXor>(formula));
       case IEq: return f(battery::get<IEq>(formula));
       case INeq: return f(battery::get<INeq>(formula));
+      case IAE: return f(battery::get<IAE>(formula));
       default:
         printf("BUG: formula not handled.\n");
         assert(false);
@@ -1058,6 +1063,7 @@ private:
       case IXor: return f(battery::get<IXor>(formula));
       case IEq: return f(battery::get<IEq>(formula));
       case INeq: return f(battery::get<INeq>(formula));
+      case IAE: return f(battery::get<IAE>(formula));
       default:
         printf("BUG: formula not handled.\n");
         assert(false);
@@ -1141,6 +1147,16 @@ public:
     return make<INeq>(Neq(std::move(left), std::move(right)));
   }
 
+  using tell_type = typename A::tell_type<allocator_type>;
+  using ask_type = typename A::ask_type<allocator_type>;
+
+  CUDA static this_type make_abstract_element(
+    tell_type&& tellv, tell_type&& not_tellv,
+    ask_type&& askv, ask_type&& not_askv)
+  {
+    return make<IAE>(AE(std::move(tellv), std::move(not_tellv), std::move(askv), std::move(not_askv)));
+  }
+
   /** Call `refine` iff \f$ u \geq  [\![x = 1]\!]_U \f$ and `nrefine` iff \f$ u \geq  [\![x = 0]\!] \f$. */
   template <class Mem>
   CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
@@ -1165,9 +1181,9 @@ public:
     forward([&](const auto& t) { t.print(a); });
   }
 
-  template <class Alloc>
-  CUDA TFormula<Alloc> deinterpret(const A& a, const Alloc& alloc, AType apc) const {
-    return forward([&](const auto& t) { return t.deinterpret(a, alloc, apc); });
+  template <class Env>
+  CUDA TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
+    return forward([&](const auto& t) { return t.deinterpret(a, env, apc); });
   }
 
   /** Given a formula \f$ \varphi \f$, the ask operation \f$ a \vDash \varphi \f$ holds whenever we can deduce \f$ \varphi \f$ from \f$ a \f$.

@@ -520,6 +520,30 @@ private:
     }
   }
 
+  template <bool diagnose, class F, class Env, class Alloc>
+  CUDA bool interpret_abstract_element(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
+    auto nf = negate(f);
+    if(!nf.has_value()) {
+      RETURN_INTERPRETATION_ERROR("We must query this formula for disentailement, but we could not compute its negation.");
+    }
+    else {
+      typename A::tell_type<Alloc> tellv(intermediate.get_allocator());
+      typename A::tell_type<Alloc> not_tellv(intermediate.get_allocator());
+      typename A::tell_type<Alloc> askv(intermediate.get_allocator());
+      typename A::tell_type<Alloc> not_askv(intermediate.get_allocator());
+      if(  sub->template interpret<IKind::TELL, diagnose>(f, env, tellv, diagnostics)
+        && sub->template interpret<IKind::TELL, diagnose>(nf.value(), env, not_tellv, diagnostics)
+        && sub->template interpret<IKind::ASK, diagnose>(f, env, askv, diagnostics)
+        && sub->template interpret<IKind::ASK, diagnose>(nf.value(), env, not_askv, diagnostics))
+      {
+        using PF = pc::Formula<A, Alloc>;
+        intermediate.push_back(PF::make_abstract_element(std::move(tellv), std::move(not_tellv), std::move(askv), std::move(not_askv)));
+        return true;
+      }
+      return false;
+    }
+  }
+
   /** We interpret the formula `f` in the value `intermediate`, note that we only grow `intermediate` by 0 (if interpretation failed) or 1 (if it succeeds).
    * It is convenient to use a vector because it carries the allocator, and it is the type of the `props` component of the tell/ask type.
    */
@@ -527,10 +551,13 @@ private:
   CUDA bool interpret_formula(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context = false) const {
     using PF = pc::Formula<A, Alloc>;
     using F2 = TFormula<Alloc>;
-    if(f.type() != aty() && !f.is_untyped() && !f.is_variable()) {
-      RETURN_INTERPRETATION_ERROR("The type of the formula does not match the type of this abstract domain.");
-    }
     Alloc alloc = intermediate.get_allocator();
+    if(f.type() != aty() && !f.is_untyped() && !f.is_variable()) {
+      if(!neg_context) {
+        RETURN_INTERPRETATION_ERROR("The type of the formula does not match the type of this abstract domain.");
+      }
+      return interpret_abstract_element<diagnose>(f, env, intermediate, diagnostics);
+    }
     if(f.is_false()) {
       intermediate.push_back(PF::make_false());
       return true;
@@ -539,9 +566,25 @@ private:
       intermediate.push_back(PF::make_true());
       return true;
     }
+    // Negative literal
+    else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT &&
+      f.seq(0).is_variable())
+    {
+      return interpret_literal<true, diagnose>(f.seq(0), env, intermediate, diagnostics);
+    }
+    // Positive literal
+    else if(f.is_variable()) {
+      return interpret_literal<false, diagnose>(f, env, intermediate, diagnostics);
+    }
+    // Logical negation
+    else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT) {
+      return interpret_negation<kind, diagnose>(f.seq(0), env, intermediate, diagnostics, neg_context);
+    }
+    // In constraint
     else if(f.is(F::Seq) && f.sig() == IN) {
       return interpret_in_decomposition<kind, diagnose>(f, env, intermediate, diagnostics, neg_context);
     }
+    // Binarize logical connectors
     else if(f.is(F::Seq) && f.seq().size() > 2 && (f.sig() == AND || f.sig() == OR || f.sig() == EQUIV)) {
       return interpret_formula<kind, diagnose>(binarize(f,0), env, intermediate, diagnostics, neg_context);
     }
@@ -611,20 +654,6 @@ private:
             }
           }
       }
-    }
-    // Negative literal
-    else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT &&
-      f.seq(0).is_variable())
-    {
-      return interpret_literal<true, diagnose>(f.seq(0), env, intermediate, diagnostics);
-    }
-    // Positive literal
-    else if(f.is_variable()) {
-      return interpret_literal<false, diagnose>(f, env, intermediate, diagnostics);
-    }
-    // Logical negation
-    else if(f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NOT) {
-      return interpret_negation<kind, diagnose>(f.seq(0), env, intermediate, diagnostics, neg_context);
     }
     RETURN_INTERPRETATION_ERROR("The shape of this formula is not supported.");
   }
@@ -810,19 +839,21 @@ public:
   template<class Env>
   CUDA NI TFormula<typename Env::allocator_type> deinterpret(const Env& env) const {
     using F = TFormula<typename Env::allocator_type>;
-    F sub_f = sub->deinterpret(env);
     typename F::Sequence seq{env.get_allocator()};
-    if(sub_f.is(F::Seq) && sub_f.sig() == AND) {
-      for(int i = 0; i < sub_f.seq().size(); ++i) {
-        seq.push_back(sub_f.seq(i));
-      }
-    }
-    else {
-      seq.push_back(sub_f);
-    }
+    seq.push_back(sub->deinterpret(env));
     for(int i = 0; i < props->size(); ++i) {
-      seq.push_back((*props)[i].deinterpret(*sub, env.get_allocator(), aty()));
-      map_avar_to_lvar(seq.back(), env);
+      seq.push_back((*props)[i].deinterpret(*sub, env, aty()));
+    }
+    return F::make_nary(AND, std::move(seq), aty());
+  }
+
+  template<class I, class Env>
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const I& intermediate, const Env& env) const {
+    using F = TFormula<typename Env::allocator_type>;
+    typename F::Sequence seq{env.get_allocator()};
+    seq.push_back(sub->deinterpret(intermediate.sub_value, env));
+    for(int i = 0; i < intermediate.props.size(); ++i) {
+      seq.push_back(intermediate.props[i].deinterpret(*sub, env, aty()));
     }
     return F::make_nary(AND, std::move(seq), aty());
   }

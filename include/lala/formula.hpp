@@ -78,7 +78,7 @@ public:
   }
 
   template <class Env>
-  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A&, const A& a, const Env& env, AType) const {
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType) const {
     return a.deinterpret(tellv, env);
   }
 
@@ -341,10 +341,10 @@ private:
 
 public:
   template <class Env>
-  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A&, const Env& env, AType apc) const {
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
     // We deinterpret the constant with a placeholder variable that is then replaced by the interpretation of the left term.
     auto uf = right.deinterpret(AVar{}, env);
-    auto tf = left.deinterpret(env, apc);
+    auto tf = left.deinterpret(a, env, apc);
     return map_avar(uf, tf);
   }
 
@@ -909,9 +909,9 @@ public:
   }
 
   template <class Env>
-  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A&, const Env& env, AType apc) const {
-    auto lf = left.deinterpret(env, apc);
-    auto rf = right.deinterpret(env, apc);
+  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
+    auto lf = left.deinterpret(a, env, apc);
+    auto rf = right.deinterpret(a, env, apc);
     return TFormula<typename Env::allocator_type>::make_binary(std::move(lf), neg ? NEQ : EQ, std::move(rf), apc, env.get_allocator());
   }
 

@@ -760,14 +760,19 @@ public:
   }
 
   CUDA size_t num_refinements() const {
-    return props->size();
+    return sub->num_refinements() + props->size();
   }
 
   template <class Mem>
   CUDA void refine(size_t i, BInc<Mem>& has_changed) {
     assert(i < num_refinements());
-    if(is_top()) { return; }
-    (*props)[i].refine(*sub, has_changed);
+    if(is_top()) {}
+    else if(i < sub->num_refinements()) {
+      sub->refine(i, has_changed);
+    }
+    else {
+      (*props)[i].refine(*sub, has_changed);
+    }
   }
 
   // Functions forwarded to the sub-domain `A`.

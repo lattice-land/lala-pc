@@ -771,7 +771,7 @@ public:
       sub->refine(i, has_changed);
     }
     else {
-      (*props)[i].refine(*sub, has_changed);
+      (*props)[i - sub->num_refinements()].refine(*sub, has_changed);
     }
   }
 

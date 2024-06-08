@@ -34,7 +34,6 @@ public:
   template <class Mem>
   CUDA void tell(A&, const U&, BInc<Mem>&) const {}
   CUDA U project(const A&) const { return k; }
-  CUDA local::BInc is_top(const A&) const { return false; }
   CUDA void print(const A&) const { ::battery::print(k); }
   template <class Env>
   CUDA TFormula<typename Env::allocator_type> deinterpret(const A&, const Env&, AType) const {
@@ -73,7 +72,6 @@ public:
     return a.project(avar);
   }
 
-  CUDA local::BInc is_top(const A& a) const { return project(a).is_top(); }
   CUDA void print(const A& a) const { printf("(%d,%d)", avar.aty(), avar.vid()); }
 
   template <class Env>
@@ -152,16 +150,11 @@ public:
 
   template <class Mem>
   CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
-    if(x().is_top(a)) { return; }
     x().tell(a, UnaryOp::inv(u), has_changed);
   }
 
   CUDA U project(const A& a) const {
     return UnaryOp::op(x().project(a));
-  }
-
-  CUDA local::BInc is_top(const A& a) const {
-    return x().is_top(a);
   }
 
   CUDA NI void print(const A& a) const {
@@ -224,8 +217,7 @@ struct GroupSub {
   }
 
   CUDA static U inv2(const U& a, const U& b) {
-    return U::template fun<NEG>(
-      U::template fun<SUB>(a, b));
+    return U::template fun<SUB>(b, a);
   }
 
   static constexpr bool prefix_symbol = false;
@@ -361,7 +353,6 @@ public:
   CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
     auto xt = x().project(a);
     auto yt = y().project(a);
-    if(xt.is_top() || yt.is_top()) { return; }
     if(!x().is(sub_type::IConstant)) {
       x().tell(a, G::inv1(u, yt), has_changed);   // x <- u <inv> y
     }
@@ -372,10 +363,6 @@ public:
 
   CUDA U project(const A& a) const {
     return G::op(x().project(a), y().project(a));
-  }
-
-  CUDA local::BInc is_top(const A& a) const {
-    return x().is_top(a) || y().is_top(a);
   }
 
   CUDA NI void print(const A& a) const {
@@ -453,15 +440,6 @@ public:
     for(int i = 0; i < terms.size(); ++i) {
       t(i).tell(a, G::inv1(u, G::rev_op(all, t(i).project(a))), has_changed);
     }
-  }
-
-  CUDA local::BInc is_top(const A& a) const {
-    for(int i = 0; i < terms.size(); ++i) {
-      if(t(i).is_top(a)) {
-        return local::BInc::top();
-      }
-    }
-    return local::BInc::bot();
   }
 
   CUDA NI void print(const A& a) const {
@@ -707,10 +685,6 @@ public:
 
   CUDA U project(const A& a) const {
     return forward([&](const auto& t) { return t.project(a); });
-  }
-
-  CUDA local::BInc is_top(const A& a) const {
-    return forward([&](const auto& t) { return t.is_top(a); });
   }
 
   CUDA void print(const A& a) const {

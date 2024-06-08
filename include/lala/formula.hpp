@@ -69,10 +69,6 @@ public:
     a.tell(not_tellv, has_changed);
   }
 
-  CUDA local::BInc is_top(const A&) const {
-    return false;
-  }
-
   CUDA NI void print(const A& a) const {
     printf("<abstract element (%d)>", a.aty());
   }
@@ -160,10 +156,6 @@ public:
     refine_impl<!neg>(a, has_changed);
   }
 
-  CUDA local::BInc is_top(const A& a) const {
-    return a.project(avar).is_top();
-  }
-
   CUDA NI void print(const A& a) const {
     if constexpr(neg) { printf("not "); }
     printf("(%d,%d)", avar.aty(), avar.vid());
@@ -213,7 +205,6 @@ public:
 
   template <class Mem>
   CUDA void nrefine(A&, BInc<Mem>&) const {}
-  CUDA local::BInc is_top(const A&) const { return true; }
   CUDA NI void print(const A& a) const { printf("false"); }
 
   template <class Env>
@@ -249,7 +240,6 @@ public:
       a.tell_top();
     }
   }
-  CUDA local::BInc is_top(const A&) const { return false; }
   CUDA void print(const A& a) const { printf("true"); }
 
   template <class Env>
@@ -295,10 +285,6 @@ public:
   template <class Mem> CUDA void nrefine(A&, BInc<Mem>&) const { assert(false); }
   template <class Mem> CUDA void tell(A&, const U&, BInc<Mem>&) const { assert(false); }
   CUDA U project(const A&) const { assert(false); return U::top(); }
-
-  CUDA local::BInc is_top(const A& a) const {
-    return left.is_top(a);
-  }
 
   template <class Mem>
   CUDA void preprocess(A& a, BInc<Mem>& has_changed) {
@@ -452,10 +438,6 @@ public:
     else if(g->ask(a)) { f->nrefine(a, has_changed); }
   }
 
-  CUDA local::BInc is_top(const A& a) const {
-    return f->is_top(a) || g->is_top(a);
-  }
-
   CUDA NI void print(const A& a) const {
     f->print(a);
     printf(" /\\ ");
@@ -530,10 +512,6 @@ public:
   CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     f->nrefine(a, has_changed);
     g->nrefine(a, has_changed);
-  }
-
-  CUDA local::BInc is_top(const A& a) const {
-    return f->is_top(a) || g->is_top(a);
   }
 
   CUDA NI void print(const A& a) const {
@@ -622,10 +600,6 @@ public:
     else if(g->nask(a)) { f->refine(a, has_changed); }
   }
 
-  CUDA local::BInc is_top(const A& a) const {
-    return f->is_top(a) || g->is_top(a);
-  }
-
   CUDA NI void print(const A& a) const {
     f->print(a);
     printf(" <=> ");
@@ -695,10 +669,6 @@ public:
   CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     if(f->ask(a)) { g->nrefine(a, has_changed); }
     else if(g->nask(a)) { f->refine(a, has_changed); }
-  }
-
-  CUDA local::BInc is_top(const A& a) const {
-    return f->is_top(a) || g->is_top(a);
   }
 
   CUDA NI void print(const A& a) const {
@@ -776,10 +746,6 @@ public:
     else if(f->nask(a)) { g->nrefine(a, has_changed); }
     else if(g->ask(a)) { f->refine(a, has_changed); }
     else if(g->nask(a)) { f->nrefine(a, has_changed); }
-  }
-
-  CUDA local::BInc is_top(const A& a) const {
-    return f->is_top(a) || g->is_top(a);
   }
 
   CUDA NI void print(const A& a) const {
@@ -888,10 +854,6 @@ public:
   template <class Mem>
   CUDA void nrefine(A& a, BInc<Mem>& has_changed) const {
     return refine_impl<!neg>(a, has_changed);
-  }
-
-  CUDA local::BInc is_top(const A& a) const {
-    return left.is_top(a) || right.is_top(a);
   }
 
   template <class Mem>
@@ -1166,15 +1128,11 @@ public:
 
   /** Maps the truth value of \f$ \varphi \f$ to the Boolean sublattice of `U` (see above). */
   CUDA U project(const A& a) const {
-    if(is_top(a)) { return U::top(); }
+    if(a.is_top()) { return U::top(); }
     if(ask(a)) { return U::eq_one(); }
     if(nask(a)) { return U::eq_zero(); }
     constexpr auto unknown = meet(U::eq_zero(), U::eq_one());
     return unknown;
-  }
-
-  CUDA local::BInc is_top(const A& a) const {
-    return forward([&](const auto& t) { return t.is_top(a); });
   }
 
   CUDA void print(const A& a) const {

@@ -18,8 +18,8 @@ public:
   using U = typename A::local_universe;
   using allocator_type = Allocator;
 
-  using tell_type = typename A::tell_type<allocator_type>;
-  using ask_type = typename A::ask_type<allocator_type>;
+  using tell_type = typename A::template tell_type<allocator_type>;
+  using ask_type = typename A::template ask_type<allocator_type>;
   using this_type = AbstractElement<A, allocator_type>;
 
   template <class A2, class Alloc>
@@ -1109,8 +1109,8 @@ public:
     return make<INeq>(Neq(std::move(left), std::move(right)));
   }
 
-  using tell_type = typename A::tell_type<allocator_type>;
-  using ask_type = typename A::ask_type<allocator_type>;
+  using tell_type = typename A::template tell_type<allocator_type>;
+  using ask_type = typename A::template ask_type<allocator_type>;
 
   CUDA static this_type make_abstract_element(
     tell_type&& tellv, tell_type&& not_tellv,

@@ -527,10 +527,10 @@ private:
       RETURN_INTERPRETATION_ERROR("We must query this formula for disentailement, but we could not compute its negation.");
     }
     else {
-      typename A::tell_type<Alloc> tellv(intermediate.get_allocator());
-      typename A::tell_type<Alloc> not_tellv(intermediate.get_allocator());
-      typename A::tell_type<Alloc> askv(intermediate.get_allocator());
-      typename A::tell_type<Alloc> not_askv(intermediate.get_allocator());
+      typename A::template tell_type<Alloc> tellv(intermediate.get_allocator());
+      typename A::template tell_type<Alloc> not_tellv(intermediate.get_allocator());
+      typename A::template tell_type<Alloc> askv(intermediate.get_allocator());
+      typename A::template tell_type<Alloc> not_askv(intermediate.get_allocator());
       if(  sub->template interpret<IKind::TELL, diagnose>(f, env, tellv, diagnostics)
         && sub->template interpret<IKind::TELL, diagnose>(nf.value(), env, not_tellv, diagnostics)
         && sub->template interpret<IKind::ASK, diagnose>(f, env, askv, diagnostics)

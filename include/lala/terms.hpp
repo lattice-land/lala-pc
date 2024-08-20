@@ -4,7 +4,7 @@
 #define LALA_PC_TERMS_HPP
 
 #include "battery/vector.hpp"
-#include "lala/universes/primitive_upset.hpp"
+#include "lala/universes/arith_bound.hpp"
 
 namespace lala {
 namespace pc {
@@ -32,12 +32,12 @@ public:
   CUDA Constant(const Constant<A2>& other, const Alloc&): k(other.k) {}
 
   template <class Mem>
-  CUDA void tell(A&, const U&, BInc<Mem>&) const {}
-  CUDA U project(const A&) const { return k; }
+  CUDA bool embed(A&, const U&) const { return false; }
+  CUDA void project(const A&, U& r) const { return r.meet(u); }
   CUDA void print(const A&) const { ::battery::print(k); }
-  template <class Env>
-  CUDA TFormula<typename Env::allocator_type> deinterpret(const A&, const Env&, AType) const {
-    return k.template deinterpret<TFormula<typename Env::allocator_type>>();
+  template <class Env, class Allocator = typename Env::allocator_type>
+  CUDA TFormula<Allocator> deinterpret(const A&, const Env&, AType, Allocator allocator = Allocator()) const {
+    return k.template deinterpret<TFormula<Allocator>>(allocator);
   }
   CUDA size_t length() const { return 1; }
 
@@ -63,21 +63,20 @@ public:
   template <class A2, class Alloc>
   CUDA Variable(const Variable<A2>& other, const Alloc&): avar(other.avar) {}
 
-  template <class Mem>
-  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
-    a.tell(avar, u, has_changed);
+  CUDA bool embed(A& a, const U& u) const {
+    return a.embed(avar, u);
   }
 
-  CUDA U project(const A& a) const {
-    return a.project(avar);
+  CUDA void project(const A& a, U& r) const {
+    return a.project(avar, r);
   }
 
   CUDA void print(const A& a) const { printf("(%d,%d)", avar.aty(), avar.vid()); }
 
-  template <class Env>
-  CUDA TFormula<typename Env::allocator_type> deinterpret(const A&, const Env& env, AType) const {
-    using F = TFormula<typename Env::allocator_type>;
-    return F::make_lvar(avar.aty(), env.name_of(avar));
+  template <class Env, class Allocator = typename Env::allocator_type>
+  CUDA TFormula<Allocator> deinterpret(const A&, const Env& env, AType, Allocator allocator = Allocator()) const {
+    using F = TFormula<Allocator>;
+    return F::make_lvar(avar.aty(), LVar<Allocator>(env.name_of(avar), allocator));
   }
 
   CUDA size_t length() const { return 1; }
@@ -90,12 +89,12 @@ template<class Universe>
 struct NegOp {
   using U = Universe;
 
-  CUDA static U op(const U& a) {
-    return U::template fun<NEG>(a);
+  CUDA static void op(const U& a, U& r) {
+    r.project(NEG, a);
   }
 
-  CUDA static U inv(const U& a) {
-    return op(a); // negation is its own inverse.
+  CUDA static void residual(const U& a, U& r) {
+    op(a, r); // negation is its own residual.
   }
 
   static constexpr bool function_symbol = false;
@@ -107,12 +106,12 @@ template<class Universe>
 struct AbsOp {
   using U = Universe;
 
-  CUDA static U op(const U& a) {
-    return U::template fun<ABS>(a);
+  CUDA static void op(const U& a, U& r) {
+    r.project(ABS, a);
   }
 
-  CUDA static U inv(const U& a) {
-    return meet(a, U::template fun<NEG>(a));
+  CUDA static void residual(const U& a, U& r) {
+    r.meet(fjoin(a, project_fun(NEG, a)));
   }
 
   static constexpr bool function_symbol = true;
@@ -148,13 +147,14 @@ public:
     x_term(battery::allocate_unique<sub_type>(allocator, *other.x_term))
   {}
 
-  template <class Mem>
-  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
-    x().tell(a, UnaryOp::inv(u), has_changed);
+  CUDA bool embed(A& a, const U& u) const {
+    return x().embed(a, UnaryOp::residual(u));
   }
 
-  CUDA U project(const A& a) const {
-    return UnaryOp::op(x().project(a));
+  CUDA void project(const A& a, U& r) const {
+    U tmp{};
+    x().project(a, tmp);
+    UnaryOp::op(tmp, r);
   }
 
   CUDA NI void print(const A& a) const {
@@ -164,10 +164,10 @@ public:
     if constexpr(UnaryOp::function_symbol) { printf(")"); }
   }
 
-  template <class Env>
-  CUDA TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
-    using F = TFormula<typename Env::allocator_type>;
-    return F::make_unary(UnaryOp::sig(), x().deinterpret(a, env, apc), apc, env.get_allocator());
+  template <class Env, class Allocator = typename Env::allocator_type>
+  CUDA TFormula<Allocator> deinterpret(const A& a, const Env& env, AType apc, Allocator allocator = Allocator()) const {
+    using F = TFormula<Allocator>;
+    return F::make_unary(UnaryOp::sig(), x().deinterpret(a, env, apc, allocator), apc, allocator);
   }
 
   CUDA size_t length() const { return 1 + x().length(); }
@@ -178,24 +178,26 @@ struct GroupAdd {
   using U = Universe;
   static constexpr bool has_absorbing_element = false;
 
-  CUDA static U op(const U& a, const U& b) {
-    return U::template fun<ADD>(a, b);
+  CUDA static void op(const U& a, const U& b, U& r) {
+    r.project(ADD, a, b);
   }
 
   CUDA static bool is_absorbing(const U& a) {
     return false;
   }
 
-  CUDA static U rev_op(const U& a, const U& b) {
-    return op(a, U::additive_inverse(b));
+  CUDA static void rev_op(const U& a, const U& b, U& r) {
+    U tmp{};
+    tmp.additive_inverse(b);
+    op(a, tmp, r);
   }
 
-  CUDA static U inv1(const U& a, const U& b) {
-    return U::template fun<SUB>(a, b);
+  CUDA static void left_residual(const U& a, const U& b, U& r) {
+    r.project(SUB, a, b);
   }
 
-  CUDA static U inv2(const U& a, const U& b) {
-    return inv1(a,b);
+  CUDA static void right_residual(const U& a, const U& b, U& r) {
+    left_residual(a, b, r);
   }
 
   static constexpr bool prefix_symbol = false;
@@ -208,16 +210,16 @@ struct GroupSub {
   using U = Universe;
   static constexpr bool has_absorbing_element = false;
 
-  CUDA static U op(const U& a, const U& b) {
-    return U::template fun<SUB>(a, b);
+  CUDA static void op(const U& a, const U& b, U& r) {
+    return r.project(SUB, a, b);
   }
 
-  CUDA static U inv1(const U& a, const U& b) {
-    return U::template fun<ADD>(a, b);
+  CUDA static void left_residual(const U& a, const U& b, U& r) {
+    return r.project(ADD, a, b);
   }
 
-  CUDA static U inv2(const U& a, const U& b) {
-    return U::template fun<SUB>(b, a);
+  CUDA static void right_residual(const U& a, const U& b, U& r) {
+    return r.project(SUB, b, a);
   }
 
   static constexpr bool prefix_symbol = false;
@@ -243,14 +245,14 @@ struct GroupMul {
   }
 
   /** If `a` or `b` contains 0, then we cannot say anything on the inverse since 0 is absorbing and the inverse could be anything. */
-  CUDA static U inv1(const U& a, const U& b) {
+  CUDA static U left_residual(const U& a, const U& b) {
     return b <= U::eq_zero() && a <= U::eq_zero()
       ? U::bot()
       : U::template fun<divsig>(a, b);
   }
 
-  CUDA static U inv2(const U& a, const U& b) {
-    return inv1(a, b);
+  CUDA static U right_residual(const U& a, const U& b) {
+    return left_residual(a, b);
   }
 
   static constexpr bool prefix_symbol = false;
@@ -266,11 +268,11 @@ struct GroupDiv {
     return U::template fun<divsig>(a, b);
   }
 
-  CUDA static U inv1(const U& a, const U& b) {
+  CUDA static U left_residual(const U& a, const U& b) {
     return U::template fun<MUL>(a, b);
   }
 
-  CUDA static U inv2(const U& a, const U& b) {
+  CUDA static U right_residual(const U& a, const U& b) {
     return b <= U::eq_zero() ? U::bot() : U::template fun<divsig>(b, a);
   }
 
@@ -288,7 +290,7 @@ struct GroupMinMax {
     return U::template fun<msig>(a, b);
   }
 
-  CUDA static U inv1(const U& a, const U& b) {
+  CUDA static U left_residual(const U& a, const U& b) {
     if(join(a, b).is_top()) {
       return a;
     }
@@ -297,8 +299,8 @@ struct GroupMinMax {
     }
   }
 
-  CUDA static U inv2(const U& a, const U& b) {
-    return inv1(a, b);
+  CUDA static U right_residual(const U& a, const U& b) {
+    return left_residual(a, b);
   }
 
   static constexpr bool prefix_symbol = true;
@@ -354,10 +356,10 @@ public:
     auto xt = x().project(a);
     auto yt = y().project(a);
     if(!x().is(sub_type::IConstant)) {
-      x().tell(a, G::inv1(u, yt), has_changed);   // x <- u <inv> y
+      x().tell(a, G::left_residual(u, yt), has_changed);   // x <- u <residual> y
     }
     if(!y().is(sub_type::IConstant)) {
-      y().tell(a, G::inv2(u, x().project(a)), has_changed);   // y <- u <inv> x
+      y().tell(a, G::right_residual(u, x().project(a)), has_changed);   // y <- u <residual> x
     }
   }
 
@@ -438,7 +440,7 @@ public:
       return;
     }
     for(int i = 0; i < terms.size(); ++i) {
-      t(i).tell(a, G::inv1(u, G::rev_op(all, t(i).project(a))), has_changed);
+      t(i).tell(a, G::left_residual(u, G::rev_op(all, t(i).project(a))), has_changed);
     }
   }
 

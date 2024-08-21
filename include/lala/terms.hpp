@@ -89,12 +89,12 @@ template<class Universe>
 struct NegOp {
   using U = Universe;
 
-  CUDA static void op(const U& a, U& r) {
+  CUDA static void project(const U& a, U& r) {
     r.project(NEG, a);
   }
 
   CUDA static void residual(const U& a, U& r) {
-    op(a, r); // negation is its own residual.
+    project(a, r); // negation is its own residual.
   }
 
   static constexpr bool function_symbol = false;
@@ -106,7 +106,7 @@ template<class Universe>
 struct AbsOp {
   using U = Universe;
 
-  CUDA static void op(const U& a, U& r) {
+  CUDA static void project(const U& a, U& r) {
     r.project(ABS, a);
   }
 
@@ -148,13 +148,15 @@ public:
   {}
 
   CUDA bool embed(A& a, const U& u) const {
-    return x().embed(a, UnaryOp::residual(u));
+    U tmp{};
+    UnaryOp::residual(u, tmp);
+    return x().embed(a, tmp);
   }
 
   CUDA void project(const A& a, U& r) const {
     U tmp{};
     x().project(a, tmp);
-    UnaryOp::op(tmp, r);
+    UnaryOp::project(tmp, r);
   }
 
   CUDA NI void print(const A& a) const {
@@ -178,7 +180,7 @@ struct GroupAdd {
   using U = Universe;
   static constexpr bool has_absorbing_element = false;
 
-  CUDA static void op(const U& a, const U& b, U& r) {
+  CUDA static void project(const U& a, const U& b, U& r) {
     r.project(ADD, a, b);
   }
 
@@ -189,7 +191,7 @@ struct GroupAdd {
   CUDA static void rev_op(const U& a, const U& b, U& r) {
     U tmp{};
     tmp.additive_inverse(b);
-    op(a, tmp, r);
+    project(a, tmp, r);
   }
 
   CUDA static void left_residual(const U& a, const U& b, U& r) {
@@ -210,7 +212,7 @@ struct GroupSub {
   using U = Universe;
   static constexpr bool has_absorbing_element = false;
 
-  CUDA static void op(const U& a, const U& b, U& r) {
+  CUDA static void project(const U& a, const U& b, U& r) {
     return r.project(SUB, a, b);
   }
 
@@ -231,8 +233,8 @@ template<class Universe, Sig divsig>
 struct GroupMul {
   using U = Universe;
 
-  CUDA static U op(const U& a, const U& b) {
-    return U::template fun<MUL>(a, b);
+  CUDA static void project(const U& a, const U& b, U& r) {
+    r.project(MUL, a, b);
   }
 
   CUDA static bool is_absorbing(const U& a) {
@@ -240,19 +242,19 @@ struct GroupMul {
   }
 
   /** \pre `is_absorbing(b)` must be `false`. */
-  CUDA static U rev_op(const U& a, const U& b) {
-    return U::template fun<divsig>(a, b);
+  CUDA static void rev_op(const U& a, const U& b, U& r) {
+    return r.project(divsig, a, b);
   }
 
-  /** If `a` or `b` contains 0, then we cannot say anything on the inverse since 0 is absorbing and the inverse could be anything. */
-  CUDA static U left_residual(const U& a, const U& b) {
-    return b <= U::eq_zero() && a <= U::eq_zero()
-      ? U::bot()
-      : U::template fun<divsig>(a, b);
+  /** If `a` and `b` contains 0, then we cannot say anything on the inverse since 0 is absorbing and the inverse could be anything. */
+  CUDA static void left_residual(const U& a, const U& b, U& r) {
+    if(!(a >= U::eq_zero() && b >= U::eq_zero())) {
+      r.project(divsig, a, b);
+    }
   }
 
-  CUDA static U right_residual(const U& a, const U& b) {
-    return left_residual(a, b);
+  CUDA static void right_residual(const U& a, const U& b, U& r) {
+    left_residual(a, b, r);
   }
 
   static constexpr bool prefix_symbol = false;
@@ -264,16 +266,18 @@ template<class Universe, Sig divsig>
 struct GroupDiv {
   using U = Universe;
 
-  CUDA static U op(const U& a, const U& b) {
-    return U::template fun<divsig>(a, b);
+  CUDA static void project(const U& a, const U& b, U& r) {
+    return r.project(divsig, a, b);
   }
 
-  CUDA static U left_residual(const U& a, const U& b) {
-    return U::template fun<MUL>(a, b);
+  CUDA static void left_residual(const U& a, const U& b, U& r) {
+    return r.project(MUL, a, b);
   }
 
-  CUDA static U right_residual(const U& a, const U& b) {
-    return b <= U::eq_zero() ? U::bot() : U::template fun<divsig>(b, a);
+  CUDA static void right_residual(const U& a, const U& b, U& r) {
+    if(!(b >= U::eq_zero())) {
+      r.project(divsig, b, a);
+    }
   }
 
   static constexpr bool prefix_symbol = false;
@@ -286,21 +290,18 @@ struct GroupMinMax {
   static_assert(msig == MIN || msig == MAX);
 
   using U = Universe;
-  CUDA static U op(const U& a, const U& b) {
-    return U::template fun<msig>(a, b);
+  CUDA static void project(const U& a, const U& b, U& r) {
+    return r.project(msig, a, b);
   }
 
-  CUDA static U left_residual(const U& a, const U& b) {
-    if(join(a, b).is_top()) {
-      return a;
-    }
-    else {
-      return U::bot();
+  CUDA static void left_residual(const U& a, const U& b, U& r) {
+    if(fmeet(a, b).is_bot()) {
+      r.meet(a);
     }
   }
 
-  CUDA static U right_residual(const U& a, const U& b) {
-    return left_residual(a, b);
+  CUDA static void right_residual(const U& a, const U& b, U& r) {
+    left_residual(a, b, r);
   }
 
   static constexpr bool prefix_symbol = true;
@@ -349,22 +350,36 @@ public:
     , y_term(battery::allocate_unique<sub_type>(allocator, *other.y_term))
   {}
 
-  /** Enforce `x <op> y >= u` where >= is the lattice order of the underlying abstract universe.
-      For instance, over the interval abstract universe, `x + y >= [2..5]` will ensure that `x + y` is eventually at least `2` and at most `5`. */
-  template <class Mem>
-  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
-    auto xt = x().project(a);
-    auto yt = y().project(a);
+  /** Enforce `x <op> y <= u` where <= is the lattice order of the underlying abstract universe.
+      For instance, over the interval abstract universe, `x + y <= [2..5]` will ensure that `x + y` is eventually at least `2` and at most `5`. */
+  CUDA bool embed(A& a, const U& u) const {
+    U xt{};
+    U yt{};
+    U residual{};
+    bool has_changed = false;
+    x().project(a, xt);
+    y().project(a, yt);
     if(!x().is(sub_type::IConstant)) {
-      x().tell(a, G::left_residual(u, yt), has_changed);   // x <- u <residual> y
+      G::left_residual(u, yt, residual);
+      has_changed |= x().embed(a, residual);   // x <- u <residual> y
+      if(has_changed) {
+        x().project(a, xt);
+      }
     }
     if(!y().is(sub_type::IConstant)) {
-      y().tell(a, G::right_residual(u, x().project(a)), has_changed);   // y <- u <residual> x
+      residual.join_top();
+      G::right_residual(u, xt, residual);
+      has_changed |= y().embed(a, residual);   // y <- u <residual> x
     }
+    return has_changed;
   }
 
-  CUDA U project(const A& a) const {
-    return G::op(x().project(a), y().project(a));
+  CUDA void project(const A& a, U& r) const {
+    U xt{};
+    U yt{};
+    x().project(a, xt);
+    y().project(a, yt);
+    G::project(xt, yt, r);
   }
 
   CUDA NI void print(const A& a) const {
@@ -382,15 +397,15 @@ public:
     }
   }
 
-  template <class Env>
-  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
-    using F = TFormula<typename Env::allocator_type>;
+  template <class Env, class Allocator = typename Env::allocator_type>
+  CUDA NI TFormula<Allocator> deinterpret(const A& a, const Env& env, AType apc, Allocator allocator = Allocator()) const {
+    using F = TFormula<Allocator>;
     return F::make_binary(
-      x().deinterpret(a, env, apc),
+      x().deinterpret(a, env, apc, allocator),
       G::sig(),
-      y().deinterpret(a, env, apc),
+      y().deinterpret(a, env, apc, allocator),
       apc,
-      env.get_allocator());
+      allocator);
   }
 
   CUDA size_t length() const { return 1 + x().length() + y().length(); }
@@ -425,23 +440,36 @@ public:
     : terms(other.terms, allocator)
   {}
 
-  CUDA U project(const A& a) const {
-    U accu = t(0).project(a);
-    for(int i = 1; i < terms.size(); ++i) {
-      accu = G::op(accu, t(i).project(a));
+  CUDA void project(const A& a, U& r) const {
+    U tmp{};
+    U tmp2{};
+    U accu{};
+    for(int i = 0; i < terms.size(); ++i) {
+      t(i).project(a, tmp);
+      G::project(accu, tmp, tmp2);
+      accu = tmp2;
+      tmp.join_top();
+      tmp2.join_top();
     }
-    return accu;
+    r.meet(accu);
   }
 
-  template <class Mem>
-  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
-    U all = project(a);
-    if(G::is_absorbing(all)) {
-      return;
+  CUDA bool embed(A& a, const U& u) const {
+    U all{};
+    U tmp{};
+    U tmp2{};
+    U residual{};
+    bool has_changed = false;
+    project(a, all);
+    if(!G::is_absorbing(all)) {
+      for(int i = 0; i < terms.size(); ++i) {
+        t(i).project(a, tmp);
+        G::rev_op(all, tmp, tmp2);
+        G::left_residual(u, tmp2, residual);
+        has_changed |= t(i).embed(a, residual);
+      }
     }
-    for(int i = 0; i < terms.size(); ++i) {
-      t(i).tell(a, G::left_residual(u, G::rev_op(all, t(i).project(a))), has_changed);
-    }
+    return has_changed;
   }
 
   CUDA NI void print(const A& a) const {
@@ -452,12 +480,12 @@ public:
     }
   }
 
-  template <class Env>
-  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
-    using F = TFormula<typename Env::allocator_type>;
-    typename F::Sequence seq = typename F::Sequence(env.get_allocator());
+  template <class Env, class Allocator = typename Env::allocator_type>
+  CUDA NI TFormula<Allocator> deinterpret(const A& a, const Env& env, AType apc, Allocator allocator = Allocator()) const {
+    using F = TFormula<Allocator>;
+    typename F::Sequence seq = typename F::Sequence(allocator);
     for(int i = 0; i < terms.size(); ++i) {
-      seq.push_back(t(i).deinterpret(a, env, apc));
+      seq.push_back(t(i).deinterpret(a, env, apc, allocator));
     }
     return F::make_nary(G::sig(), std::move(seq), apc);
   }
@@ -680,22 +708,21 @@ public:
     return make<INaryMul>(NaryMul(std::move(sub_terms)));
   }
 
-  template <class Mem>
-  CUDA void tell(A& a, const U& u, BInc<Mem>& has_changed) const {
-    forward([&](const auto& t) { t.tell(a, u, has_changed); });
+  CUDA bool embed(A& a, const U& u) const {
+    return forward([&](const auto& t) { return t.embed(a, u); });
   }
 
-  CUDA U project(const A& a) const {
-    return forward([&](const auto& t) { return t.project(a); });
+  CUDA void project(const A& a, U& r) const {
+    return forward([&](const auto& t) { t.project(a, r); });
   }
 
   CUDA void print(const A& a) const {
-    forward([&](const auto& t) { return t.print(a); });
+    forward([&](const auto& t) { t.print(a); });
   }
 
-  template <class Env>
-  CUDA TFormula<typename Env::allocator_type> deinterpret(const A& a, const Env& env, AType apc) const {
-    return forward([&](const auto& t) { return t.deinterpret(a, env, apc); });
+  template <class Env, class Allocator = typename Env::allocator_type>
+  CUDA TFormula<Allocator> deinterpret(const A& a, const Env& env, AType apc, Allocator allocator = Allocator()) const {
+    return forward([&](const auto& t) { return t.deinterpret(a, env, apc, allocator); });
   }
 
   CUDA size_t length() const {

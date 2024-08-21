@@ -11,7 +11,7 @@
 #include "battery/algorithm.hpp"
 
 #include "lala/logic/logic.hpp"
-#include "lala/universes/primitive_upset.hpp"
+#include "lala/universes/arith_bound.hpp"
 #include "lala/abstract_deps.hpp"
 #include "lala/vstore.hpp"
 
@@ -181,7 +181,7 @@ public:
     const allocator_type& alloc = allocator_type(),
     const sub_allocator_type& sub_alloc = sub_allocator_type())
   {
-    return PC{atype, battery::allocate_shared<sub_type>(alloc, sub_type::bot(atype_sub, sub_alloc)), alloc};
+    return PC{atype, battery::allocate_shared<sub_type>(sub_alloc, sub_type::bot(atype_sub, sub_alloc)), alloc};
   }
 
   /** A special symbolic element representing top. */
@@ -426,6 +426,20 @@ private:
       [](auto&& l, auto&& k) { return PF::make_neq(std::move(l), std::move(k)); });
   }
 
+  template <IKind kind, bool diagnose, class F, class Env, class Alloc>
+  CUDA bool interpret_inequalityLEQ(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
+    using PF = pc::Formula<A, Alloc>;
+    return interpret_binary_predicate<kind, diagnose>(f, g, env, intermediate, diagnostics,
+      [](auto&& l, auto&& k) { return PF::make_leq(std::move(l), std::move(k)); });
+  }
+
+  template <IKind kind, bool diagnose, class F, class Env, class Alloc>
+  CUDA bool interpret_inequalityGT(const F& f, const F& g, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
+    using PF = pc::Formula<A, Alloc>;
+    return interpret_binary_predicate<kind, diagnose>(f, g, env, intermediate, diagnostics,
+      [](auto&& l, auto&& k) { return PF::make_gt(std::move(l), std::move(k)); });
+  }
+
   template <bool neg, bool diagnose, class F, class Env, class Alloc>
   CUDA bool interpret_literal(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics) const {
     using PF = pc::Formula<A, Alloc>;
@@ -440,31 +454,6 @@ private:
       return true;
     }
     return false;
-  }
-
-  /** expr != k is transformed into expr < k \/ expr > k.
-   * `k` needs to be an integer. */
-  template <IKind kind, bool diagnose, class F, class Env, class Alloc>
-  CUDA bool interpret_neq_decomposition(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context) const {
-    if(f.sig() == NEQ && f.seq(1).is(F::Z)) {
-      using F2 = TFormula<Alloc>;
-      Alloc alloc = intermediate.get_allocator();
-      return interpret_formula<kind, diagnose>(
-        F2::make_binary(
-          F2::make_binary(f.seq(0), LT, f.seq(1), f.type(), alloc),
-          OR,
-          F2::make_binary(f.seq(0), GT, f.seq(1), f.type(), alloc),
-          f.type(),
-          alloc),
-        env,
-        intermediate,
-        diagnostics,
-        neg_context
-      );
-    }
-    else {
-      RETURN_INTERPRETATION_ERROR("Unsupported predicate in this abstract domain.");
-    }
   }
 
   /** Given an interval occuring in a set (LogicSet), we decompose it as a formula. */
@@ -606,53 +595,12 @@ private:
           }
         }
         case NEQ: return interpret_disequality<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
-        // Expect the shape of the constraint to be `T <op> u`.
-        // If `T` is a variable (`x <op> u`), then it is interpreted in the underlying universe.
+        case LEQ: return interpret_inequalityLEQ<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
+        case GT: return interpret_inequalityGT<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
+        case GEQ: return interpret_inequalityLEQ<kind, diagnose>(f.seq(1), f.seq(0), env, intermediate, diagnostics);
+        case LT: return interpret_inequalityGT<kind, diagnose>(f.seq(1), f.seq(0), env, intermediate, diagnostics);
         default:
-          auto fn = move_constants_on_rhs(f);
-          auto fu = F2::make_binary(F2::make_avar(AVar{}), fn.sig(), fn.seq(1), fn.type(), alloc);
-          local_universe_type u{local_universe_type::bot()};
-          // We first try to interpret the right-hand side of the formula.
-          if(!local_universe_type::template interpret<kind, diagnose>(fu, env, u, diagnostics)) {
-            // Sometimes the underlying universe cannot interpret disequality, so we decompose it.
-            if(fn.sig() == NEQ) {
-              return interpret_neq_decomposition<kind, diagnose>(fn, env, intermediate, diagnostics, neg_context);
-            }
-            else {
-              RETURN_INTERPRETATION_ERROR("We cannot interpret the constant on the RHS of the formula in the underlying abstract universe.");
-            }
-          }
-          // We continue with the interpretation of the left-hand side of the formula.
-          else {
-            term_seq<Alloc> terms = term_seq<Alloc>(alloc);
-            if(!interpret_term<kind, diagnose>(fn.seq(0), env, terms, diagnostics)) {
-              RETURN_INTERPRETATION_ERROR("We cannot interpret the term on the LHS of the formula in PC.");
-            }
-            else {
-              // In a context where the formula propagator can be asked for its negation, we must interpret the negation of the formula as well.
-              if(neg_context) {
-                auto nf_ = negate(fn);
-                if(!nf_.has_value()) {
-                  RETURN_INTERPRETATION_ERROR("We must query this formula for disentailement, but we could not compute its negation.");
-                }
-                else {
-                  formula_seq<Alloc> nf;
-                  if(!interpret_formula<kind, diagnose>(*nf_, env, nf, diagnostics)) {
-                    RETURN_INTERPRETATION_ERROR("We must query this formula for disentailement, but we could not interpret its negation.");
-                  }
-                  else {
-                    intermediate.push_back(PF::make_nlop(std::move(terms.back()), std::move(u),
-                      battery::allocate_unique<PF>(alloc, std::move(nf.back()))));
-                    return true;
-                  }
-                }
-              }
-              else {
-                intermediate.push_back(PF::make_plop(std::move(terms.back()), std::move(u)));
-                return true;
-              }
-            }
-          }
+          RETURN_INTERPRETATION_ERROR("Unsupported binary symbol in a formula.");
       }
     }
     RETURN_INTERPRETATION_ERROR("The shape of this formula is not supported.");
@@ -677,7 +625,7 @@ public:
         res = true; // it is not a formula `x in S`.
       }
       else {
-        res = universe_type::preserve_meet; // it is `x in S` but it preserves meet.
+        res = universe_type::preserve_join; // it is `x in S` but it preserves join.
       }
     }
     const_cast<F&>(f).type_as(current);
@@ -707,18 +655,16 @@ public:
       Notes for later:
         * To implement "telling of propagators", we would need to check if a propagator has already been added or not (for idempotency).
         * 1. Walk through the existing propagators to check which ones are already in.
-        * 2. If a propagator has the same shape but different constant `U`, join them in place.  */
-  template <class Alloc2, class Mem>
-  CUDA this_type& tell(const tell_type<Alloc2>& t, BInc<Mem>& has_changed) {
-    sub->tell(t.sub_value, has_changed);
+        * 2. If a propagator has the same shape but different constant `U`, meet them in place.  */
+  template <class Alloc2>
+  CUDA bool deduce(const tell_type<Alloc2>& t) {
+    bool has_changed = sub->deduce(t.sub_value);
     if(t.props.size() > 0) {
-      has_changed.tell_top();
       auto& props2 = *props;
       size_t n = props2.size();
       props2.reserve(n + t.props.size());
       for(int i = 0; i < t.props.size(); ++i) {
         props2.push_back(formula_type(t.props[i], get_allocator()));
-        props2[n + i].preprocess(*sub, has_changed);
       }
       battery::vector<size_t> lengths(props2.size());
       for(int i = 0; i < props2.size(); ++i) {
@@ -728,29 +674,17 @@ public:
         [&](int i, int j) {
           return props2[i].kind() < props2[j].kind() || (props2[i].kind() == props2[j].kind() && lengths[i] < lengths[j]);
         });
+      return true;
     }
-    return *this;
+    return has_changed;
+  }
+
+  CUDA bool embed(AVar x, const universe_type& dom) {
+    return sub->embed(x, dom);
   }
 
   template <class Alloc2>
-  CUDA this_type& tell(const tell_type<Alloc2>& t) {
-    local::BInc has_changed;
-    return tell(t, has_changed);
-  }
-
-  CUDA this_type& tell(AVar x, const universe_type& dom) {
-    sub->tell(x, dom);
-    return *this;
-  }
-
-  template <class Mem>
-  CUDA this_type& tell(AVar x, const universe_type& dom, BInc<Mem>& has_changed) {
-    sub->tell(x, dom, has_changed);
-    return *this;
-  }
-
-  template <class Alloc2>
-  CUDA local::BInc ask(const ask_type<Alloc2>& t) const {
+  CUDA local::B ask(const ask_type<Alloc2>& t) const {
     for(int i = 0; i < t.props.size(); ++i) {
       if(!t.props[i].ask(*sub)) {
         return false;
@@ -763,28 +697,27 @@ public:
     return sub->num_refinements() + props->size();
   }
 
-  template <class Mem>
-  CUDA void refine(size_t i, BInc<Mem>& has_changed) {
+  CUDA bool deduce(size_t i) {
     assert(i < num_refinements());
-    if(is_top()) {}
+    if(is_top()) { return false; }
     else if(i < sub->num_refinements()) {
-      sub->refine(i, has_changed);
+      return sub->deduce(i);
     }
     else {
-      (*props)[i - sub->num_refinements()].refine(*sub, has_changed);
+      return (*props)[i - sub->num_refinements()].deduce(*sub);
     }
   }
 
   // Functions forwarded to the sub-domain `A`.
 
-  /** `true` if the underlying abstract element is top, `false` otherwise. */
-  CUDA local::BInc is_top() const {
-    return sub->is_top();
+  /** `true` if the underlying abstract element is bot, `false` otherwise. */
+  CUDA local::B is_bot() const {
+    return sub->is_bot();
   }
 
-  /** `true` if the underlying abstract element is bot and there is no refinement function, `false` otherwise. */
-  CUDA local::BDec is_bot() const {
-    return sub->is_bot() && props->size() == 0;
+  /** `true` if the underlying abstract element is top and there is no refinement function, `false` otherwise. */
+  CUDA local::B is_top() const {
+    return sub->is_top() && props->size() == 0;
   }
 
   CUDA auto /* universe_type or const universe_type& */ operator[](int x) const {
@@ -793,6 +726,10 @@ public:
 
   CUDA auto /* universe_type or const universe_type& */ project(AVar x) const {
     return sub->project(x);
+  }
+
+  CUDA void project(AVar x, universe_type& u) const {
+    sub->project(x, u);
   }
 
   CUDA size_t vars() const {
@@ -813,10 +750,10 @@ public:
     sub->restore(snap.sub_snap);
   }
 
-  /** An abstract element is extractable when it is not equal to top, if all propagators are entailed and if the underlying abstract element is extractable. */
+  /** An abstract element is extractable when it is not equal to bot, if all propagators are entailed and if the underlying abstract element is extractable. */
   template <class ExtractionStrategy = NonAtomicExtraction>
   CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy()) const {
-    if(is_top()) {
+    if(is_bot()) {
       return false;
     }
     for(int i = 0; i < props->size(); ++i) {
@@ -841,24 +778,24 @@ public:
     }
   }
 
-  template<class Env>
-  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const Env& env) const {
-    using F = TFormula<typename Env::allocator_type>;
-    typename F::Sequence seq{env.get_allocator()};
-    seq.push_back(sub->deinterpret(env));
+  template<class Env, class Allocator = typename Env::allocator_type>
+  CUDA NI TFormula<Allocator> deinterpret(const Env& env, Allocator allocator = Allocator()) const {
+    using F = TFormula<Allocator>;
+    typename F::Sequence seq{allocator};
+    seq.push_back(sub->deinterpret(env, allocator));
     for(int i = 0; i < props->size(); ++i) {
-      seq.push_back((*props)[i].deinterpret(*sub, env, aty()));
+      seq.push_back((*props)[i].deinterpret(*sub, env, aty(), allocator));
     }
     return F::make_nary(AND, std::move(seq), aty());
   }
 
-  template<class I, class Env>
-  CUDA NI TFormula<typename Env::allocator_type> deinterpret(const I& intermediate, const Env& env) const {
-    using F = TFormula<typename Env::allocator_type>;
-    typename F::Sequence seq{env.get_allocator()};
-    seq.push_back(sub->deinterpret(intermediate.sub_value, env));
+  template<class I, class Env, class Allocator = typename Env::allocator_type>
+  CUDA NI TFormula<Allocator> deinterpret(const I& intermediate, const Env& env, Allocator allocator = Allocator()) const {
+    using F = TFormula<Allocator>;
+    typename F::Sequence seq{allocator};
+    seq.push_back(sub->deinterpret(intermediate.sub_value, env, allocator));
     for(int i = 0; i < intermediate.props.size(); ++i) {
-      seq.push_back(intermediate.props[i].deinterpret(*sub, env, aty()));
+      seq.push_back(intermediate.props[i].deinterpret(*sub, env, aty(), allocator));
     }
     return F::make_nary(AND, std::move(seq), aty());
   }

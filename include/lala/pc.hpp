@@ -313,7 +313,7 @@ private:
     }
     else if(f.is_constant()) {
       auto constant = F2::make_binary(F2::make_avar(AVar{}), EQ, f, UNTYPED, intermediate.get_allocator());
-      local_universe_type k{local_universe_type::bot()};
+      local_universe_type k{};
       if(local_universe_type::template interpret<kind, diagnose>(constant, env, k, diagnostics)) {
         intermediate.push_back(T::make_constant(std::move(k)));
         return true;
@@ -693,18 +693,18 @@ public:
     return sub->ask(t.sub_value);
   }
 
-  CUDA size_t num_refinements() const {
-    return sub->num_refinements() + props->size();
+  CUDA size_t num_deductions() const {
+    return sub->num_deductions() + props->size();
   }
 
   CUDA bool deduce(size_t i) {
-    assert(i < num_refinements());
+    assert(i < num_deductions());
     if(is_top()) { return false; }
-    else if(i < sub->num_refinements()) {
+    else if(i < sub->num_deductions()) {
       return sub->deduce(i);
     }
     else {
-      return (*props)[i - sub->num_refinements()].deduce(*sub);
+      return (*props)[i - sub->num_deductions()].deduce(*sub);
     }
   }
 
@@ -778,9 +778,9 @@ public:
     }
   }
 
-  template<class Env, class Allocator = typename Env::allocator_type>
-  CUDA NI TFormula<Allocator> deinterpret(const Env& env, Allocator allocator = Allocator()) const {
-    using F = TFormula<Allocator>;
+  template<class Env, class Allocator2 = typename Env::allocator_type>
+  CUDA NI TFormula<Allocator2> deinterpret(const Env& env, Allocator2 allocator = Allocator2()) const {
+    using F = TFormula<Allocator2>;
     typename F::Sequence seq{allocator};
     seq.push_back(sub->deinterpret(env, allocator));
     for(int i = 0; i < props->size(); ++i) {
@@ -789,9 +789,9 @@ public:
     return F::make_nary(AND, std::move(seq), aty());
   }
 
-  template<class I, class Env, class Allocator = typename Env::allocator_type>
-  CUDA NI TFormula<Allocator> deinterpret(const I& intermediate, const Env& env, Allocator allocator = Allocator()) const {
-    using F = TFormula<Allocator>;
+  template<class I, class Env, class Allocator2 = typename Env::allocator_type>
+  CUDA NI TFormula<Allocator2> deinterpret(const I& intermediate, const Env& env, Allocator2 allocator = Allocator2()) const {
+    using F = TFormula<Allocator2>;
     typename F::Sequence seq{allocator};
     seq.push_back(sub->deinterpret(intermediate.sub_value, env, allocator));
     for(int i = 0; i < intermediate.props.size(); ++i) {

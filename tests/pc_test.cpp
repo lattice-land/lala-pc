@@ -41,7 +41,7 @@ TEST(TermTest, AddTermBinary) {
   Itv r{};
   x_plus_y.project(store, r);
   EXPECT_EQ(r, Itv(0,20));
-  EXPECT_TRUE(x_plus_y.embed(store, Itv(zlb::bot(), 5)));
+  EXPECT_TRUE(x_plus_y.embed(store, Itv(zlb::top(), 5)));
   x_plus_y.project(store, r);
   EXPECT_EQ(r, Itv(0,10));
 }
@@ -61,7 +61,7 @@ TEST(TermTest, AddTermNary) {
   Itv r{};
   sum_xyz.project(store, r);
   EXPECT_EQ(r, Itv(0,30));
-  EXPECT_TRUE(sum_xyz.embed(store, Itv(zlb::bot(), 5)));
+  EXPECT_TRUE(sum_xyz.embed(store, Itv(zlb::top(), 5)));
   sum_xyz.project(store, r);
   EXPECT_EQ(r, Itv(0,15));
 }

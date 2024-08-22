@@ -3,7 +3,7 @@
 #ifndef LALA_PC_FORMULA_HPP
 #define LALA_PC_FORMULA_HPP
 
-#include "lala/universes/primitive_upset.hpp"
+#include "lala/universes/arith_bound.hpp"
 
 namespace lala {
 namespace pc {
@@ -57,15 +57,11 @@ public:
   }
 
   CUDA bool deduce(A& a) const {
-    local::B has_changed(false);
-    a.deduce(tellv, has_changed);
-    return has_changed;
+    return a.deduce(tellv);
   }
 
   CUDA bool contradeduce(A& a) const {
-    local::B has_changed(false);
-    a.deduce(not_tellv, has_changed);
-    return has_changed;
+    return a.deduce(not_tellv);
   }
 
   CUDA NI void print(const A& a) const {
@@ -286,6 +282,7 @@ public:
   CUDA bool contradeduce(A& a) const {
     if(f->ask(a)) { return g->contradeduce(a); }
     else if(g->ask(a)) { return f->contradeduce(a); }
+    return false;
   }
 
   CUDA NI void print(const A& a) const {
@@ -349,9 +346,10 @@ public:
   CUDA bool deduce(A& a) const {
     if(f->nask(a)) { return g->deduce(a); }
     else if(g->nask(a)) { return f->deduce(a); }
+    return false;
   }
 
-  CUDA void contradeduce(A& a) const {
+  CUDA bool contradeduce(A& a) const {
     bool has_changed = f->contradeduce(a);
     has_changed |= g->contradeduce(a);
     return has_changed;
@@ -425,6 +423,7 @@ public:
     else if(f->nask(a)) { return g->contradeduce(a); }
     else if(g->ask(a)) { return f->deduce(a); }
     else if(g->nask(a)) { return f->contradeduce(a); }
+    return false;
   }
 
   // note that not(f <=> g) is equivalent to (f <=> not g)
@@ -433,6 +432,7 @@ public:
     else if(f->nask(a)) { return g->deduce(a); }
     else if(g->ask(a)) { return f->contradeduce(a); }
     else if(g->nask(a)) { return f->deduce(a); }
+    return false;
   }
 
   CUDA NI void print(const A& a) const {
@@ -491,11 +491,13 @@ public:
   CUDA bool deduce(A& a) const {
     if(f->ask(a)) { return g->deduce(a); }
     else if(g->nask(a)) { return f->contradeduce(a); }
+    return false;
   }
 
   CUDA bool contradeduce(A& a) const {
     if(f->ask(a)) { return g->contradeduce(a); }
     else if(g->nask(a)) { return f->deduce(a); }
+    return false;
   }
 
   CUDA NI void print(const A& a) const {
@@ -558,6 +560,7 @@ public:
     else if(f->nask(a)) { return g->deduce(a); }
     else if(g->ask(a)) { return f->contradeduce(a); }
     else if(g->nask(a)) { return f->deduce(a); }
+    return false;
   }
 
   CUDA bool contradeduce(A& a) const {
@@ -565,6 +568,7 @@ public:
     else if(f->nask(a)) { return g->contradeduce(a); }
     else if(g->ask(a)) { return f->deduce(a); }
     else if(g->nask(a)) { return f->contradeduce(a); }
+    return false;
   }
 
   CUDA NI void print(const A& a) const {
@@ -619,7 +623,7 @@ private:
     left.project(a, l);
     right.project(a, r);
     if constexpr(negate) {
-      return meet(l, r).is_bot();
+      return fmeet(l, r).is_bot();
     }
     else {
       return l == r && dual<UB>(l.lb()) == l.ub();
@@ -631,37 +635,49 @@ private:
     U l{};
     U r{};
     bool has_changed = false;
-    left.project(a, l);
-    right.project(a, r);
     if constexpr(negate) {
-      if(dual<UB>(l.lb()) == l.ub()) {
-        if constexpr(U::complemented) {
-          return right.embed(a, l.complement());
-        }
-        else if (U::preserve_concrete_covers && U::is_arithmetic) {
-          U lb{r};
-          U ub{r};
-          lb.meet_lb(LB::prev(l.lb()));
-          ub.meet_ub(UB::prev(l.ub()));
-          return right.embed(a, fjoin(lb, ub));
+      if(!right.is(sub_type::IConstant)) {
+        left.project(a, l);
+        if(dual<UB>(l.lb()) == l.ub()) {
+          if constexpr(U::complemented) {
+            return right.embed(a, l.complement());
+          }
+          else if (U::preserve_concrete_covers && U::is_arithmetic) {
+            right.project(a, r);
+            U lb{r};
+            U ub{r};
+            lb.meet_lb(LB::prev(l.lb()));
+            ub.meet_ub(UB::prev(l.ub()));
+            return right.embed(a, fjoin(lb, ub));
+          }
         }
       }
-      if(dual<UB>(r.lb()) == r.ub()) {
-        if constexpr(U::complemented) {
-          return left.embed(a, r.complement());
-        }
-        else if (U::preserve_concrete_covers && U::is_arithmetic) {
-          U lb{l};
-          U ub{l};
-          lb.meet_lb(LB::prev(r.lb()));
-          ub.meet_ub(UB::prev(r.ub()));
-          return left.embed(a, fjoin(lb, ub));
+      if(!left.is(sub_type::IConstant)) {
+        right.project(a, r);
+        if(dual<UB>(r.lb()) == r.ub()) {
+          if constexpr(U::complemented) {
+            return left.embed(a, r.complement());
+          }
+          else if (U::preserve_concrete_covers && U::is_arithmetic) {
+            left.project(a, l);
+            U lb{l};
+            U ub{l};
+            lb.meet_lb(LB::prev(r.lb()));
+            ub.meet_ub(UB::prev(r.ub()));
+            return left.embed(a, fjoin(lb, ub));
+          }
         }
       }
     }
     else {
-      has_changed = left.embed(a, r);
-      has_changed |= right.embed(a, l);
+      if(!right.is(sub_type::IConstant)) {
+        left.project(a, l);
+        has_changed = right.embed(a, l);
+      }
+      if(!left.is(sub_type::IConstant)) {
+        right.project(a, r);
+        has_changed |= left.embed(a, r);
+      }
     }
     return has_changed;
   }
@@ -757,21 +773,34 @@ private:
     U l{};
     U r{};
     bool has_changed = false;
-    left.project(a, l);
-    right.project(a, r);
     // l > r
     if constexpr(negate) {
-      if constexpr(U::preserve_concrete_covers && U::is_arithmetic) {
-        r.meet_ub(UB::prev(r.ub()));
-        l.meet_lb(LB::prev(l.lb()));
+      if(!left.is(sub_type::IConstant)) {
+        right.project(a, r);
+        if constexpr(U::preserve_concrete_covers && U::is_arithmetic) {
+          r.meet_lb(LB::prev(r.lb()));
+        }
+        has_changed = left.embed(a, U(r.lb(), UB::top()));
       }
-      has_changed = left.embed(a, U(r.lb(), UB::top()));
-      has_changed |= right.embed(a, U(LB::top(), l.ub()));
+      if(!right.is(sub_type::IConstant)) {
+        left.project(a, l);
+        if constexpr(U::preserve_concrete_covers && U::is_arithmetic) {
+          l.meet_ub(UB::prev(l.ub()));
+        }
+        has_changed |= right.embed(a, U(LB::top(), l.ub()));
+      }
     }
     // l <= r
     else {
-      has_changed = left.embed(a, U(LB::top(), r.ub()));
-      has_changed |= right.embed(a, U(l.lb(), UB::top()));
+      if(!left.is(sub_type::IConstant)) {
+        right.project(a, r);
+        printf("r = "); r.print(); printf("\n");
+        has_changed |= left.embed(a, U(LB::top(), r.ub()));
+      }
+      if(!right.is(sub_type::IConstant)) {
+        left.project(a, l);
+        has_changed = right.embed(a, U(l.lb(), UB::top()));
+      }
     }
     return has_changed;
   }
@@ -1060,23 +1089,24 @@ public:
   CUDA bool embed(A& a, const U& u) const {
     if(u <= U::eq_one()) { return deduce(a); }
     else if(u <= U::eq_zero()) { return contradeduce(a); }
+    return false;
   }
 
   /** Maps the truth value of \f$ \varphi \f$ to the Boolean sublattice of `U` (see above). */
-  CUDA U project(const A& a) const {
-    if(a.is_bot()) { return U::bot(); }
-    if(ask(a)) { return U::eq_one(); }
-    if(nask(a)) { return U::eq_zero(); }
+  CUDA void project(const A& a, U& r) const {
+    if(a.is_bot()) { r.meet_bot(); }
+    if(ask(a)) { r.meet(U::eq_one()); }
+    if(nask(a)) { r.meet(U::eq_zero()); }
     constexpr auto unknown = fjoin(U::eq_zero(), U::eq_one());
-    return unknown;
+    r.meet(unknown);
   }
 
   CUDA void print(const A& a) const {
     forward([&](const auto& t) { t.print(a); });
   }
 
-  template <class Env, class Allocator = typename Env::allocator_type>
-  CUDA TFormula<Allocator> deinterpret(const A& a, const Env& env, AType apc, Allocator allocator = Allocator()) const {
+  template <class Env, class Allocator2 = typename Env::allocator_type>
+  CUDA TFormula<Allocator2> deinterpret(const A& a, const Env& env, AType apc, Allocator2 allocator = Allocator2()) const {
     return forward([&](const auto& t) { return t.deinterpret(a, env, apc, allocator); });
   }
 

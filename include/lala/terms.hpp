@@ -31,9 +31,8 @@ public:
   template <class A2, class Alloc>
   CUDA Constant(const Constant<A2>& other, const Alloc&): k(other.k) {}
 
-  template <class Mem>
   CUDA bool embed(A&, const U&) const { return false; }
-  CUDA void project(const A&, U& r) const { return r.meet(u); }
+  CUDA void project(const A&, U& r) const { r.meet(k); }
   CUDA void print(const A&) const { ::battery::print(k); }
   template <class Env, class Allocator = typename Env::allocator_type>
   CUDA TFormula<Allocator> deinterpret(const A&, const Env&, AType, Allocator allocator = Allocator()) const {
@@ -166,9 +165,9 @@ public:
     if constexpr(UnaryOp::function_symbol) { printf(")"); }
   }
 
-  template <class Env, class Allocator = typename Env::allocator_type>
-  CUDA TFormula<Allocator> deinterpret(const A& a, const Env& env, AType apc, Allocator allocator = Allocator()) const {
-    using F = TFormula<Allocator>;
+  template <class Env, class Allocator2 = typename Env::allocator_type>
+  CUDA TFormula<Allocator2> deinterpret(const A& a, const Env& env, AType apc, Allocator2 allocator = Allocator2()) const {
+    using F = TFormula<Allocator2>;
     return F::make_unary(UnaryOp::sig(), x().deinterpret(a, env, apc, allocator), apc, allocator);
   }
 
@@ -250,6 +249,7 @@ struct GroupMul {
   CUDA static void left_residual(const U& a, const U& b, U& r) {
     if(!(a >= U::eq_zero() && b >= U::eq_zero())) {
       r.project(divsig, a, b);
+      a.print(); printf(" \\ "); b.print(); printf(" = "); r.print(); printf("\n");
     }
   }
 
@@ -357,19 +357,25 @@ public:
     U yt{};
     U residual{};
     bool has_changed = false;
-    x().project(a, xt);
-    y().project(a, yt);
+    printf("embed("); u.print(); printf(", "); print(a); printf(")\n");
     if(!x().is(sub_type::IConstant)) {
+      y().project(a, yt);
+      printf("project("); y().print(a); printf(") = "); yt.print(); printf("\n");
       G::left_residual(u, yt, residual);
+      printf("left_residual("); u.print(); printf(", "); yt.print(); printf(") = "); residual.print(); printf("\n");
       has_changed |= x().embed(a, residual);   // x <- u <residual> y
-      if(has_changed) {
-        x().project(a, xt);
-      }
+      x().project(a, xt);
+      printf("project("); x().print(a); printf(") = "); xt.print(); printf("\n");
     }
     if(!y().is(sub_type::IConstant)) {
+      x().project(a, xt);
+      printf("project("); x().print(a); printf(") = "); xt.print(); printf("\n");
       residual.join_top();
       G::right_residual(u, xt, residual);
+      printf("right_residual("); u.print(); printf(", "); xt.print(); printf(") = "); residual.print(); printf("\n");
       has_changed |= y().embed(a, residual);   // y <- u <residual> x
+      y().project(a, yt);
+      printf("project("); y().print(a); printf(") = "); yt.print(); printf("\n");
     }
     return has_changed;
   }
@@ -397,9 +403,9 @@ public:
     }
   }
 
-  template <class Env, class Allocator = typename Env::allocator_type>
-  CUDA NI TFormula<Allocator> deinterpret(const A& a, const Env& env, AType apc, Allocator allocator = Allocator()) const {
-    using F = TFormula<Allocator>;
+  template <class Env, class Allocator2 = typename Env::allocator_type>
+  CUDA NI TFormula<Allocator2> deinterpret(const A& a, const Env& env, AType apc, Allocator2 allocator = Allocator2()) const {
+    using F = TFormula<Allocator2>;
     return F::make_binary(
       x().deinterpret(a, env, apc, allocator),
       G::sig(),
@@ -444,7 +450,8 @@ public:
     U tmp{};
     U tmp2{};
     U accu{};
-    for(int i = 0; i < terms.size(); ++i) {
+    t(0).project(a, accu);
+    for(int i = 1; i < terms.size(); ++i) {
       t(i).project(a, tmp);
       G::project(accu, tmp, tmp2);
       accu = tmp2;
@@ -720,8 +727,8 @@ public:
     forward([&](const auto& t) { t.print(a); });
   }
 
-  template <class Env, class Allocator = typename Env::allocator_type>
-  CUDA TFormula<Allocator> deinterpret(const A& a, const Env& env, AType apc, Allocator allocator = Allocator()) const {
+  template <class Env, class Allocator2 = typename Env::allocator_type>
+  CUDA TFormula<Allocator2> deinterpret(const A& a, const Env& env, AType apc, Allocator2 allocator = Allocator2()) const {
     return forward([&](const auto& t) { return t.deinterpret(a, env, apc, allocator); });
   }
 

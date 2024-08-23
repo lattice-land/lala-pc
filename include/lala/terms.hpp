@@ -474,6 +474,9 @@ public:
         G::rev_op(all, tmp, tmp2);
         G::left_residual(u, tmp2, residual);
         has_changed |= t(i).embed(a, residual);
+        tmp.join_top();
+        tmp2.join_top();
+        residual.join_top();
       }
     }
     return has_changed;

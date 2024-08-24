@@ -794,7 +794,6 @@ private:
     else {
       if(!left.is(sub_type::IConstant)) {
         right.project(a, r);
-        printf("r = "); r.print(); printf("\n");
         has_changed |= left.embed(a, U(LB::top(), r.ub()));
       }
       if(!right.is(sub_type::IConstant)) {

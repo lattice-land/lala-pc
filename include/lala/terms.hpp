@@ -36,7 +36,7 @@ public:
   CUDA void print(const A&) const { ::battery::print(k); }
   template <class Env, class Allocator = typename Env::allocator_type>
   CUDA TFormula<Allocator> deinterpret(const A&, const Env&, AType, Allocator allocator = Allocator()) const {
-    return k.template deinterpret<TFormula<Allocator>>(allocator);
+    return k.template deinterpret<TFormula<Allocator>>();
   }
   CUDA size_t length() const { return 1; }
 

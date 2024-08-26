@@ -36,7 +36,7 @@ public:
   CUDA void print(const A&) const { ::battery::print(k); }
   template <class Env, class Allocator = typename Env::allocator_type>
   CUDA TFormula<Allocator> deinterpret(const A&, const Env&, AType, Allocator allocator = Allocator()) const {
-    return k.template deinterpret<TFormula<Allocator>>(allocator);
+    return k.template deinterpret<TFormula<Allocator>>();
   }
   CUDA size_t length() const { return 1; }
 
@@ -249,7 +249,6 @@ struct GroupMul {
   CUDA static void left_residual(const U& a, const U& b, U& r) {
     if(!(a >= U::eq_zero() && b >= U::eq_zero())) {
       r.project(divsig, a, b);
-      a.print(); printf(" \\ "); b.print(); printf(" = "); r.print(); printf("\n");
     }
   }
 
@@ -357,25 +356,16 @@ public:
     U yt{};
     U residual{};
     bool has_changed = false;
-    printf("embed("); u.print(); printf(", "); print(a); printf(")\n");
     if(!x().is(sub_type::IConstant)) {
       y().project(a, yt);
-      printf("project("); y().print(a); printf(") = "); yt.print(); printf("\n");
       G::left_residual(u, yt, residual);
-      printf("left_residual("); u.print(); printf(", "); yt.print(); printf(") = "); residual.print(); printf("\n");
       has_changed |= x().embed(a, residual);   // x <- u <residual> y
-      x().project(a, xt);
-      printf("project("); x().print(a); printf(") = "); xt.print(); printf("\n");
     }
     if(!y().is(sub_type::IConstant)) {
       x().project(a, xt);
-      printf("project("); x().print(a); printf(") = "); xt.print(); printf("\n");
       residual.join_top();
       G::right_residual(u, xt, residual);
-      printf("right_residual("); u.print(); printf(", "); xt.print(); printf(") = "); residual.print(); printf("\n");
       has_changed |= y().embed(a, residual);   // y <- u <residual> x
-      y().project(a, yt);
-      printf("project("); y().print(a); printf(") = "); yt.print(); printf("\n");
     }
     return has_changed;
   }

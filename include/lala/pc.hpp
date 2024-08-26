@@ -657,8 +657,8 @@ public:
         * 1. Walk through the existing propagators to check which ones are already in.
         * 2. If a propagator has the same shape but different constant `U`, meet them in place.  */
   template <class Alloc2>
-  CUDA bool deduce(const tell_type<Alloc2>& t) {
-    bool has_changed = sub->deduce(t.sub_value);
+  CUDA local::B deduce(const tell_type<Alloc2>& t) {
+    local::B has_changed = sub->deduce(t.sub_value);
     if(t.props.size() > 0) {
       auto& props2 = *props;
       size_t n = props2.size();
@@ -697,7 +697,7 @@ public:
     return sub->num_deductions() + props->size();
   }
 
-  CUDA bool deduce(size_t i) {
+  CUDA local::B deduce(size_t i) {
     assert(i < num_deductions());
     if(is_top()) { return false; }
     else if(i < sub->num_deductions()) {

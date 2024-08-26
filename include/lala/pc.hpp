@@ -715,7 +715,7 @@ public:
     return sub->is_bot();
   }
 
-  /** `true` if the underlying abstract element is top and there is no refinement function, `false` otherwise. */
+  /** `true` if the underlying abstract element is top and there is no deduction function, `false` otherwise. */
   CUDA local::B is_top() const {
     return sub->is_top() && props->size() == 0;
   }
@@ -728,7 +728,8 @@ public:
     return sub->project(x);
   }
 
-  CUDA void project(AVar x, universe_type& u) const {
+  template <class Univ>
+  CUDA void project(AVar x, Univ& u) const {
     sub->project(x, u);
   }
 

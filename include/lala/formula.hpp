@@ -1096,8 +1096,7 @@ public:
     if(a.is_bot()) { r.meet_bot(); }
     if(ask(a)) { r.meet(U::eq_one()); }
     if(nask(a)) { r.meet(U::eq_zero()); }
-    constexpr auto unknown = fjoin(U::eq_zero(), U::eq_one());
-    r.meet(unknown);
+    r.meet(fjoin(U::eq_zero(), U::eq_one()));
   }
 
   CUDA void print(const A& a) const {

@@ -693,6 +693,10 @@ public:
     return sub->ask(t.sub_value);
   }
 
+  CUDA local::B ask(size_t i) const {
+    return (*props)[i].ask(*sub);
+  }
+
   CUDA size_t num_deductions() const {
     return sub->num_deductions() + props->size();
   }
@@ -758,7 +762,7 @@ public:
       return false;
     }
     for(int i = 0; i < props->size(); ++i) {
-      if(!(*props)[i].ask(*sub)) {
+      if(!ask(i)) {
         return false;
       }
     }

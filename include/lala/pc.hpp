@@ -586,8 +586,8 @@ private:
         case IMPLY: return interpret_implication<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
         case XOR: return interpret_xor<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
         case EQ: {
-          // Whenever an operand of `=` is a formula with logical connectors, we interpret `=` as `<=>`.
-          if(f.seq(0).is_logical() || f.seq(1).is_logical()) {
+          // Whenever an operand of `=` is a formula with logical connectors or predicate, we interpret `=` as `<=>`.
+          if(f.seq(0).is_logical() || f.seq(1).is_logical() || f.seq(0).is_predicate() || f.seq(1).is_predicate()) {
             return interpret_biconditional<kind, diagnose>(f.seq(0), f.seq(1), env, intermediate, diagnostics);
           }
           else {

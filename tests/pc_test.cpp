@@ -496,6 +496,20 @@ TEST(IPCTest, MinConstraint2) {
   deduce_and_test(ipc, 1, {Itv(4, 4), Itv(2, 5), Itv(0, 3)}, {Itv(4, 4), Itv(2, 3), Itv(2, 3)}, false);
 }
 
+// min(x, y) = z
+TEST(IPCTest, MinConstraint3) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("var int: x; var 0..1: b1; var 0..1: b2;\
+    constraint int_min(b1, b2, 1);", env);
+  deduce_and_test(ipc, 1, {Itv::top(), Itv(0, 1), Itv(0, 1)}, {Itv::top(), Itv(1,1), Itv(1, 1)}, true);
+
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(b1, int_le(x, 5));", ipc, env);
+  deduce_and_test(ipc, 2, {Itv::top(), Itv(1,1), Itv(1, 1)}, {Itv(Itv::LB::top(), 5), Itv(1, 1), Itv(1, 1)}, true);
+
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(b2, int_ge(x, 5));", ipc, env);
+  deduce_and_test(ipc, 3, {Itv(Itv::LB::top(), 5), Itv(1, 1), Itv(1, 1)}, {Itv(5, 5), Itv(1, 1), Itv(1, 1)}, true);
+}
+
 // max(x, y) = z
 TEST(IPCTest, MaxConstraint1) {
   VarEnv<standard_allocator> env;
@@ -504,10 +518,10 @@ TEST(IPCTest, MaxConstraint1) {
   deduce_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(2, 5)}, false);
 
   interpret_must_succeed<IKind::TELL>("constraint int_le(z, 3);", ipc, env);
-  deduce_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(2, 3)}, false);
+  deduce_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(2, 3)}, {Itv(0, 3), Itv(2, 3), Itv(2, 3)}, false);
 
   interpret_must_succeed<IKind::TELL>("constraint int_le(x, 1);", ipc, env);
-  deduce_and_test(ipc, 1, {Itv(0, 1), Itv(2, 5), Itv(2, 3)}, {Itv(0, 1), Itv(2, 3), Itv(2, 3)}, false);
+  deduce_and_test(ipc, 1, {Itv(0, 1), Itv(2, 3), Itv(2, 3)}, false);
 
   interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 2);", ipc, env);
   deduce_and_test(ipc, 1, {Itv(0, 1), Itv(2, 2), Itv(2, 3)}, {Itv(0, 1), Itv(2, 2), Itv(2, 2)}, true);
@@ -522,6 +536,19 @@ TEST(IPCTest, MaxConstraint2) {
 
   interpret_must_succeed<IKind::TELL>("constraint int_ge(z, 5);", ipc, env);
   deduce_and_test(ipc, 1, {Itv(0, 4), Itv(2, 5), Itv(5, 5)}, {Itv(0, 4), Itv(5, 5), Itv(5, 5)}, true);
+}
+
+TEST(IPCTest, MaxConstraint3) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("var int: x; var 0..1: b1; var 0..1: b2;\
+    constraint int_max(b1, b2, 0);", env);
+  deduce_and_test(ipc, 1, {Itv::top(), Itv(0, 1), Itv(0, 1)}, {Itv::top(), Itv(0,0), Itv(0,0)}, true);
+
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(b1, int_le(x, 5));", ipc, env);
+  deduce_and_test(ipc, 2, {Itv::top(), Itv(0,0), Itv(0,0)}, {Itv(6, Itv::UB::top()), Itv(0, 0), Itv(0, 0)}, true);
+
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(b2, int_ge(x, 7));", ipc, env);
+  deduce_and_test(ipc, 3, {Itv(6, Itv::UB::top()), Itv(0, 0), Itv(0, 0)}, {Itv(6, 6), Itv(0, 0), Itv(0, 0)}, true);
 }
 
 TEST(IPCTest, BooleanClause1) {

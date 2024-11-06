@@ -297,6 +297,14 @@ struct GroupMinMax {
     if(fmeet(a, b).is_bot()) {
       r.meet(a);
     }
+    else {
+      if constexpr(msig == MIN) {
+        r.meet_lb(a.lb());
+      }
+      else {
+        r.meet_ub(a.ub());
+      }
+    }
   }
 
   CUDA static void right_residual(const U& a, const U& b, U& r) {

@@ -730,3 +730,27 @@ TEST(IPCTest, AbstractElement4) {
   interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 5);", ipc, env);
   deduce_and_test(ipc, 1, {Itv(5, 5), Itv(4, 4)}, {Itv(5,5), Itv(5, 4)}, false, true);
 }
+
+TEST(IPCTest, InfiniteDomain1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var int: x; \
+    var bool: b; \
+    constraint int_eq(b, int_le(x,5));", env);
+  deduce_and_test(ipc, 1, {Itv::top(), Itv(0,1)}, false);
+
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(b, 1);", ipc, env);
+  deduce_and_test(ipc, 1, {Itv::top(), Itv(1,1)}, {Itv(Itv::LB::top(), 5), Itv(1,1)}, true);
+}
+
+TEST(IPCTest, InfiniteDomain2) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var int: x; \
+    var bool: b; \
+    constraint int_eq(b, int_le(x,5));", env);
+  deduce_and_test(ipc, 1, {Itv::top(), Itv(0,1)}, false);
+
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(b, 0);", ipc, env);
+  deduce_and_test(ipc, 1, {Itv::top(), Itv(0,0)}, {Itv(6, Itv::UB::top()), Itv(0,0)}, true);
+}

@@ -626,7 +626,7 @@ private:
       return fmeet(l, r).is_bot();
     }
     else {
-      return l == r && dual<UB>(l.lb()) == l.ub();
+      return l == r && l.lb().value() == l.ub().value();
     }
   }
 
@@ -638,7 +638,7 @@ private:
     if constexpr(negate) {
       if(!right.is(sub_type::IConstant)) {
         left.project(a, l);
-        if(dual<UB>(l.lb()) == l.ub()) {
+        if(l.lb().value() == l.ub().value()) {
           if constexpr(U::complemented) {
             return right.embed(a, l.complement());
           }
@@ -654,7 +654,7 @@ private:
       }
       if(!left.is(sub_type::IConstant)) {
         right.project(a, r);
-        if(dual<UB>(r.lb()) == r.ub()) {
+        if(r.lb().value() == r.ub().value()) {
           if constexpr(U::complemented) {
             return left.embed(a, r.complement());
           }
@@ -760,11 +760,13 @@ private:
     U r{};
     left.project(a, l);
     right.project(a, r);
+    /** Note: we need the arithmetic order to compare both values.
+     * Using the lattice order is harder to work with due to infinities and incomparable bounds. */
     if constexpr(negate) {
-      return dual<UB>(l.lb()) > r.ub();
+      return l.lb().value() > r.ub().value();
     }
     else {
-      return l.ub() <= dual<UB>(r.lb());
+      return l.ub().value() <= r.lb().value();
     }
   }
 

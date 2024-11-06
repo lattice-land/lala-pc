@@ -786,6 +786,9 @@ public:
   template<class Env, class Allocator2 = typename Env::allocator_type>
   CUDA NI TFormula<Allocator2> deinterpret(const Env& env, Allocator2 allocator = Allocator2()) const {
     using F = TFormula<Allocator2>;
+    if(props->size() == 0) {
+      return sub->deinterpret(env, allocator);
+    }
     typename F::Sequence seq{allocator};
     seq.push_back(sub->deinterpret(env, allocator));
     for(int i = 0; i < props->size(); ++i) {

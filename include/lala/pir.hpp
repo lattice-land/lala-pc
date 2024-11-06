@@ -405,11 +405,9 @@ public:
         case SUB: GroupSub<local_universe_type>::left_residual(r1, r3, r2); break;
         case MUL: GroupMul<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
         case EDIV: GroupDiv<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
-        default: {
-          assert(bytecode.op == MIN || bytecode.op == MAX):
-          // left_residual has the same code for MIN and MAX.
-          GroupMinMax<local_universe_type, MIN>::left_residual(r1, r3, r2);
-        }
+        case MIN: GroupMinMax<local_universe_type, MIN>::left_residual(r1, r3, r2); break;
+        case MAX: GroupMinMax<local_universe_type, MAX>::left_residual(r1, r3, r2); break;
+        default: assert(false);
       }
       has_changed |= sub->embed(bytecode.y, r2);
 
@@ -421,13 +419,9 @@ public:
         case SUB: GroupSub<local_universe_type>::right_residual(r1, r2, r3); break;
         case MUL: GroupMul<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
         case EDIV: GroupDiv<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
-        case MAX:
-        case MIN:
-        default: {
-          assert(bytecode.op == MIN || bytecode.op == MAX):
-          // right_residual has the same code for MIN and MAX.
-          GroupMinMax<local_universe_type, MIN>::right_residual(r1, r2, r3);
-        }
+        case MIN: GroupMinMax<local_universe_type, MIN>::right_residual(r1, r2, r3); break;
+        case MAX: GroupMinMax<local_universe_type, MAX>::right_residual(r1, r2, r3); break;
+        default: assert(false);
       }
       has_changed |= sub->embed(bytecode.z, r3);
     }

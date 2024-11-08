@@ -108,7 +108,7 @@ private:
   using bytecodes_type = battery::vector<bytecode_type, allocator_type>;
   using bytecodes_ptr = battery::root_ptr<battery::vector<bytecode_type, allocator_type>>;
 
-  /** We represent the constraints X = Y [op] Z in a struct of array manner. */
+  /** We represent the constraints X = Y [op] Z. */
   bytecodes_ptr bytecodes;
 
   using LB = typename local_universe_type::LB;
@@ -321,7 +321,73 @@ public:
   }
 
   CUDA local::B ask(size_t i) const {
+    Bytecode bytecode = (*bytecodes)[i];
 
+    // We load the variables.
+    local_universe_type r1;
+    local_universe_type r2((*sub)[bytecode.y]);
+    local_universe_type r3((*sub)[bytecode.z]);
+
+    // Reified constraint: X = (Y = Z) and X = (Y <= Z).
+    if(bytecode.op == EQ || bytecode.op == LEQ) {
+      r1 = (*sub)[bytecode.x];
+      // Y [op] Z
+      if(r1 >= ONE) {
+        return bytecode.op == EQ
+          ? (r2 == r3 && r2.lb().value() == r2.ub().value())
+          : r2.ub().value() <= r3.lb().value();
+      }
+      // not (Y [op] Z)
+      else if(r1 >= ZERO) {
+        if(bytecode.op == EQ) {
+          return fmeet(r2, r3).is_bot();
+        }
+        else {
+          return l.lb().value() > r.ub().value();
+        }
+      }
+      // X <- 1
+      else if(r2.ub().value() <= r3.lb().value() && (bytecode.op == LEQ || r2.lb().value() == r3.ub().value())) {
+        has_changed |= sub->embed(bytecode.x, ONE);
+      }
+      // X <- 0
+      else if(r2.lb().value() > r3.ub().value() || (bytecode.op == EQ && r2.ub().value() < r3.lb().value())) {
+        has_changed |= sub->embed(bytecode.x, ZERO);
+      }
+    }
+    // Arithmetic constraint: X = Y + Z, X = Y - Z, ...
+    else {
+      // X <- Y [op] Z
+      r1.project(bytecode.op, r2, r3);
+      sub->embed(bytecode.x, r1);
+
+      // Y <- X <left residual> Z
+      r1 = (*sub)[bytecode.x];
+      switch(bytecode.op) {
+        case ADD: GroupAdd<local_universe_type>::left_residual(r1, r3, r2); break;
+        case SUB: GroupSub<local_universe_type>::left_residual(r1, r3, r2); break;
+        case MUL: GroupMul<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
+        case EDIV: GroupDiv<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
+        case MIN: GroupMinMax<local_universe_type, MIN>::left_residual(r1, r3, r2); break;
+        case MAX: GroupMinMax<local_universe_type, MAX>::left_residual(r1, r3, r2); break;
+        default: assert(false);
+      }
+      has_changed |= sub->embed(bytecode.y, r2);
+
+      // Z <- X <right residual> Y
+      r2 = (*sub)[bytecode.y];
+      r3.join_top();
+      switch(bytecode.op) {
+        case ADD: GroupAdd<local_universe_type>::right_residual(r1, r2, r3); break;
+        case SUB: GroupSub<local_universe_type>::right_residual(r1, r2, r3); break;
+        case MUL: GroupMul<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
+        case EDIV: GroupDiv<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
+        case MIN: GroupMinMax<local_universe_type, MIN>::right_residual(r1, r2, r3); break;
+        case MAX: GroupMinMax<local_universe_type, MAX>::right_residual(r1, r2, r3); break;
+        default: assert(false);
+      }
+      has_changed |= sub->embed(bytecode.z, r3);
+    }
   }
 
   CUDA size_t num_deductions() const {

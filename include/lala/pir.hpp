@@ -18,6 +18,7 @@
 #include "terms.hpp"
 
 namespace lala {
+
 template <class A, class Alloc> class PIR;
 namespace impl {
   template <class>
@@ -94,17 +95,17 @@ private:
 
   static_assert(sizeof(int) == sizeof(AVar), "The size of AVar must be equal to the size of an int.");
   static_assert(sizeof(int) == sizeof(Sig), "The size of Sig must be equal to the size of an int.");
-  union bytecode_type
-  {
+  // union bytecode_type
+  // {
     // This represents the constraints `X = Y [op] Z`.
-    struct {
+    struct bytecode_type {
       Sig op;
       AVar x;
       AVar y;
       AVar z;
     };
-    int4 code;
-  };
+    // int4 code;
+  // };
   using bytecodes_type = battery::vector<bytecode_type, allocator_type>;
   using bytecodes_ptr = battery::root_ptr<battery::vector<bytecode_type, allocator_type>>;
 
@@ -130,6 +131,7 @@ public:
 
     CUDA interpreted_type(const Alloc& alloc = Alloc{})
       : interpreted_type(SubType(alloc), alloc)
+    {}
 
     template <class InterpretedType>
     CUDA interpreted_type(const InterpretedType& other, const Alloc& alloc = Alloc{})
@@ -241,15 +243,17 @@ private:
     }
     if(f.is_binary()) {
       Sig sig = f.sig();
-      // Expect constraint of the form X = Y <OP> Z.
-      if(sig == EQ && f.seq(1).is_binary()) {
-        auto& X = f.seq(0);
-        auto& Y = f.seq(1).seq(0);
-        auto& Z = f.seq(1).seq(1);
-        Bytecode bytecode;
-        bytecode.op = f.seq(1).sig();
+      // Expect constraint of the form X = Y <OP> Z, or Y <OP> Z = X.
+      int left = f.seq(0).is_binary();
+      int right = f.seq(1).is_binary();
+      if(sig == EQ && (left || right)) {
+        auto& X = f.seq(left);
+        auto& Y = f.seq(right).seq(0);
+        auto& Z = f.seq(right).seq(1);
+        bytecode_type bytecode;
+        bytecode.op = f.seq(right).sig();
         if(X.is_variable() && Y.is_variable() && Z.is_variable() &&
-          (op == ADD || op == MUL || op == SUB || op == EDIV || op == EMOD || op == MIN || op == MAX)
+          (bytecode.op == ADD || bytecode.op == MUL || bytecode.op == SUB || bytecode.op == EDIV || bytecode.op == EMOD || bytecode.op == MIN || bytecode.op == MAX))
         {
           if( env.template interpret<diagnose>(X, bytecode.x, diagnostics)
            && env.template interpret<diagnose>(Y, bytecode.y, diagnostics)
@@ -321,16 +325,15 @@ public:
   }
 
   CUDA local::B ask(size_t i) const {
-    Bytecode bytecode = (*bytecodes)[i];
+    bytecode_type bytecode = (*bytecodes)[i];
 
     // We load the variables.
-    local_universe_type r1;
+    local_universe_type r1((*sub)[bytecode.x]);
     local_universe_type r2((*sub)[bytecode.y]);
     local_universe_type r3((*sub)[bytecode.z]);
 
     // Reified constraint: X = (Y = Z) and X = (Y <= Z).
     if(bytecode.op == EQ || bytecode.op == LEQ) {
-      r1 = (*sub)[bytecode.x];
       // Y [op] Z
       if(r1 >= ONE) {
         return bytecode.op == EQ
@@ -339,54 +342,18 @@ public:
       }
       // not (Y [op] Z)
       else if(r1 >= ZERO) {
-        if(bytecode.op == EQ) {
-          return fmeet(r2, r3).is_bot();
-        }
-        else {
-          return l.lb().value() > r.ub().value();
-        }
+        return bytecode.op == EQ
+          ? fmeet(r2, r3).is_bot().value()
+          : r2.lb().value() > r3.ub().value();
       }
-      // X <- 1
-      else if(r2.ub().value() <= r3.lb().value() && (bytecode.op == LEQ || r2.lb().value() == r3.ub().value())) {
-        has_changed |= sub->embed(bytecode.x, ONE);
-      }
-      // X <- 0
-      else if(r2.lb().value() > r3.ub().value() || (bytecode.op == EQ && r2.ub().value() < r3.lb().value())) {
-        has_changed |= sub->embed(bytecode.x, ZERO);
-      }
+      // We need `r1` to be a singleton to decide whether the constraint is entailed.
+      return false;
     }
     // Arithmetic constraint: X = Y + Z, X = Y - Z, ...
     else {
-      // X <- Y [op] Z
-      r1.project(bytecode.op, r2, r3);
-      sub->embed(bytecode.x, r1);
-
-      // Y <- X <left residual> Z
-      r1 = (*sub)[bytecode.x];
-      switch(bytecode.op) {
-        case ADD: GroupAdd<local_universe_type>::left_residual(r1, r3, r2); break;
-        case SUB: GroupSub<local_universe_type>::left_residual(r1, r3, r2); break;
-        case MUL: GroupMul<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
-        case EDIV: GroupDiv<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
-        case MIN: GroupMinMax<local_universe_type, MIN>::left_residual(r1, r3, r2); break;
-        case MAX: GroupMinMax<local_universe_type, MAX>::left_residual(r1, r3, r2); break;
-        default: assert(false);
-      }
-      has_changed |= sub->embed(bytecode.y, r2);
-
-      // Z <- X <right residual> Y
-      r2 = (*sub)[bytecode.y];
-      r3.join_top();
-      switch(bytecode.op) {
-        case ADD: GroupAdd<local_universe_type>::right_residual(r1, r2, r3); break;
-        case SUB: GroupSub<local_universe_type>::right_residual(r1, r2, r3); break;
-        case MUL: GroupMul<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
-        case EDIV: GroupDiv<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
-        case MIN: GroupMinMax<local_universe_type, MIN>::right_residual(r1, r2, r3); break;
-        case MAX: GroupMinMax<local_universe_type, MAX>::right_residual(r1, r2, r3); break;
-        default: assert(false);
-      }
-      has_changed |= sub->embed(bytecode.z, r3);
+      local_universe_type right;
+      right.project(bytecode.op, r2, r3);
+      return right == r1 && r2.lb().value() == r2.ub().value();
     }
   }
 
@@ -399,7 +366,7 @@ public:
     assert(i < num_deductions());
 
     // Vectorize load (int4).
-    Bytecode bytecode = (*bytecodes)[i];
+    bytecode_type bytecode = (*bytecodes)[i];
 
     local::B has_changed = false;
 
@@ -467,12 +434,12 @@ public:
       // Y <- X <left residual> Z
       r1 = (*sub)[bytecode.x];
       switch(bytecode.op) {
-        case ADD: GroupAdd<local_universe_type>::left_residual(r1, r3, r2); break;
-        case SUB: GroupSub<local_universe_type>::left_residual(r1, r3, r2); break;
-        case MUL: GroupMul<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
-        case EDIV: GroupDiv<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
-        case MIN: GroupMinMax<local_universe_type, MIN>::left_residual(r1, r3, r2); break;
-        case MAX: GroupMinMax<local_universe_type, MAX>::left_residual(r1, r3, r2); break;
+        case ADD: pc::GroupAdd<local_universe_type>::left_residual(r1, r3, r2); break;
+        case SUB: pc::GroupSub<local_universe_type>::left_residual(r1, r3, r2); break;
+        case MUL: pc::GroupMul<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
+        case EDIV: pc::GroupDiv<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
+        case MIN: pc::GroupMinMax<local_universe_type, MIN>::left_residual(r1, r3, r2); break;
+        case MAX: pc::GroupMinMax<local_universe_type, MAX>::left_residual(r1, r3, r2); break;
         default: assert(false);
       }
       has_changed |= sub->embed(bytecode.y, r2);
@@ -481,16 +448,17 @@ public:
       r2 = (*sub)[bytecode.y];
       r3.join_top();
       switch(bytecode.op) {
-        case ADD: GroupAdd<local_universe_type>::right_residual(r1, r2, r3); break;
-        case SUB: GroupSub<local_universe_type>::right_residual(r1, r2, r3); break;
-        case MUL: GroupMul<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
-        case EDIV: GroupDiv<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
-        case MIN: GroupMinMax<local_universe_type, MIN>::right_residual(r1, r2, r3); break;
-        case MAX: GroupMinMax<local_universe_type, MAX>::right_residual(r1, r2, r3); break;
+        case ADD: pc::GroupAdd<local_universe_type>::right_residual(r1, r2, r3); break;
+        case SUB: pc::GroupSub<local_universe_type>::right_residual(r1, r2, r3); break;
+        case MUL: pc::GroupMul<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
+        case EDIV: pc::GroupDiv<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
+        case MIN: pc::GroupMinMax<local_universe_type, MIN>::right_residual(r1, r2, r3); break;
+        case MAX: pc::GroupMinMax<local_universe_type, MAX>::right_residual(r1, r2, r3); break;
         default: assert(false);
       }
       has_changed |= sub->embed(bytecode.z, r3);
     }
+    return has_changed;
   }
 
   // Functions forwarded to the sub-domain `A`.
@@ -566,7 +534,7 @@ public:
 
 private:
   template<class Env, class Allocator2>
-  CUDA NI TFormula<Allocator2> deinterpret(Bytecode bytecode, const Env& env, Allocator2 allocator) const {
+  CUDA NI TFormula<Allocator2> deinterpret(bytecode_type bytecode, const Env& env, Allocator2 allocator) const {
     auto X = F::make_lvar(bytecode.x.aty(), LVar<Allocator>(env.name_of(bytecode.x), allocator));
     auto Y = F::make_lvar(bytecode.y.aty(), LVar<Allocator>(env.name_of(bytecode.y), allocator));
     auto Z = F::make_lvar(bytecode.z.aty(), LVar<Allocator>(env.name_of(bytecode.z), allocator));

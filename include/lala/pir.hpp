@@ -253,7 +253,9 @@ private:
         bytecode_type bytecode;
         bytecode.op = f.seq(right).sig();
         if(X.is_variable() && Y.is_variable() && Z.is_variable() &&
-          (bytecode.op == ADD || bytecode.op == MUL || bytecode.op == SUB || bytecode.op == EDIV || bytecode.op == EMOD || bytecode.op == MIN || bytecode.op == MAX))
+          (bytecode.op == ADD || bytecode.op == MUL || bytecode.op == SUB || bytecode.op == EDIV || bytecode.op == EMOD
+          || bytecode.op == MIN || bytecode.op == MAX
+          || bytecode.op == EQ || bytecode.op == LEQ))
         {
           if( env.template interpret<diagnose>(X, bytecode.x, diagnostics)
            && env.template interpret<diagnose>(Y, bytecode.y, diagnostics)
@@ -379,7 +381,7 @@ public:
     if(bytecode.op == EQ || bytecode.op == LEQ) {
       r1 = (*sub)[bytecode.x];
       // Y [op] Z
-      if(r1 >= ONE) {
+      if(r1 <= ONE) {
         if(bytecode.op == EQ) {
           has_changed |= sub->embed(bytecode.y, r3);
           has_changed |= sub->embed(bytecode.z, r2);
@@ -393,7 +395,7 @@ public:
         }
       }
       // not (Y [op] Z)
-      else if(r1 >= ZERO) {
+      else if(r1 <= ZERO) {
         if(bytecode.op == EQ) {
           if(r2.lb().value() == r2.ub().value()) {
             r1 = r3;
@@ -410,10 +412,10 @@ public:
         }
         else {
           assert(bytecode.op == LEQ);
-          r3.meet_lb(LB::prev(r3.lb()));
-          r2.meet_ub(UB::prev(r2.ub()));
-          has_changed |= sub->embed(bytecode.y, r3);
-          has_changed |= sub->embed(bytecode.z, r2);
+          r2.meet_lb(LB::prev(r3.lb()));
+          r3.meet_ub(UB::prev(r2.ub()));
+          has_changed |= sub->embed(bytecode.y, r2);
+          has_changed |= sub->embed(bytecode.z, r3);
         }
       }
       // X <- 1
@@ -429,7 +431,7 @@ public:
     else {
       // X <- Y [op] Z
       r1.project(bytecode.op, r2, r3);
-      sub->embed(bytecode.x, r1);
+      has_changed |= sub->embed(bytecode.x, r1);
 
       // Y <- X <left residual> Z
       r1 = (*sub)[bytecode.x];
@@ -512,6 +514,7 @@ public:
     }
     for(int i = 0; i < bytecodes->size(); ++i) {
       if(!ask(i)) {
+        // printf("%d = %d <%s> %d\n", (*bytecodes)[i].x.vid(), (*bytecodes)[i].y.vid(), string_of_sig((*bytecodes)[i].op), (*bytecodes)[i].z.vid());
         return false;
       }
     }
@@ -538,7 +541,7 @@ private:
     auto X = F::make_lvar(bytecode.x.aty(), LVar<Allocator>(env.name_of(bytecode.x), allocator));
     auto Y = F::make_lvar(bytecode.y.aty(), LVar<Allocator>(env.name_of(bytecode.y), allocator));
     auto Z = F::make_lvar(bytecode.z.aty(), LVar<Allocator>(env.name_of(bytecode.z), allocator));
-    return F::make_binary(X, EQ, F::make_binary(Y, bytecode.op, Z, allocator), aty(), allocator);
+    return F::make_binary(X, EQ, F::make_binary(Y, bytecode.op, Z, aty(), allocator), aty(), allocator);
   }
 public:
 

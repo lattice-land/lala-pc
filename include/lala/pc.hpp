@@ -456,46 +456,11 @@ private:
     return false;
   }
 
-  /** Given an interval occuring in a set (LogicSet), we decompose it as a formula. */
-  template <class F, class Alloc>
-  CUDA F itv_to_formula(AType ty, const F& f, const battery::tuple<F, F>& itv, const Alloc& alloc) const {
-    using F2 = TFormula<Alloc>;
-    if(battery::get<0>(itv) == battery::get<1>(itv)) {
-      return F2::make_binary(f, EQ, battery::get<0>(itv), ty, alloc);
-    }
-    else {
-      return
-        F2::make_binary(
-          F2::make_binary(f, GEQ, battery::get<0>(itv), ty, alloc),
-          AND,
-          F2::make_binary(f, LEQ, battery::get<1>(itv), ty, alloc),
-          ty,
-          alloc);
-    }
-  }
-
   template <IKind kind, bool diagnose, class F, class Env, class Alloc>
   CUDA bool interpret_in_decomposition(const F& f, Env& env, formula_seq<Alloc>& intermediate, IDiagnostics& diagnostics, bool neg_context = false) const {
-    assert(f.seq(1).is(F::S));
-    using F2 = TFormula<Alloc>;
-    Alloc alloc = intermediate.get_allocator();
-    // Decompose IN into disjunction.
-    const auto& set = f.seq(1).s();
-    if(set.size() == 1) {
-      return interpret_formula<kind, diagnose>(
-        itv_to_formula(f.type(), f.seq(0), set[0], alloc),
-        env, intermediate, diagnostics, neg_context);
-    }
-    else {
-      typename F2::Sequence disjunction = typename F2::Sequence(alloc);
-      disjunction.reserve(set.size());
-      for(size_t i = 0; i < set.size(); ++i) {
-        disjunction.push_back(itv_to_formula(f.type(), f.seq(0), set[i], alloc));
-      }
-      return interpret_formula<kind, diagnose>(
-        F2::make_nary(OR, std::move(disjunction), f.type()),
-        env, intermediate, diagnostics, neg_context);
-    }
+    return interpret_formula<kind, diagnose>(
+      decompose_in_constraint(f),
+      env, intermediate, diagnostics, neg_context);
   }
 
   template <class F>

@@ -282,10 +282,30 @@ public:
     bool res = false;
     AType current = f.type();
     const_cast<F&>(f).type_as(sub->aty()); // We will restore the type after the call to sub->interpret.
-    res = sub->template interpret<kind, diagnose>(f, env, intermediate.sub_value, diagnostics);
+    if(sub->template interpret<kind, diagnose>(f, env, intermediate.sub_value, diagnostics)) {
+      // A successful interpretation in the sub-domain does not mean it is interpreted exactly.
+      // Sometimes, we can improve the precision by interpreting it in PC.
+      // This is the case of `x in S` predicate for sub-domain that do not preserve meet.
+      if(!(f.is_binary() && f.sig() == IN && f.seq(0).is_variable() && f.seq(1).is(F::S) && f.seq(1).s().size() > 1)) {
+        res = true; // it is not a formula `x in S`.
+      }
+      else {
+        res = universe_type::preserve_join; // it is `x in S` but it preserves join.
+      }
+    }
     const_cast<F&>(f).type_as(current);
     if(!res) {
-      res = interpret_formula<kind, diagnose>(f, env, intermediate, diagnostics);
+      if(f.is_binary() && f.sig() == IN && f.seq(1).is(F::S)) {
+        F g = normalize(ternarize(decompose_in_constraint(f), env));
+        res = ginterpret_in<kind, diagnose>(*this, g, env, intermediate, diagnostics);
+      }
+      else if(f.is_binary() && f.sig() == NEQ) {
+        F g = normalize(ternarize(f, env, true));
+        res = ginterpret_in<kind, diagnose>(*this, g, env, intermediate, diagnostics);
+      }
+      else {
+        res = interpret_formula<kind, diagnose>(f, env, intermediate, diagnostics);
+      }
     }
     if constexpr(diagnose) {
       diagnostics.merge(res, error_context);
@@ -355,7 +375,9 @@ public:
     else {
       local_universe_type right;
       right.project(bytecode.op, r2, r3);
-      return right == r1 && r2.lb().value() == r2.ub().value();
+      // printf("right = "); right.print(); printf("\n");
+      // r2.print(); printf(" %s ", string_of_sig(bytecode.op)); r3.print(); printf("\n");
+      return right == r1 && r1.lb().value() == r1.ub().value();
     }
   }
 
@@ -401,13 +423,13 @@ public:
             r1 = r3;
             r1.meet_lb(LB::prev(r2.lb()));
             r3.meet_ub(UB::prev(r2.ub()));
-            has_changed |= sub->embed(bytecode.y, fjoin(r1,r3));
+            has_changed |= sub->embed(bytecode.z, fjoin(r1,r3));
           }
           else if(r3.lb().value() == r3.ub().value()) {
             r1 = r2;
             r1.meet_lb(LB::prev(r3.lb()));
             r2.meet_ub(UB::prev(r3.ub()));
-            has_changed |= sub->embed(bytecode.z, fjoin(r1,r2));
+            has_changed |= sub->embed(bytecode.y, fjoin(r1,r2));
           }
         }
         else {

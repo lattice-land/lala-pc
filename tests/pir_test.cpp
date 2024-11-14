@@ -282,7 +282,7 @@ TEST(PIRTest, NegationOp1) {
     constraint int_eq(y, 2);\
     constraint int_ge(x, -4); constraint int_le(x, 3);\
     constraint int_le(int_neg(x), y);");
-  deduce_and_test(pir, 2, {Itv(-4,3), Itv(2,2)}, {Itv(-2,3), Itv(2,2)}, true);
+  deduce_and_test(pir, 2, {Itv(-4,3), Itv(2,2)}, {Itv(-2,3), Itv(2,2)}, false);
 }
 
 // x in [-4..3], -x <= -2
@@ -292,7 +292,7 @@ TEST(PIRTest, NegationOp2) {
     constraint int_eq(y, -2);\
     constraint int_ge(x, -4); constraint int_le(x, 3);\
     constraint int_le(int_neg(x), y);");
-  deduce_and_test(pir, 2, {Itv(-4,3), Itv(-2,-2)}, {Itv(2,3), Itv(-2,-2)}, true);
+  deduce_and_test(pir, 2, {Itv(-4,3), Itv(-2,-2)}, {Itv(2,3), Itv(-2,-2)}, false);
 }
 
 // x in [0..3], -x <= -2
@@ -302,7 +302,7 @@ TEST(PIRTest, NegationOp3) {
     constraint int_eq(y, -2);\
     constraint int_ge(x, 0); constraint int_le(x, 3);\
     constraint int_le(int_neg(x), y);");
-  deduce_and_test(pir, 2, {Itv(0,3), Itv(-2,-2)}, {Itv(2,3), Itv(-2,-2)}, true);
+  deduce_and_test(pir, 2, {Itv(0,3), Itv(-2,-2)}, {Itv(2,3), Itv(-2,-2)}, false);
 }
 
 // x in [-4..-3], -x <= 4
@@ -312,7 +312,7 @@ TEST(PIRTest, NegationOp4) {
     constraint int_eq(y, 4);\
     constraint int_ge(x, -4); constraint int_le(x, -3);\
     constraint int_le(int_neg(x), y);");
-  deduce_and_test(pir, 2, {Itv(-4,-3), Itv(4, 4)}, true);
+  deduce_and_test(pir, 2, {Itv(-4,-3), Itv(4, 4)}, false);
 }
 
 // x in [-4..3], -x >= -2
@@ -322,7 +322,7 @@ TEST(PIRTest, NegationOp5) {
     constraint int_eq(y, -2);\
     constraint int_ge(x, -4); constraint int_le(x, 3);\
     constraint int_ge(int_neg(x), y);");
-  deduce_and_test(pir, 2, {Itv(-4,3), Itv(-2,-2)}, {Itv(-4,2), Itv(-2,-2)}, true);
+  deduce_and_test(pir, 2, {Itv(-4,3), Itv(-2,-2)}, {Itv(-4,2), Itv(-2,-2)}, false);
 }
 
 // x in [-4..3], -x > 2
@@ -332,7 +332,7 @@ TEST(PIRTest, NegationOp6) {
     constraint int_eq(y, 2);\
     constraint int_ge(x, -4); constraint int_le(x, 3);\
     constraint int_gt(int_neg(x), y);");
-  deduce_and_test(pir, 2, {Itv(-4,3), Itv(2,2)}, {Itv(-4,-3), Itv(2,2)}, true);
+  deduce_and_test(pir, 2, {Itv(-4,3), Itv(2,2)}, {Itv(-4,-3), Itv(2,2)}, false);
 }
 
 // x in [-4..3], -x >= 5
@@ -372,384 +372,350 @@ TEST(PIRTest, ResourceConstraint2) {
   deduce_and_test(pir, 5, {Itv(1,2), Itv(0,2), Itv(0,0)}, {Itv(1,2), Itv(1,2), Itv(0,0)}, false);
 }
 
-// TEST(PIRTest, NotEqualConstraint1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; constraint int_ne(x, 10);", env);
-//   deduce_and_test(pir, 1, {Itv(1,10)}, {Itv(1,9)}, true);
-// }
+TEST(PIRTest, Strict1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; var 10..10: y; constraint int_gt(x, y);", env);
+  deduce_and_test_bot(pir, 1, {Itv(1,10)});
+}
 
-// TEST(PIRTest, NotEqualConstraint2) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; var 10..10: y; constraint int_ne(x, y);", env);
-//   deduce_and_test(pir, 1, {Itv(1,10), Itv(10,10)}, {Itv(1,9), Itv(10,10)}, true);
-// }
+TEST(PIRTest, Strict2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; var 10..10: y; constraint int_lt(x, y);", env);
+  deduce_and_test(pir, 1, {Itv(1,10)}, {Itv(1,9)}, true);
+}
 
-// TEST(PIRTest, NotEqualConstraint3) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; constraint bool_not(int_eq(x, 10));", env);
-//   deduce_and_test(pir, 1, {Itv(1,10)}, {Itv(1,9)}, true);
-// }
+TEST(PIRTest, Strict3) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; var 10..10: y; constraint nbool_or(int_lt(x, y), int_gt(x, y));", env);
+  deduce_and_test(pir, 5, {Itv(1,10)}, {Itv(1,9)}, true);
+}
 
-// // Constraint of the form "a[b] = c".
-// TEST(PIRTest, ElementConstraint1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = create_and_interpret_and_tell<IPIR, true>(
-//     "array[1..3] of int: a = [10, 11, 12];\
-//     var 1..3: b; var 10..12: c;\
-//     constraint array_int_element(b, a, c);", env);
-//   deduce_and_test(pir, 3, {Itv(1,3), Itv(10, 12)}, false);
+TEST(PIRTest, EqualConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; var 9..10: y; constraint int_eq(x, y);", env);
+  deduce_and_test(pir, 1, {Itv(1,10), Itv(9,10)}, {Itv(9,10), Itv(9,10)}, false);
+}
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_le(c, 11);", pir, env);
-//   deduce_and_test(pir, 3, {Itv(1,3), Itv(10, 11)}, {Itv(1,2), Itv(10,11)}, false);
+TEST(PIRTest, EqualConstraint2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; var 1..2: y; constraint int_eq(x, y);", env);
+  deduce_and_test(pir, 1, {Itv(1,10), Itv(1,2)}, {Itv(1,2), Itv(1,2)}, false);
+}
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_ge(c, 11);", pir, env);
-//   deduce_and_test(pir, 3, {Itv(1,2), Itv(11, 11)}, {Itv(2,2), Itv(11,11)}, true);
-// }
+TEST(PIRTest, EqualConstraint3) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; var 0..11: y; constraint int_eq(x, y);", env);
+  deduce_and_test(pir, 1, {Itv(1,10), Itv(0,11)}, {Itv(1,10), Itv(1,10)}, false);
+}
+
+TEST(PIRTest, EqualConstraint4) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; var 5..11: y; constraint int_eq(x, y);", env);
+  deduce_and_test(pir, 1, {Itv(1,10), Itv(5,11)}, {Itv(5,10), Itv(5,10)}, false);
+}
+
+TEST(PIRTest, NotEqualConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; constraint int_ne(x, 10);", env);
+  deduce_and_test(pir, 1, {Itv(1,10)}, {Itv(1,9)}, true);
+}
+
+TEST(PIRTest, NotEqualConstraint2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; var 10..10: y; constraint int_ne(x, y);", env);
+  deduce_and_test(pir, 1, {Itv(1,10), Itv(10,10)}, {Itv(1,9), Itv(10,10)}, true);
+}
+
+TEST(PIRTest, NotEqualConstraint3) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; var 1..1: y; constraint int_ne(x, y);", env);
+  deduce_and_test(pir, 1, {Itv(1,10), Itv(1,1)}, {Itv(2,10), Itv(1,1)}, true);
+}
+
+TEST(PIRTest, NotEqualConstraint4) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..10: x; constraint bool_not(int_eq(x, 10));", env);
+  deduce_and_test(pir, 1, {Itv(1,10)}, {Itv(1,9)}, true);
+}
+
+// Constraint of the form "a[b] = c".
+TEST(PIRTest, ElementConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>(
+    "array[1..3] of int: a = [10, 11, 12];\
+    var 1..3: b; var 10..12: c;\
+    constraint array_int_element(b, a, c);", env);
+  deduce_and_test(pir, 12, {Itv(1,3), Itv(10, 12)}, false);
+
+  interpret_must_succeed<IKind::TELL>("constraint int_le(c, 11);", pir, env);
+  deduce_and_test(pir, 12, {Itv(1,3), Itv(10, 11)}, {Itv(1,2), Itv(10,11)}, false);
+
+  interpret_must_succeed<IKind::TELL>("constraint int_ge(c, 11);", pir, env);
+  deduce_and_test(pir, 12, {Itv(1,2), Itv(11, 11)}, {Itv(2,2), Itv(11,11)}, true);
+}
 
 
-// // Constraint of the form "x = 5 xor y = 5".
-// TEST(PIRTest, XorConstraint1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var int: x; var int: y;\
-//     constraint bool_xor(int_eq(x, 5), int_eq(y, 5));", env);
-//   deduce_and_test(pir, 1, {Itv::top(), Itv::top()}, false);
+// Constraint of the form "x = 5 xor y = 5".
+TEST(PIRTest, XorConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var int: x; var int: y;\
+    constraint bool_xor(int_eq(x, 5), int_eq(y, 5));", env);
+  deduce_and_test(pir, 3, {Itv::top(), Itv::top()}, false);
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 1);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(1, 1), Itv::top()}, {Itv(1, 1), Itv(5, 5)}, true);
-// }
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 1);", pir, env);
+  deduce_and_test(pir, 3, {Itv(1, 1), Itv::top()}, {Itv(1, 1), Itv(5, 5)}, true);
+}
 
-// // Constraint of the form "x = 5 xor y = 5".
-// TEST(PIRTest, XorConstraint2) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..5: x; var 1..5: y;\
-//     constraint bool_xor(int_eq(x, 5), int_eq(y, 5));", env);
-//   deduce_and_test(pir, 1, {Itv(1, 5), Itv(1, 5)}, false);
+// Constraint of the form "x = 5 xor y = 5".
+TEST(PIRTest, XorConstraint2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 1..5: x; var 1..5: y;\
+    constraint bool_xor(int_eq(x, 5), int_eq(y, 5));", env);
+  deduce_and_test(pir, 3, {Itv(1, 5), Itv(1, 5)}, false);
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 5);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(1, 5), Itv(5, 5)}, {Itv(1, 4), Itv(5, 5)}, true);
-// }
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 5);", pir, env);
+  deduce_and_test(pir, 3, {Itv(1, 5), Itv(5, 5)}, {Itv(1, 4), Itv(5, 5)}, true);
+}
 
-// template <class F>
-// void type_in_predicate(F& f, AType ty) {
-//   switch(f.index()) {
-//     case F::Seq:
-//       if(f.sig() == IN && f.seq(1).is(F::S) && f.seq(1).s().size() > 1) {
-//         f.type_as(ty);
-//         return;
-//       }
-//       for(int i = 0; i < f.seq().size(); ++i) {
-//         type_in_predicate(f.seq(i), ty);
-//       }
-//       break;
-//     case F::ESeq:
-//       for(int i = 0; i < f.eseq().size(); ++i) {
-//         type_in_predicate(f.eseq(i), ty);
-//       }
-//       break;
-//   }
-// }
+// Constraint of the form "x in {1,3}".
+TEST(PIRTest, InConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var {1, 3}: x; var 2..3: y;", env);
+  deduce_and_test(pir, 3, {Itv(1, 3), Itv(2,3)}, false);
 
-// template <class L>
-// L interpret_type_and_tell(const char* fzn, VarEnv<standard_allocator>& env) {
-//   return create_and_interpret_and_type_and_tell<L>(fzn, env, [](auto& f) { type_in_predicate(f, 1); });
-// }
+  interpret_must_succeed<IKind::TELL, true>("constraint int_eq(x, y);", pir, env);
+  // deduce_and_test(pir, 4, {Itv(1, 3), Itv(2, 3)}, {Itv(3,3), Itv(3,3)}, true);
+}
 
-// // Constraint of the form "x in {1,3}".
-// TEST(PIRTest, InConstraint1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("var {1, 3}: x; var 2..3: y;", env);
-//   deduce_and_test(pir, 1, {Itv(1, 3), Itv(2,3)}, false);
+// min(x, y) = z
+TEST(PIRTest, MinConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 0..4: x; var 2..5: y; var 0..10: z;\
+    constraint int_min(x, y, z);", env);
+  deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(0, 4)}, false);
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x, y);", pir, env);
-//   deduce_and_test(pir, 2, {Itv(1, 3), Itv(2, 3)}, {Itv(3,3), Itv(3,3)}, true);
-// }
+  interpret_must_succeed<IKind::TELL>("constraint int_le(z, 3);", pir, env);
+  deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 3)}, false);
 
-// // min(x, y) = z
-// TEST(PIRTest, MinConstraint1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("var 0..4: x; var 2..5: y; var 0..10: z;\
-//     constraint int_min(x, y, z);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(0, 4)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_le(x, 1);", pir, env);
+  deduce_and_test(pir, 1, {Itv(0, 1), Itv(2, 5), Itv(0, 3)}, {Itv(0, 1), Itv(2, 5), Itv(0, 1)}, false);
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_le(z, 3);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 3)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_le(x, 0);", pir, env);
+  deduce_and_test(pir, 1, {Itv(0, 0), Itv(2, 5), Itv(0, 1)}, {Itv(0, 0), Itv(2, 5), Itv(0, 0)}, true);
+}
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_le(x, 1);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(2, 5), Itv(0, 3)}, {Itv(0, 1), Itv(2, 5), Itv(0, 1)}, false);
+// min(x, y) = z
+TEST(PIRTest, MinConstraint2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 0..4: x; var 2..5: y; var 0..10: z;\
+    constraint int_min(x, y, z);", env);
+  deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(0, 4)}, false);
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_le(x, 0);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 0), Itv(2, 5), Itv(0, 1)}, {Itv(0, 0), Itv(2, 5), Itv(0, 0)}, true);
-// }
+  interpret_must_succeed<IKind::TELL>("constraint int_le(z, 3);", pir, env);
+  deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 3)}, false);
 
-// // min(x, y) = z
-// TEST(PIRTest, MinConstraint2) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("var 0..4: x; var 2..5: y; var 0..10: z;\
-//     constraint int_min(x, y, z);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(0, 4)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 4);", pir, env);
+  deduce_and_test(pir, 1, {Itv(4, 4), Itv(2, 5), Itv(0, 3)}, {Itv(4, 4), Itv(2, 3), Itv(2, 3)}, false);
+}
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_le(z, 3);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 3)}, false);
+// min(x, y) = z
+TEST(PIRTest, MinConstraint3) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var int: x; var 0..1: b1; var 0..1: b2;\
+    constraint int_min(b1, b2, 1);", env);
+  deduce_and_test(pir, 1, {Itv::top(), Itv(0, 1), Itv(0, 1)}, {Itv::top(), Itv(1,1), Itv(1, 1)}, true);
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 4);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(4, 4), Itv(2, 5), Itv(0, 3)}, {Itv(4, 4), Itv(2, 3), Itv(2, 3)}, false);
-// }
+  interpret_must_succeed<IKind::TELL, true>("constraint int_eq(b1, int_le(x, 5));", pir, env);
+  deduce_and_test(pir, 2, {Itv::top(), Itv(1,1), Itv(1, 1)}, {Itv(Itv::LB::top(), 5), Itv(1, 1), Itv(1, 1)}, true);
 
-// // min(x, y) = z
-// TEST(PIRTest, MinConstraint3) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("var int: x; var 0..1: b1; var 0..1: b2;\
-//     constraint int_min(b1, b2, 1);", env);
-//   deduce_and_test(pir, 1, {Itv::top(), Itv(0, 1), Itv(0, 1)}, {Itv::top(), Itv(1,1), Itv(1, 1)}, true);
+  interpret_must_succeed<IKind::TELL, true>("constraint int_eq(b2, int_ge(x, 5));", pir, env);
+  deduce_and_test(pir, 3, {Itv(Itv::LB::top(), 5), Itv(1, 1), Itv(1, 1)}, {Itv(5, 5), Itv(1, 1), Itv(1, 1)}, true);
+}
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(b1, int_le(x, 5));", pir, env);
-//   deduce_and_test(pir, 2, {Itv::top(), Itv(1,1), Itv(1, 1)}, {Itv(Itv::LB::top(), 5), Itv(1, 1), Itv(1, 1)}, true);
+// max(x, y) = z
+TEST(PIRTest, MaxConstraint1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 0..4: x; var 2..5: y; var 0..10: z;\
+    constraint int_max(x, y, z);", env);
+  deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(2, 5)}, false);
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(b2, int_ge(x, 5));", pir, env);
-//   deduce_and_test(pir, 3, {Itv(Itv::LB::top(), 5), Itv(1, 1), Itv(1, 1)}, {Itv(5, 5), Itv(1, 1), Itv(1, 1)}, true);
-// }
+  interpret_must_succeed<IKind::TELL>("constraint int_le(z, 3);", pir, env);
+  deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(2, 3)}, {Itv(0, 3), Itv(2, 3), Itv(2, 3)}, false);
 
-// // max(x, y) = z
-// TEST(PIRTest, MaxConstraint1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("var 0..4: x; var 2..5: y; var 0..10: z;\
-//     constraint int_max(x, y, z);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(2, 5)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_le(x, 1);", pir, env);
+  deduce_and_test(pir, 1, {Itv(0, 1), Itv(2, 3), Itv(2, 3)}, false);
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_le(z, 3);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(2, 3)}, {Itv(0, 3), Itv(2, 3), Itv(2, 3)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 2);", pir, env);
+  deduce_and_test(pir, 1, {Itv(0, 1), Itv(2, 2), Itv(2, 3)}, {Itv(0, 1), Itv(2, 2), Itv(2, 2)}, true);
+}
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_le(x, 1);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(2, 3), Itv(2, 3)}, false);
+// max(x, y) = z
+TEST(PIRTest, MaxConstraint2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var 0..4: x; var 2..5: y; var 0..10: z;\
+    constraint int_max(x, y, z);", env);
+  deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(2, 5)}, false);
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 2);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(2, 2), Itv(2, 3)}, {Itv(0, 1), Itv(2, 2), Itv(2, 2)}, true);
-// }
+  interpret_must_succeed<IKind::TELL>("constraint int_ge(z, 5);", pir, env);
+  deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(5, 5)}, {Itv(0, 4), Itv(5, 5), Itv(5, 5)}, true);
+}
 
-// // max(x, y) = z
-// TEST(PIRTest, MaxConstraint2) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("var 0..4: x; var 2..5: y; var 0..10: z;\
-//     constraint int_max(x, y, z);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(0, 10)}, {Itv(0, 4), Itv(2, 5), Itv(2, 5)}, false);
+TEST(PIRTest, MaxConstraint3) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var int: x; var 0..1: b1; var 0..1: b2;\
+    constraint int_max(b1, b2, 0);", env);
+  deduce_and_test(pir, 1, {Itv::top(), Itv(0, 1), Itv(0, 1)}, {Itv::top(), Itv(0,0), Itv(0,0)}, true);
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_ge(z, 5);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 4), Itv(2, 5), Itv(5, 5)}, {Itv(0, 4), Itv(5, 5), Itv(5, 5)}, true);
-// }
+  interpret_must_succeed<IKind::TELL, true>("constraint int_eq(b1, int_le(x, 5));", pir, env);
+  deduce_and_test(pir, 2, {Itv::top(), Itv(0,0), Itv(0,0)}, {Itv(6, Itv::UB::top()), Itv(0, 0), Itv(0, 0)}, true);
 
-// TEST(PIRTest, MaxConstraint3) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("var int: x; var 0..1: b1; var 0..1: b2;\
-//     constraint int_max(b1, b2, 0);", env);
-//   deduce_and_test(pir, 1, {Itv::top(), Itv(0, 1), Itv(0, 1)}, {Itv::top(), Itv(0,0), Itv(0,0)}, true);
+  interpret_must_succeed<IKind::TELL, true>("constraint int_eq(b2, int_ge(x, 7));", pir, env);
+  deduce_and_test(pir, 3, {Itv(6, Itv::UB::top()), Itv(0, 0), Itv(0, 0)}, {Itv(6, 6), Itv(0, 0), Itv(0, 0)}, true);
+}
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(b1, int_le(x, 5));", pir, env);
-//   deduce_and_test(pir, 2, {Itv::top(), Itv(0,0), Itv(0,0)}, {Itv(6, Itv::UB::top()), Itv(0, 0), Itv(0, 0)}, true);
+TEST(PIRTest, BooleanClause1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  deduce_and_test(pir, 5, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], true);", pir, env);
+  deduce_and_test(pir, 5, {Itv(1, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+}
 
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(b2, int_ge(x, 7));", pir, env);
-//   deduce_and_test(pir, 3, {Itv(6, Itv::UB::top()), Itv(0, 0), Itv(0, 0)}, {Itv(6, 6), Itv(0, 0), Itv(0, 0)}, true);
-// }
+TEST(PIRTest, BooleanClause2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  deduce_and_test(pir, 5, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], false);", pir, env);
+  deduce_and_test(pir, 5, {Itv(0, 1), Itv(0, 1), Itv(0, 0), Itv(0, 1)}, false);
+}
 
-// TEST(PIRTest, BooleanClause1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("array[1..2] of var bool: x;\
-//     array[1..2] of var bool: y;\
-//     constraint bool_clause(x, y);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], true);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(1, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, true);
-// }
+TEST(PIRTest, BooleanClause3) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  deduce_and_test(pir, 5, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], false);", pir, env);
+  deduce_and_test(pir, 5, {Itv(0, 0), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x[2], false);", pir, env);
+  deduce_and_test(pir, 5, {Itv(0, 0), Itv(0, 0), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], true);", pir, env);
+  deduce_and_test(pir, 5, {Itv(0, 0), Itv(0, 0), Itv(1, 1), Itv(0, 1)},  {Itv(0, 0), Itv(0, 0), Itv(1, 1), Itv(0, 0)}, true);
+}
 
-// TEST(PIRTest, BooleanClause2) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("array[1..2] of var bool: x;\
-//     array[1..2] of var bool: y;\
-//     constraint bool_clause(x, y);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], false);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 0), Itv(0, 1)}, true);
-// }
+TEST(PIRTest, BooleanClause4) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("array[1..2] of var bool: x;\
+    array[1..2] of var bool: y;\
+    constraint bool_clause(x, y);", env);
+  deduce_and_test(pir, 5, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], false);", pir, env);
+  deduce_and_test(pir, 5, {Itv(0, 0), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], true);", pir, env);
+  deduce_and_test(pir, 5, {Itv(0, 0), Itv(0, 1), Itv(1, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y[2], true);", pir, env);
+  deduce_and_test(pir, 5, {Itv(0, 0), Itv(0, 1), Itv(1, 1), Itv(1, 1)},  {Itv(0, 0), Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
+}
 
-// TEST(PIRTest, BooleanClause3) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("array[1..2] of var bool: x;\
-//     array[1..2] of var bool: y;\
-//     constraint bool_clause(x, y);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], false);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 0), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x[2], false);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 0), Itv(0, 0), Itv(0, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], true);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 0), Itv(0, 0), Itv(1, 1), Itv(0, 1)},  {Itv(0, 0), Itv(0, 0), Itv(1, 1), Itv(0, 0)}, true);
-// }
+TEST(PIRTest, IntTimes1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 0..1: x;\
+    var 0..1: y;\
+    var 0..1: z;\
+    constraint int_times(x,y,z);", env);
+  deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 1);", pir, env);
+  deduce_and_test(pir, 1, {Itv(1, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 1);", pir, env);
+  deduce_and_test(pir, 1, {Itv(1, 1), Itv(1, 1), Itv(0, 1)}, {Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
+}
 
-// TEST(PIRTest, BooleanClause4) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("array[1..2] of var bool: x;\
-//     array[1..2] of var bool: y;\
-//     constraint bool_clause(x, y);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x[1], false);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 0), Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y[1], true);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 0), Itv(0, 1), Itv(1, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y[2], true);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 0), Itv(0, 1), Itv(1, 1), Itv(1, 1)},  {Itv(0, 0), Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
-// }
+TEST(PIRTest, IntTimes2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 0..1: x;\
+    var 0..1: y;\
+    var 0..1: z;\
+    constraint int_times(x,y,z);", env);
+  deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(z, 1);", pir, env);
+  deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(1, 1)}, {Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
+}
 
-// TEST(PIRTest, IntTimes1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("\
-//     var 0..1: x;\
-//     var 0..1: y;\
-//     var 0..1: z;\
-//     constraint int_times(x,y,z);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 1);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(1, 1), Itv(0, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 1);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(1, 1), Itv(1, 1), Itv(0, 1)}, {Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
-// }
+TEST(PIRTest, IntTimes3) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 0..0: x; \
+    var 0..1: y; \
+    var 0..1: z; \
+    constraint int_times(x, y, z);", env);
+  deduce_and_test(pir, 1, {Itv(0, 0), Itv(0, 1), Itv(0, 1)}, {Itv(0, 0), Itv(0, 1), Itv(0, 0)}, true);
+}
 
-// TEST(PIRTest, IntTimes2) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("\
-//     var 0..1: x;\
-//     var 0..1: y;\
-//     var 0..1: z;\
-//     constraint int_times(x,y,z);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(z, 1);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(1, 1)}, {Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
-// }
+TEST(PIRTest, IntTimes4) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 0..1: x; \
+    var 0..0: y; \
+    var 0..1: z; \
+    constraint int_times(x, y, z);", env);
+  deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 0), Itv(0, 1)}, {Itv(0, 1), Itv(0, 0), Itv(0, 0)}, true);
+}
 
-// TEST(PIRTest, IntTimes3) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("\
-//     var 0..0: x; \
-//     var 0..1: y; \
-//     var 0..1: z; \
-//     constraint int_times(x, y, z);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 0), Itv(0, 1), Itv(0, 1)}, {Itv(0, 0), Itv(0, 1), Itv(0, 0)}, true);
-// }
+TEST(PIRTest, IntTimes5) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 1..2: x; \
+    var 0..1: y; \
+    var 0..0: z; \
+    constraint int_times(x, y, z);", env);
+  deduce_and_test(pir, 1, {Itv(1, 2), Itv(0, 1), Itv(0, 0)}, {Itv(1, 2), Itv(0, 0), Itv(0, 0)}, true);
+}
 
-// TEST(PIRTest, IntTimes4) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("\
-//     var 0..1: x; \
-//     var 0..0: y; \
-//     var 0..1: z; \
-//     constraint int_times(x, y, z);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 0), Itv(0, 1)}, {Itv(0, 1), Itv(0, 0), Itv(0, 0)}, true);
-// }
+TEST(PIRTest, IntTimes6) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 0..1: x; \
+    var 1..2: y; \
+    var 0..0: z; \
+    constraint int_times(x, y, z);", env);
+  deduce_and_test(pir, 1, {Itv(0, 1), Itv(1, 2), Itv(0, 0)}, {Itv(0, 0), Itv(1, 2), Itv(0, 0)}, true);
+}
 
-// TEST(PIRTest, IntTimes5) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("\
-//     var 1..2: x; \
-//     var 0..1: y; \
-//     var 0..0: z; \
-//     constraint int_times(x, y, z);", env);
-//   deduce_and_test(pir, 1, {Itv(1, 2), Itv(0, 1), Itv(0, 0)}, {Itv(1, 2), Itv(0, 0), Itv(0, 0)}, true);
-// }
+TEST(PIRTest, IntAbs1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var -15..5: x;\
+    var -10..10: y;\
+    constraint int_abs(x, y);", env);
+  deduce_and_test(pir, 6, {Itv(-15, 5), Itv(-10, 10)}, {Itv(-10, 5), Itv(0, 10)}, false);
+}
 
-// TEST(PIRTest, IntTimes6) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("\
-//     var 0..1: x; \
-//     var 1..2: y; \
-//     var 0..0: z; \
-//     constraint int_times(x, y, z);", env);
-//   deduce_and_test(pir, 1, {Itv(0, 1), Itv(1, 2), Itv(0, 0)}, {Itv(0, 0), Itv(1, 2), Itv(0, 0)}, true);
-// }
+TEST(PIRTest, InfiniteDomain1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var int: x; \
+    var bool: b; \
+    constraint int_eq(b, int_le(x,5));", env);
+  deduce_and_test(pir, 1, {Itv::top(), Itv(0,1)}, false);
 
-// TEST(PIRTest, IntAbs1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("\
-//     var -15..5: x;\
-//     var -10..10: y;\
-//     constraint int_abs(x, y);", env);
-//   deduce_and_test(pir, 1, {Itv(-15, 5), Itv(-10, 10)}, {Itv(-10, 5), Itv(0, 10)}, false);
-// }
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(b, 1);", pir, env);
+  deduce_and_test(pir, 1, {Itv::top(), Itv(1,1)}, {Itv(Itv::LB::top(), 5), Itv(1,1)}, true);
+}
 
-// template <class L>
-// L interpret_type_and_tell2(const char* fzn, VarEnv<standard_allocator>& env) {
-//   return create_and_interpret_and_type_and_tell<L>(fzn, env, [](auto& f) { f.seq(0).type_as(sty); f.seq(1).type_as(sty); });
-// }
+TEST(PIRTest, InfiniteDomain2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var int: x; \
+    var bool: b; \
+    constraint int_eq(b, int_le(x,5));", env);
+  deduce_and_test(pir, 1, {Itv::top(), Itv(0,1)}, false);
 
-// TEST(PIRTest, AbstractElement1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell2<IPIR, true>("\
-//     var 0..10: x;\
-//     var 0..10: y;\
-//     constraint nbool_equiv(int_ge(x, 5), int_le(y, 5));", env);
-//   deduce_and_test(pir, 1, {Itv(0, 10), Itv(0, 10)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 5);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(5, 5), Itv(0, 10)}, {Itv(5, 5), Itv(0, 5)}, true);
-// }
-
-// TEST(PIRTest, AbstractElement2) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell2<IPIR, true>("\
-//     var 0..10: x;\
-//     var 0..10: y;\
-//     constraint nbool_equiv(int_ge(x, 5), int_le(y, 5));", env);
-//   deduce_and_test(pir, 1, {Itv(0, 10), Itv(0, 10)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 4);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(4, 4), Itv(0, 10)}, {Itv(4, 4), Itv(6, 10)}, true);
-// }
-
-// TEST(PIRTest, AbstractElement3) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell2<IPIR, true>("\
-//     var 0..10: x;\
-//     var 0..10: y;\
-//     constraint nbool_equiv(int_eq(x, 5), int_eq(y, 5));", env);
-//   deduce_and_test(pir, 1, {Itv(0, 10), Itv(0, 10)}, false);
-//   // As interval does not support hole, we cannot reduce the domain of `x`.
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 6);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 10), Itv(6, 6)}, false);
-//   // In that case, the propagation is weaker but the result is still correct, this is not always the case, see below.
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 5);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(5, 5), Itv(6, 6)}, {Itv(5, 5), Itv::bot()}, false, true);
-// }
-
-// TEST(PIRTest, AbstractElement4) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell2<IPIR, true>("\
-//     var 0..10: x;\
-//     var 0..10: y;\
-//     constraint nbool_equiv(int_eq(x, 5), int_eq(y, 5));", env);
-//   deduce_and_test(pir, 1, {Itv(0, 10), Itv(0, 10)}, false);
-//   // As interval does not support hole, we cannot reduce the domain of `x`.
-//   // Further, because y = 5 is going to be detected as false, and we will thus push x != 5, which does not reduce any domain, so what we obtain is not a solution (it is still an over-approximation though).
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 4);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(0, 10), Itv(4, 4)}, false);
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 5);", pir, env);
-//   deduce_and_test(pir, 1, {Itv(5, 5), Itv(4, 4)}, {Itv(5,5), Itv(5, 4)}, false, true);
-// }
-
-// TEST(PIRTest, InfiniteDomain1) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("\
-//     var int: x; \
-//     var bool: b; \
-//     constraint int_eq(b, int_le(x,5));", env);
-//   deduce_and_test(pir, 1, {Itv::top(), Itv(0,1)}, false);
-
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(b, 1);", pir, env);
-//   deduce_and_test(pir, 1, {Itv::top(), Itv(1,1)}, {Itv(Itv::LB::top(), 5), Itv(1,1)}, true);
-// }
-
-// TEST(PIRTest, InfiniteDomain2) {
-//   VarEnv<standard_allocator> env;
-//   IPIR pir = interpret_type_and_tell<IPIR, true>("\
-//     var int: x; \
-//     var bool: b; \
-//     constraint int_eq(b, int_le(x,5));", env);
-//   deduce_and_test(pir, 1, {Itv::top(), Itv(0,1)}, false);
-
-//   interpret_must_succeed<IKind::TELL>("constraint int_eq(b, 0);", pir, env);
-//   deduce_and_test(pir, 1, {Itv::top(), Itv(0,0)}, {Itv(6, Itv::UB::top()), Itv(0,0)}, true);
-// }
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(b, 0);", pir, env);
+  deduce_and_test(pir, 1, {Itv::top(), Itv(0,0)}, {Itv(6, Itv::UB::top()), Itv(0,0)}, true);
+}

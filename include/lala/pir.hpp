@@ -11,6 +11,7 @@
 #include "battery/algorithm.hpp"
 
 #include "lala/logic/logic.hpp"
+#include "lala/logic/ternarize.hpp"
 #include "lala/universes/arith_bound.hpp"
 #include "lala/abstract_deps.hpp"
 #include "lala/vstore.hpp"
@@ -30,6 +31,18 @@ namespace impl {
     static constexpr bool value = true;
   };
 }
+
+  // union bytecode_type
+  // {
+    // This represents the constraints `X = Y [op] Z`.
+    struct bytecode_type {
+      Sig op;
+      AVar x;
+      AVar y;
+      AVar z;
+    };
+    // int4 code;
+  // };
 
 /** PIR is an abstract transformer built on top of an abstract domain `A`.
     It is expected that `A` has a projection function `u = project(x)`.
@@ -95,25 +108,16 @@ private:
 
   static_assert(sizeof(int) == sizeof(AVar), "The size of AVar must be equal to the size of an int.");
   static_assert(sizeof(int) == sizeof(Sig), "The size of Sig must be equal to the size of an int.");
-  // union bytecode_type
-  // {
-    // This represents the constraints `X = Y [op] Z`.
-    struct bytecode_type {
-      Sig op;
-      AVar x;
-      AVar y;
-      AVar z;
-    };
-    // int4 code;
-  // };
+
   using bytecodes_type = battery::vector<bytecode_type, allocator_type>;
-  using bytecodes_ptr = battery::root_ptr<battery::vector<bytecode_type, allocator_type>>;
+  using bytecodes_ptr = battery::root_ptr<battery::vector<bytecode_type, allocator_type>, allocator_type>;
 
   /** We represent the constraints X = Y [op] Z. */
   bytecodes_ptr bytecodes;
 
   using LB = typename local_universe_type::LB;
   using UB = typename local_universe_type::UB;
+
 public:
   template <class Alloc, class SubType>
   struct interpreted_type {
@@ -299,9 +303,20 @@ public:
         F g = normalize(ternarize(decompose_in_constraint(f), env));
         res = ginterpret_in<kind, diagnose>(*this, g, env, intermediate, diagnostics);
       }
-      else if(f.is_binary() && f.sig() == NEQ) {
-        F g = normalize(ternarize(f, env, true));
+      /** If `t1 <op> t2 in S` we decompose `t2 in S`. */
+      else if(f.is_binary() && f.seq(1).is_binary() && f.seq(1).sig() == IN) {
+        F g = normalize(ternarize(F::make_binary(f.seq(0), f.sig(), decompose_in_constraint(f.seq(1))), env, true));
         res = ginterpret_in<kind, diagnose>(*this, g, env, intermediate, diagnostics);
+      }
+      /** It is a unary constraint but that could not be interpreted by the underlying store. */
+      else if(num_vars(f) == 1) {
+        F g = normalize(ternarize(f, env, true));
+        if(g != f) {
+          res = ginterpret_in<kind, diagnose>(*this, g, env, intermediate, diagnostics);
+        }
+        else {
+          res = interpret_formula<kind, diagnose>(f, env, intermediate, diagnostics);
+        }
       }
       else {
         res = interpret_formula<kind, diagnose>(f, env, intermediate, diagnostics);
@@ -346,9 +361,8 @@ public:
     return sub->embed(x, dom);
   }
 
-  CUDA local::B ask(size_t i) const {
-    bytecode_type bytecode = (*bytecodes)[i];
-
+private:
+  CUDA local::B ask(bytecode_type bytecode) const {
     // We load the variables.
     local_universe_type r1((*sub)[bytecode.x]);
     local_universe_type r2((*sub)[bytecode.y]);
@@ -375,10 +389,23 @@ public:
     else {
       local_universe_type right;
       right.project(bytecode.op, r2, r3);
-      // printf("right = "); right.print(); printf("\n");
-      // r2.print(); printf(" %s ", string_of_sig(bytecode.op)); r3.print(); printf("\n");
       return right == r1 && r1.lb().value() == r1.ub().value();
     }
+  }
+
+public:
+  CUDA local::B ask(size_t i) const {
+    return ask((*bytecodes)[i]);
+  }
+
+  template <class Alloc2>
+  CUDA local::B ask(const ask_type<Alloc2>& t) const {
+    for(int i = 0; i < t.bytecodes.size(); ++i) {
+      if(!ask(t.bytecodes[i])) {
+        return false;
+      }
+    }
+    return sub->ask(t.sub_value);
   }
 
   CUDA size_t num_deductions() const {
@@ -398,7 +425,6 @@ public:
     local_universe_type r1;
     local_universe_type r2((*sub)[bytecode.y]);
     local_universe_type r3((*sub)[bytecode.z]);
-
     // Reified constraint: X = (Y = Z) and X = (Y <= Z).
     if(bytecode.op == EQ || bytecode.op == LEQ) {
       r1 = (*sub)[bytecode.x];
@@ -536,7 +562,6 @@ public:
     }
     for(int i = 0; i < bytecodes->size(); ++i) {
       if(!ask(i)) {
-        // printf("%d = %d <%s> %d\n", (*bytecodes)[i].x.vid(), (*bytecodes)[i].y.vid(), string_of_sig((*bytecodes)[i].op), (*bytecodes)[i].z.vid());
         return false;
       }
     }
@@ -560,9 +585,10 @@ public:
 private:
   template<class Env, class Allocator2>
   CUDA NI TFormula<Allocator2> deinterpret(bytecode_type bytecode, const Env& env, Allocator2 allocator) const {
-    auto X = F::make_lvar(bytecode.x.aty(), LVar<Allocator>(env.name_of(bytecode.x), allocator));
-    auto Y = F::make_lvar(bytecode.y.aty(), LVar<Allocator>(env.name_of(bytecode.y), allocator));
-    auto Z = F::make_lvar(bytecode.z.aty(), LVar<Allocator>(env.name_of(bytecode.z), allocator));
+    using F = TFormula<Allocator2>;
+    auto X = F::make_lvar(bytecode.x.aty(), LVar<Allocator2>(env.name_of(bytecode.x), allocator));
+    auto Y = F::make_lvar(bytecode.y.aty(), LVar<Allocator2>(env.name_of(bytecode.y), allocator));
+    auto Z = F::make_lvar(bytecode.z.aty(), LVar<Allocator2>(env.name_of(bytecode.z), allocator));
     return F::make_binary(X, EQ, F::make_binary(Y, bytecode.op, Z, aty(), allocator), aty(), allocator);
   }
 public:

@@ -731,7 +731,8 @@ public:
         return false;
       }
     }
-    return sub->is_extractable(strategy);
+    return true;
+    // return sub->is_extractable(strategy);
   }
 
   /** Extract the current element into `ua`.

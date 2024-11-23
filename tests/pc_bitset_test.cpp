@@ -48,7 +48,11 @@ void deduce_and_test(L& bpc, int num_deds, const std::vector<NBit>& before, cons
   for(int i = 0; i < before.size(); ++i) {
     EXPECT_EQ(bpc[i], before[i]) << "bpc[" << i << "]";
   }
-  local::B has_changed = GaussSeidelIteration{}.fixpoint(bpc);
+  local::B has_changed = false;
+  GaussSeidelIteration{}.fixpoint(
+    bpc.num_deductions(),
+    [&](size_t i) { return bpc.deduce(i); },
+    has_changed);
   EXPECT_EQ(has_changed, expect_changed);
   for(int i = 0; i < after.size(); ++i) {
     EXPECT_EQ(bpc[i], after[i]) << "bpc[" << i << "]";

@@ -49,7 +49,9 @@ void deduce_and_test(L& pir, int num_deds, const std::vector<Itv>& before, const
   for(int i = 0; i < before.size(); ++i) {
     EXPECT_EQ(pir[i], before[i]) << "pir[" << i << "]";
   }
-  GaussSeidelIteration{}.fixpoint(pir);
+  GaussSeidelIteration{}.fixpoint(
+    pir.num_deductions(),
+    [&](size_t i) { return pir.deduce(i); });
   /** Note: We don't test has_changed anymore due to the internal variable, it usually changes due to the unbounded domains of the internal variables. */
   for(int i = 0; i < after.size(); ++i) {
     EXPECT_EQ(pir[i], after[i]) << "pir[" << i << "]";
@@ -68,7 +70,12 @@ void deduce_and_test_bot(L& pir, int num_deds, const std::vector<Itv>& before) {
   for(int i = 0; i < before.size(); ++i) {
     EXPECT_EQ(pir[i], before[i]) << "pir[" << i << "]";
   }
-  local::B has_changed = GaussSeidelIteration{}.fixpoint(pir);
+  local::B has_changed = false;
+  GaussSeidelIteration{}.fixpoint(
+    pir.num_deductions(),
+    [&](size_t i) { return pir.deduce(i); },
+    has_changed
+  );
   EXPECT_TRUE(has_changed);
   EXPECT_TRUE(pir.is_bot());
 }

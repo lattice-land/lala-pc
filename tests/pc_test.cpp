@@ -87,7 +87,11 @@ void deduce_and_test(L& ipc, int num_deds, const std::vector<Itv>& before, const
   for(int i = 0; i < before.size(); ++i) {
     EXPECT_EQ(ipc[i], before[i]) << "ipc[" << i << "]";
   }
-  local::B has_changed = GaussSeidelIteration{}.fixpoint(ipc);
+  local::B has_changed = false;
+  GaussSeidelIteration{}.fixpoint(
+    ipc.num_deductions(),
+    [&](size_t i) { return ipc.deduce(i); },
+    has_changed);
   EXPECT_EQ(has_changed, expect_changed);
   for(int i = 0; i < after.size(); ++i) {
     EXPECT_EQ(ipc[i], after[i]) << "ipc[" << i << "]";

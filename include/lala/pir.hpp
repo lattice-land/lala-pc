@@ -179,7 +179,7 @@ private:
         return other.bytecodes;
       }
     }
-    auto r = battery::allocate_root<bytecodes_type, allocator_type>(alloc, *(other.bytecodes), alloc);
+    bytecodes_ptr r = battery::allocate_root<bytecodes_type, allocator_type>(alloc, *(other.bytecodes), alloc);
     return std::move(r);
   }
 

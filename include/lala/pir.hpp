@@ -32,17 +32,13 @@ namespace impl {
   };
 }
 
-  // union bytecode_type
-  // {
-    // This represents the constraints `X = Y [op] Z`.
-    struct bytecode_type {
-      Sig op;
-      AVar x;
-      AVar y;
-      AVar z;
-    };
-    // int4 code;
-  // };
+// This represents the constraints `X = Y [op] Z`.
+struct bytecode_type {
+  Sig op;
+  AVar x;
+  AVar y;
+  AVar z;
+};
 
 /** PIR is an abstract transformer built on top of an abstract domain `A`.
     It is expected that `A` has a projection function `u = project(x)`.
@@ -395,7 +391,14 @@ private:
 
 public:
   CUDA local::B ask(size_t i) const {
-    return ask((*bytecodes)[i]);
+  #ifdef __CUDA_ARCH__
+    // Vectorize load (int4).
+    int4 b4 = reinterpret_cast<int4*>(bytecodes->data())[i];
+    bytecode_type& bytecode = *reinterpret_cast<bytecode_type*>(&b4);
+  #else
+    bytecode_type bytecode = (*bytecodes)[i];
+  #endif
+    return ask(bytecode);
   }
 
   template <class Alloc2>
@@ -416,8 +419,13 @@ public:
   CUDA local::B deduce(size_t i) {
     assert(i < num_deductions());
 
+  #ifdef __CUDA_ARCH__
     // Vectorize load (int4).
+    int4 b4 = reinterpret_cast<int4*>(bytecodes->data())[i];
+    bytecode_type& bytecode = *reinterpret_cast<bytecode_type*>(&b4);
+  #else
     bytecode_type bytecode = (*bytecodes)[i];
+  #endif
 
     local::B has_changed = false;
 

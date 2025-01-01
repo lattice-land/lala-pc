@@ -38,6 +38,8 @@ struct bytecode_type {
   AVar x;
   AVar y;
   AVar z;
+  constexpr bytecode_type() = default;
+  constexpr bytecode_type(const bytecode_type&) = default;
 };
 
 /** PIR is an abstract transformer built on top of an abstract domain `A`.
@@ -390,15 +392,18 @@ private:
   }
 
 public:
-  CUDA local::B ask(size_t i) const {
+  CUDA INLINE bytecode_type load_deduce(size_t i) const {
   #ifdef __CUDA_ARCH__
     // Vectorize load (int4).
     int4 b4 = reinterpret_cast<int4*>(bytecodes->data())[i];
-    bytecode_type& bytecode = *reinterpret_cast<bytecode_type*>(&b4);
+    return *reinterpret_cast<bytecode_type*>(&b4);
   #else
-    bytecode_type bytecode = (*bytecodes)[i];
+    return (*bytecodes)[i];
   #endif
-    return ask(bytecode);
+  }
+
+  CUDA local::B ask(size_t i) const {
+    return ask(load_deduce(i));
   }
 
   template <class Alloc2>
@@ -419,14 +424,7 @@ public:
   CUDA local::B deduce(size_t i) {
     assert(i < num_deductions());
 
-  #ifdef __CUDA_ARCH__
-    // Vectorize load (int4).
-    int4 b4 = reinterpret_cast<int4*>(bytecodes->data())[i];
-    bytecode_type& bytecode = *reinterpret_cast<bytecode_type*>(&b4);
-  #else
-    bytecode_type bytecode = (*bytecodes)[i];
-  #endif
-
+    bytecode_type bytecode = load_deduce(i);
     local::B has_changed = false;
 
     // We load the variables.

@@ -9,6 +9,7 @@
 #include "battery/root_ptr.hpp"
 #include "battery/allocator.hpp"
 #include "battery/algorithm.hpp"
+#include "battery/bitset.hpp"
 
 #include "lala/logic/logic.hpp"
 #include "lala/logic/ternarize.hpp"
@@ -40,6 +41,9 @@ struct bytecode_type {
   AVar z;
   constexpr bytecode_type() = default;
   constexpr bytecode_type(const bytecode_type&) = default;
+  CUDA INLINE const AVar& operator[](int i) const {
+    return i == 0 ? x : (i == 1 ? y : z);
+  }
 };
 
 /** PIR is an abstract transformer built on top of an abstract domain `A`.
@@ -425,7 +429,120 @@ public:
     assert(i < num_deductions());
 
     bytecode_type bytecode = load_deduce(i);
-    local::B has_changed = false;
+    local::B ghas_changed = false;
+
+#ifdef __CUDA_ARCH__
+    __shared__ bool warp_changed[256/32];
+    int warp_id = threadIdx.x / 32;
+    warp_changed[warp_id] = true;
+
+    while(warp_changed[warp_id]) {
+      __syncwarp();
+      warp_changed[warp_id] = false;
+      __syncwarp();
+#endif
+      local::B has_changed = false;
+      // We load the variables.
+      local_universe_type r1;
+      local_universe_type r2((*sub)[bytecode.y]);
+      local_universe_type r3((*sub)[bytecode.z]);
+      // Reified constraint: X = (Y = Z) and X = (Y <= Z).
+      if(bytecode.op == EQ || bytecode.op == LEQ) {
+        r1 = (*sub)[bytecode.x];
+        // Y [op] Z
+        if(r1 <= ONE) {
+          if(bytecode.op == LEQ) {
+            r3.join_lb(LB::top());
+            r2.join_ub(UB::top());
+          }
+          has_changed |= sub->embed(bytecode.y, r3);
+          has_changed |= sub->embed(bytecode.z, r2);
+        }
+        // not (Y [op] Z)
+        else if(r1 <= ZERO) {
+          if(bytecode.op == EQ) {
+            if(r2.lb().value() == r2.ub().value()) {
+              r1 = r3;
+              r1.meet_lb(LB::prev(r2.lb()));
+              r3.meet_ub(UB::prev(r2.ub()));
+              has_changed |= sub->embed(bytecode.z, fjoin(r1,r3));
+            }
+            else if(r3.lb().value() == r3.ub().value()) {
+              r1 = r2;
+              r1.meet_lb(LB::prev(r3.lb()));
+              r2.meet_ub(UB::prev(r3.ub()));
+              has_changed |= sub->embed(bytecode.y, fjoin(r1,r2));
+            }
+          }
+          else {
+            assert(bytecode.op == LEQ);
+            r2.meet_lb(LB::prev(r3.lb()));
+            r3.meet_ub(UB::prev(r2.ub()));
+            has_changed |= sub->embed(bytecode.y, r2);
+            has_changed |= sub->embed(bytecode.z, r3);
+          }
+        }
+        // X <- 1
+        else if(r2.ub().value() <= r3.lb().value() && (bytecode.op == LEQ || r2.lb().value() == r3.ub().value())) {
+          has_changed |= sub->embed(bytecode.x, ONE);
+        }
+        // X <- 0
+        else if(r2.lb().value() > r3.ub().value() || (bytecode.op == EQ && r2.ub().value() < r3.lb().value())) {
+          has_changed |= sub->embed(bytecode.x, ZERO);
+        }
+      }
+      // Arithmetic constraint: X = Y + Z, X = Y - Z, ...
+      else {
+        // X <- Y [op] Z
+        r1.project(bytecode.op, r2, r3);
+        has_changed |= sub->embed(bytecode.x, r1);
+
+        // Y <- X <left residual> Z
+        r1 = (*sub)[bytecode.x];
+        switch(bytecode.op) {
+          case ADD: pc::GroupAdd<local_universe_type>::left_residual(r1, r3, r2); break;
+          case SUB: pc::GroupSub<local_universe_type>::left_residual(r1, r3, r2); break;
+          case MUL: pc::GroupMul<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
+          case EDIV: pc::GroupDiv<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
+          case MIN: pc::GroupMinMax<local_universe_type, MIN>::left_residual(r1, r3, r2); break;
+          case MAX: pc::GroupMinMax<local_universe_type, MAX>::left_residual(r1, r3, r2); break;
+          default: assert(false);
+        }
+        has_changed |= sub->embed(bytecode.y, r2);
+
+        // Z <- X <right residual> Y
+        r2 = (*sub)[bytecode.y];
+        r3.join_top();
+        switch(bytecode.op) {
+          case ADD: pc::GroupAdd<local_universe_type>::right_residual(r1, r2, r3); break;
+          case SUB: pc::GroupSub<local_universe_type>::right_residual(r1, r2, r3); break;
+          case MUL: pc::GroupMul<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
+          case EDIV: pc::GroupDiv<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
+          case MIN: pc::GroupMinMax<local_universe_type, MIN>::right_residual(r1, r2, r3); break;
+          case MAX: pc::GroupMinMax<local_universe_type, MAX>::right_residual(r1, r2, r3); break;
+          default: assert(false);
+        }
+        has_changed |= sub->embed(bytecode.z, r3);
+      }
+      if(has_changed) {
+#ifdef __CUDA_ARCH__
+        /** If something changed, we only iterate once more if we did not reach bot. */
+        if(!sub->is_bot()) {
+          warp_changed[warp_id] = true;
+        }
+#endif
+        ghas_changed = true;
+      }
+#ifdef __CUDA_ARCH__
+      __syncwarp();
+    }
+#endif
+    return ghas_changed;
+  }
+
+  using event_type = battery::bitset<3, battery::local_memory, unsigned int>;
+  CUDA event_type deduce(bytecode_type& bytecode) {
+    event_type has_changed;
 
     // We load the variables.
     local_universe_type r1;
@@ -436,17 +553,12 @@ public:
       r1 = (*sub)[bytecode.x];
       // Y [op] Z
       if(r1 <= ONE) {
-        if(bytecode.op == EQ) {
-          has_changed |= sub->embed(bytecode.y, r3);
-          has_changed |= sub->embed(bytecode.z, r2);
-        }
-        else {
-          assert(bytecode.op == LEQ);
+        if(bytecode.op == LEQ) {
           r3.join_lb(LB::top());
           r2.join_ub(UB::top());
-          has_changed |= sub->embed(bytecode.y, r3);
-          has_changed |= sub->embed(bytecode.z, r2);
         }
+        has_changed.set(1, sub->embed(bytecode.y, r3));
+        has_changed.set(2, sub->embed(bytecode.z, r2));
       }
       // not (Y [op] Z)
       else if(r1 <= ZERO) {
@@ -455,37 +567,37 @@ public:
             r1 = r3;
             r1.meet_lb(LB::prev(r2.lb()));
             r3.meet_ub(UB::prev(r2.ub()));
-            has_changed |= sub->embed(bytecode.z, fjoin(r1,r3));
+            has_changed.set(2, sub->embed(bytecode.z, fjoin(r1,r3)));
           }
           else if(r3.lb().value() == r3.ub().value()) {
             r1 = r2;
             r1.meet_lb(LB::prev(r3.lb()));
             r2.meet_ub(UB::prev(r3.ub()));
-            has_changed |= sub->embed(bytecode.y, fjoin(r1,r2));
+            has_changed.set(1, sub->embed(bytecode.y, fjoin(r1,r2)));
           }
         }
         else {
           assert(bytecode.op == LEQ);
           r2.meet_lb(LB::prev(r3.lb()));
           r3.meet_ub(UB::prev(r2.ub()));
-          has_changed |= sub->embed(bytecode.y, r2);
-          has_changed |= sub->embed(bytecode.z, r3);
+          has_changed.set(1, sub->embed(bytecode.y, r2));
+          has_changed.set(2, sub->embed(bytecode.z, r3));
         }
       }
       // X <- 1
       else if(r2.ub().value() <= r3.lb().value() && (bytecode.op == LEQ || r2.lb().value() == r3.ub().value())) {
-        has_changed |= sub->embed(bytecode.x, ONE);
+        has_changed.set(0, sub->embed(bytecode.x, ONE));
       }
       // X <- 0
       else if(r2.lb().value() > r3.ub().value() || (bytecode.op == EQ && r2.ub().value() < r3.lb().value())) {
-        has_changed |= sub->embed(bytecode.x, ZERO);
+        has_changed.set(0, sub->embed(bytecode.x, ZERO));
       }
     }
     // Arithmetic constraint: X = Y + Z, X = Y - Z, ...
     else {
       // X <- Y [op] Z
       r1.project(bytecode.op, r2, r3);
-      has_changed |= sub->embed(bytecode.x, r1);
+      has_changed.set(0, sub->embed(bytecode.x, r1));
 
       // Y <- X <left residual> Z
       r1 = (*sub)[bytecode.x];
@@ -498,7 +610,7 @@ public:
         case MAX: pc::GroupMinMax<local_universe_type, MAX>::left_residual(r1, r3, r2); break;
         default: assert(false);
       }
-      has_changed |= sub->embed(bytecode.y, r2);
+      has_changed.set(1, sub->embed(bytecode.y, r2));
 
       // Z <- X <right residual> Y
       r2 = (*sub)[bytecode.y];
@@ -512,7 +624,7 @@ public:
         case MAX: pc::GroupMinMax<local_universe_type, MAX>::right_residual(r1, r2, r3); break;
         default: assert(false);
       }
-      has_changed |= sub->embed(bytecode.z, r3);
+      has_changed.set(2, sub->embed(bytecode.z, r3));
     }
     return has_changed;
   }

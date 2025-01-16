@@ -49,10 +49,10 @@ public:
   struct snapshot_type
   {
     using sub_snap_type = A::template snapshot_type<Alloc>;
-    size_t num_props;
+    int num_props;
     sub_snap_type sub_snap;
 
-    CUDA snapshot_type(size_t num_props, sub_snap_type&& sub_snap)
+    CUDA snapshot_type(int num_props, sub_snap_type&& sub_snap)
       : num_props(num_props)
       , sub_snap(std::move(sub_snap))
     {}
@@ -464,7 +464,7 @@ private:
   }
 
   template <class F>
-  CUDA F binarize(const F& f, size_t i) const {
+  CUDA F binarize(const F& f, int i) const {
     assert(f.is(F::Seq) && f.seq().size() >= 2);
     if(i + 2 == f.seq().size()) {
       return F::make_binary(f.seq(i), f.sig(), f.seq(i+1), f.type(), f.seq().get_allocator(), false);
@@ -626,12 +626,12 @@ public:
     local::B has_changed = sub->deduce(t.sub_value);
     if(t.props.size() > 0) {
       auto& props2 = *props;
-      size_t n = props2.size();
+      int n = props2.size();
       props2.reserve(n + t.props.size());
       for(int i = 0; i < t.props.size(); ++i) {
         props2.push_back(formula_type(t.props[i], get_allocator()));
       }
-      battery::vector<size_t> lengths(props2.size());
+      battery::vector<int> lengths(props2.size());
       for(int i = 0; i < props2.size(); ++i) {
         lengths[i] = props2[i].length();
       }
@@ -658,15 +658,15 @@ public:
     return sub->ask(t.sub_value);
   }
 
-  CUDA local::B ask(size_t i) const {
+  CUDA local::B ask(int i) const {
     return (*props)[i].ask(*sub);
   }
 
-  CUDA size_t num_deductions() const {
+  CUDA int num_deductions() const {
     return sub->num_deductions() + props->size();
   }
 
-  CUDA local::B deduce(size_t i) {
+  CUDA local::B deduce(int i) {
     assert(i < num_deductions());
     if(is_top()) { return false; }
     else if(i < sub->num_deductions()) {
@@ -702,7 +702,7 @@ public:
     sub->project(x, u);
   }
 
-  CUDA size_t vars() const {
+  CUDA int vars() const {
     return sub->vars();
   }
 
@@ -713,8 +713,8 @@ public:
 
   template <class Alloc2>
   CUDA void restore(const snapshot_type<Alloc2>& snap) {
-    size_t n = props->size();
-    for(size_t i = snap.num_props; i < n; ++i) {
+    int n = props->size();
+    for(int i = snap.num_props; i < n; ++i) {
       props->pop_back();
     }
     sub->restore(snap.sub_snap);

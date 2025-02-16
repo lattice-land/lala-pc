@@ -433,12 +433,11 @@ public:
   CUDA local::B deduce(bytecode_type bytecode) {
     local::B has_changed = false;
     // We load the variables.
-    local_universe_type r1;
+    local_universe_type r1((*sub)[bytecode.x]);
     local_universe_type r2((*sub)[bytecode.y]);
     local_universe_type r3((*sub)[bytecode.z]);
     // Reified constraint: X = (Y = Z) and X = (Y <= Z).
     if(bytecode.op == EQ || bytecode.op == LEQ) {
-      r1 = (*sub)[bytecode.x];
       // Y [op] Z
       if(r1 <= ONE) {
         if(bytecode.op == LEQ) {
@@ -488,7 +487,6 @@ public:
       has_changed |= sub->embed(bytecode.x, r1);
 
       // Y <- X <left residual> Z
-      r1 = (*sub)[bytecode.x];
       switch(bytecode.op) {
         case ADD: pc::GroupAdd<local_universe_type>::left_residual(r1, r3, r2); break;
         case SUB: pc::GroupSub<local_universe_type>::left_residual(r1, r3, r2); break;
@@ -501,8 +499,6 @@ public:
       has_changed |= sub->embed(bytecode.y, r2);
 
       // Z <- X <right residual> Y
-      r2 = (*sub)[bytecode.y];
-      r3.join_top();
       switch(bytecode.op) {
         case ADD: pc::GroupAdd<local_universe_type>::right_residual(r1, r2, r3); break;
         case SUB: pc::GroupSub<local_universe_type>::right_residual(r1, r2, r3); break;

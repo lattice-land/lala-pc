@@ -694,6 +694,28 @@ TEST(PIRTest, IntTimes6) {
   deduce_and_test(pir, 1, {Itv(0, 1), Itv(1, 2), Itv(0, 0)}, {Itv(0, 0), Itv(1, 2), Itv(0, 0)}, true);
 }
 
+TEST(PIRTest, IntDiv1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 0..1: x;\
+    var 0..1: y;\
+    var 0..1: z;\
+    constraint int_div(x,y,z);", env);
+  deduce_and_test(pir, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1)}, {Itv(0, 1), Itv(1, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 1);", pir, env);
+  deduce_and_test(pir, 1, {Itv(1, 1), Itv(1, 1), Itv(0, 1)}, {Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
+}
+
+TEST(PIRTest, IntDiv2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 0..1: y;\
+    constraint int_div(y,2,0);", env);
+  deduce_and_test(pir, 1, {Itv(0, 1)}, true);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 1);", pir, env);
+  deduce_and_test(pir, 1, {Itv(1, 1)}, true);
+}
+
 TEST(PIRTest, IntAbs1) {
   VarEnv<standard_allocator> env;
   IPIR pir = create_and_interpret_and_tell<IPIR, true>("\

@@ -669,6 +669,28 @@ TEST(IPCTest, IntTimes6) {
   deduce_and_test(ipc, 1, {Itv(0, 1), Itv(1, 2), Itv(0, 0)}, {Itv(0, 0), Itv(1, 2), Itv(0, 0)}, true);
 }
 
+TEST(IPCTest, IntDiv1) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var 0..1: x;\
+    var 0..1: y;\
+    var 0..1: z;\
+    constraint int_div(x,y,z);", env);
+  deduce_and_test(ipc, 1, {Itv(0, 1), Itv(0, 1), Itv(0, 1)}, {Itv(0, 1), Itv(1, 1), Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(x, 1);", ipc, env);
+  deduce_and_test(ipc, 1, {Itv(1, 1), Itv(1, 1), Itv(0, 1)}, {Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
+}
+
+TEST(IPCTest, IntDiv2) {
+  VarEnv<standard_allocator> env;
+  IPC ipc = interpret_type_and_tell<IPC>("\
+    var 0..1: y;\
+    constraint int_div(y,2,0);", env);
+  deduce_and_test(ipc, 1, {Itv(0, 1)}, true);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 1);", ipc, env);
+  deduce_and_test(ipc, 1, {Itv(1, 1)}, true);
+}
+
 TEST(IPCTest, IntAbs1) {
   VarEnv<standard_allocator> env;
   IPC ipc = interpret_type_and_tell<IPC>("\

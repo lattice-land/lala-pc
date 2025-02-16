@@ -203,7 +203,7 @@ struct GroupAdd {
 
   static constexpr bool prefix_symbol = false;
   CUDA static char symbol() { return '+'; }
-  CUDA static Sig sig() { return ADD; }
+  CUDA static constexpr Sig sig() { return ADD; }
 };
 
 template<class Universe>
@@ -225,7 +225,7 @@ struct GroupSub {
 
   static constexpr bool prefix_symbol = false;
   CUDA static char symbol() { return '-'; }
-  CUDA static Sig sig() { return SUB; }
+  CUDA static constexpr Sig sig() { return SUB; }
 };
 
 template<class Universe, Sig divsig>
@@ -258,7 +258,7 @@ struct GroupMul {
 
   static constexpr bool prefix_symbol = false;
   CUDA static char symbol() { return '*'; }
-  CUDA static Sig sig() { return MUL; }
+  CUDA static constexpr Sig sig() { return MUL; }
 };
 
 template<class Universe, Sig divsig>
@@ -266,22 +266,36 @@ struct GroupDiv {
   using U = Universe;
 
   CUDA static void project(const U& a, const U& b, U& r) {
-    return r.project(divsig, a, b);
+    r.project(divsig, a, b);
   }
 
   CUDA static void left_residual(const U& a, const U& b, U& r) {
-    return r.project(MUL, a, b);
+    r.project(MUL, a, b);
+    if constexpr(U::preserve_concrete_covers) {
+      r.join_ub(U::UB::prev(b.ub()));
+    }
   }
 
   CUDA static void right_residual(const U& a, const U& b, U& r) {
-    if(!(b >= U::eq_zero())) {
+    /** In the discrete case, we can remove zero from `r` when it is possible. */
+    if constexpr(U::preserve_concrete_covers) {
+      if(r.lb().value() == 0) { r.meet_lb(typename U::LB::local_type(1)); }
+      if(r.ub().value() == 0) { r.meet_ub(typename U::UB::local_type(-1)); }
+    }
+    else if(r.lb().value() == 0 && r.ub().value() == 0) {
+      r.meet_bot();
+      return;
+    }
+    /** If `b` contains a zero, then any interval `r` can be used to have a = b / r. */
+    /** If `a` equals 0, the division would returns `bot`, which is incorrect in this case. */
+    if(!(b >= U::eq_zero()) && !(a.lb().value() == 0 && a.ub().value() == 0)) {
       r.project(divsig, b, a);
     }
   }
 
   static constexpr bool prefix_symbol = false;
   CUDA static char symbol() { return '/'; }
-  CUDA static Sig sig() { return divsig; }
+  CUDA static constexpr Sig sig() { return divsig; }
 };
 
 template<class Universe, Sig msig>
@@ -313,7 +327,7 @@ struct GroupMinMax {
 
   static constexpr bool prefix_symbol = true;
   CUDA static const char* symbol() { return msig == MIN ? "min" : "max"; }
-  CUDA static Sig sig() { return msig; }
+  CUDA static constexpr Sig sig() { return msig; }
 };
 
 template <class AD, class Group, class Allocator>
@@ -372,6 +386,10 @@ public:
     if(!y().is(sub_type::IConstant)) {
       x().project(a, xt);
       residual.join_top();
+      /** In the case of division, the right residual is important, as we read it to potentially remove 0. */
+      if(is_division(G::sig())) {
+        y().project(a, residual);
+      }
       G::right_residual(u, xt, residual);
       has_changed |= y().embed(a, residual);   // y <- u <residual> x
     }

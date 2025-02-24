@@ -80,7 +80,6 @@ void deduce_and_test_bot(L& pir, int num_deds, const std::vector<Itv>& before) {
   EXPECT_TRUE(pir.is_bot());
 }
 
-
 TEST(PIRTest, TernaryProblem) {
   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 0); constraint int_le(x, 10);\
@@ -88,6 +87,35 @@ TEST(PIRTest, TernaryProblem) {
     constraint int_ge(z, 5); constraint int_le(z, 5);\
     constraint int_plus(x, y, z);");
   deduce_and_test(pir, 1, {Itv(0,10), Itv(0,10), Itv(5,5)}, {Itv(0,5), Itv(0,5), Itv(5,5)}, false);
+}
+
+TEST(PIRTest, ReifiedEquality) {
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var int: x; var int: y;\
+    constraint int_eq(x, int_eq(y,2));");
+  deduce_and_test(pir, 1, {Itv::top(), Itv::top()}, {Itv::top(), Itv::top()}, false);
+}
+
+TEST(PIRTest, ReifiedIn) {
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("var {1,2,4,5}: x; var bool: y;\
+    constraint set_in_reif(x, 2..2, y);");
+  /* Generated variables:
+  ((var x:Z):-1 ∧
+  (var __CONSTANT_1:Z):-1 ∧
+  (var __VAR_B_0:B):-1 ∧
+  (var __CONSTANT_2:Z):-1 ∧
+  (var __VAR_B_1:B):-1 ∧
+  (var __VAR_B_2:B):-1 ∧
+  (var __CONSTANT_4:Z):-1 ∧
+  (var __VAR_B_3:B):-1 ∧
+  (var __CONSTANT_5:Z):-1 ∧
+  (var __VAR_B_4:B):-1 ∧
+  (var __VAR_B_5:B):-1 ∧
+  (var y:B):-1 ∧
+  */
+  deduce_and_test(pir, 8,
+    {Itv(1,5), Itv(1,1), Itv(0,1), Itv(2,2), Itv(0,1), Itv(0,1), Itv(4,4), Itv(0,1), Itv(5,5), Itv(0,1), Itv(0,1), Itv(0,1)},
+    {Itv(1,5), Itv(1,1), Itv(1,1), Itv(2,2), Itv(0,1), Itv(0,1), Itv(4,4), Itv(0,1), Itv(5,5), Itv(1,1), Itv(0,1), Itv(0,1)},
+    false);
 }
 
 // x + y = 5
@@ -488,10 +516,18 @@ TEST(PIRTest, XorConstraint2) {
 TEST(PIRTest, InConstraint1) {
   VarEnv<standard_allocator> env;
   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var {1, 3}: x; var 2..3: y;", env);
-  deduce_and_test(pir, 3, {Itv(1, 3), Itv(2,3)}, false);
+  /* Generated variables:
+  ((var x:Z):-1 ∧
+  (var __CONSTANT_1:Z):-1 ∧
+  (var __VAR_B_0:B):-1 ∧
+  (var __CONSTANT_3:Z):-1 ∧
+  (var __VAR_B_1:B):-1 ∧
+  (var y:Z):-1
+  */
+  deduce_and_test(pir, 3, {Itv(1, 3), Itv(1, 1), Itv(0, 1), Itv(3, 3), Itv(0, 1), Itv(2,3)}, false);
 
   interpret_must_succeed<IKind::TELL, true>("constraint int_eq(x, y);", pir, env);
-  // deduce_and_test(pir, 4, {Itv(1, 3), Itv(2, 3)}, {Itv(3,3), Itv(3,3)}, true);
+  deduce_and_test(pir, 4, {Itv(1, 3), Itv(1, 1), Itv(0, 1), Itv(3, 3), Itv(0, 1), Itv(2, 3)}, {Itv(3,3), Itv(1, 1), Itv(0, 0), Itv(3, 3), Itv(1, 1), Itv(3,3)}, true);
 }
 
 // min(x, y) = z
@@ -722,7 +758,7 @@ TEST(PIRTest, IntAbs1) {
     var -15..5: x;\
     var -10..10: y;\
     constraint int_abs(x, y);", env);
-  deduce_and_test(pir, 6, {Itv(-15, 5), Itv(-10, 10)}, {Itv(-10, 5), Itv(0, 10)}, false);
+  deduce_and_test(pir, 3, {Itv(-15, 5), Itv(-10, 10)}, {Itv(-10, 5), Itv(0, 10)}, false);
 }
 
 TEST(PIRTest, InfiniteDomain1) {

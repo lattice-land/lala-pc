@@ -259,7 +259,7 @@ private:
         bytecode_type bytecode;
         bytecode.op = f.seq(right).sig();
         if(X.is_variable() && Y.is_variable() && Z.is_variable() &&
-          (bytecode.op == ADD || bytecode.op == MUL || bytecode.op == SUB || bytecode.op == EDIV || bytecode.op == EMOD
+          (bytecode.op == ADD || bytecode.op == MUL || bytecode.op == EDIV || bytecode.op == EMOD
           || bytecode.op == MIN || bytecode.op == MAX
           || bytecode.op == EQ || bytecode.op == LEQ))
         {
@@ -270,7 +270,7 @@ private:
             intermediate.bytecodes.push_back(bytecode);
             return true;
           }
-          return false;
+          RETURN_INTERPRETATION_ERROR("Could not interpret the variables in the environment.");
         }
       }
     }
@@ -289,40 +289,11 @@ public:
     AType current = f.type();
     const_cast<F&>(f).type_as(sub->aty()); // We will restore the type after the call to sub->interpret.
     if(sub->template interpret<kind, diagnose>(f, env, intermediate.sub_value, diagnostics)) {
-      // A successful interpretation in the sub-domain does not mean it is interpreted exactly.
-      // Sometimes, we can improve the precision by interpreting it in PC.
-      // This is the case of `x in S` predicate for sub-domain that do not preserve meet.
-      if(!(f.is_binary() && f.sig() == IN && f.seq(0).is_variable() && f.seq(1).is(F::S) && f.seq(1).s().size() > 1)) {
-        res = true; // it is not a formula `x in S`.
-      }
-      else {
-        res = universe_type::preserve_join; // it is `x in S` but it preserves join.
-      }
+      res = true;
     }
     const_cast<F&>(f).type_as(current);
     if(!res) {
-      if(f.is_binary() && f.sig() == IN && f.seq(1).is(F::S)) {
-        F g = normalize(ternarize(decompose_in_constraint(f), env));
-        res = ginterpret_in<kind, diagnose>(*this, g, env, intermediate, diagnostics);
-      }
-      /** If `t1 <op> t2 in S` we decompose `t2 in S`. */
-      else if(f.is_binary() && f.seq(1).is_binary() && f.seq(1).sig() == IN) {
-        F g = normalize(ternarize(F::make_binary(f.seq(0), f.sig(), decompose_in_constraint(f.seq(1))), env, true));
-        res = ginterpret_in<kind, diagnose>(*this, g, env, intermediate, diagnostics);
-      }
-      /** It is a unary constraint but that could not be interpreted by the underlying store. */
-      else if(num_vars(f) == 1) {
-        F g = normalize(ternarize(f, env, true));
-        if(g != f) {
-          res = ginterpret_in<kind, diagnose>(*this, g, env, intermediate, diagnostics);
-        }
-        else {
-          res = interpret_formula<kind, diagnose>(f, env, intermediate, diagnostics);
-        }
-      }
-      else {
-        res = interpret_formula<kind, diagnose>(f, env, intermediate, diagnostics);
-      }
+      res = interpret_formula<kind, diagnose>(f, env, intermediate, diagnostics);
     }
     if constexpr(diagnose) {
       diagnostics.merge(res, error_context);
@@ -351,9 +322,18 @@ public:
       for(int i = 0; i < t.bytecodes.size(); ++i) {
         bytecodes->push_back(t.bytecodes[i]);
       }
-      /** This is sorting the constraints `X = Y <op> Z` according to <OP>. */
+    /** This is sorting the constraints `X = Y <op> Z` according to <OP>.
+     * Note that battery::sorti is much slower than std::sort, therefore the #ifdef. */
+    #ifdef __CUDA_ARCH__
       battery::sorti(*bytecodes,
         [&](int i, int j) { return (*bytecodes)[i].op < (*bytecodes)[j].op; });
+    #else
+      std::stable_sort(bytecodes->data(), bytecodes->data() + bytecodes->size(),
+        [](const bytecode_type& a, const bytecode_type& b) {
+          // return a.op < b.op;
+          return a.op == b.op ? (a.y.vid() == b.y.vid() ? (a.x.vid() == b.x.vid() ? a.z.vid() < b.z.vid() : a.x.vid() < b.x.vid()) : a.y.vid() < b.y.vid()) : a.op < b.op;
+        });
+    #endif
       has_changed = true;
     }
     return has_changed;
@@ -489,9 +469,14 @@ public:
       // Y <- X <left residual> Z
       switch(bytecode.op) {
         case ADD: pc::GroupAdd<local_universe_type>::left_residual(r1, r3, r2); break;
-        case SUB: pc::GroupSub<local_universe_type>::left_residual(r1, r3, r2); break;
         case MUL: pc::GroupMul<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
         case EDIV: pc::GroupDiv<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
+        case EMOD: {
+          if(r1.is_bot() || r3.is_bot()) {
+            r2.meet_bot();
+          }
+          break;
+        }
         case MIN: pc::GroupMinMax<local_universe_type, MIN>::left_residual(r1, r3, r2); break;
         case MAX: pc::GroupMinMax<local_universe_type, MAX>::left_residual(r1, r3, r2); break;
         default: assert(false);
@@ -501,9 +486,14 @@ public:
       // Z <- X <right residual> Y
       switch(bytecode.op) {
         case ADD: pc::GroupAdd<local_universe_type>::right_residual(r1, r2, r3); break;
-        case SUB: pc::GroupSub<local_universe_type>::right_residual(r1, r2, r3); break;
         case MUL: pc::GroupMul<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
         case EDIV: pc::GroupDiv<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
+        case EMOD: {
+          if(r1.is_bot() || r2.is_bot()) {
+            r3.meet_bot();
+          }
+          break;
+        }
         case MIN: pc::GroupMinMax<local_universe_type, MIN>::right_residual(r1, r2, r3); break;
         case MAX: pc::GroupMinMax<local_universe_type, MAX>::right_residual(r1, r2, r3); break;
         default: assert(false);
@@ -682,17 +672,27 @@ private:
     auto Z = F::make_lvar(bytecode.z.aty(), LVar<Allocator2>(env.name_of(bytecode.z), allocator));
     return F::make_binary(X, EQ, F::make_binary(Y, bytecode.op, Z, aty(), allocator), aty(), allocator);
   }
-public:
 
+public:
   template<class Env, class Allocator2 = typename Env::allocator_type>
-  CUDA NI TFormula<Allocator2> deinterpret(const Env& env, Allocator2 allocator = Allocator2()) const {
+  CUDA NI TFormula<Allocator2> deinterpret(const Env& env, bool remove_entailed, size_t& num_entailed, Allocator2 allocator = Allocator2()) const {
     using F = TFormula<Allocator2>;
     typename F::Sequence seq{allocator};
     seq.push_back(sub->deinterpret(env, allocator));
     for(int i = 0; i < bytecodes->size(); ++i) {
+      if(remove_entailed && ask(i)) {
+        num_entailed++;
+        continue;
+      }
       seq.push_back(deinterpret((*bytecodes)[i], env, allocator));
     }
     return F::make_nary(AND, std::move(seq), aty());
+  }
+
+  template<class Env, class Allocator2 = typename Env::allocator_type>
+  CUDA NI TFormula<Allocator2> deinterpret(const Env& env, Allocator2 allocator = Allocator2()) const {
+    size_t num_entailed = 0;
+    return deinterpret(env, false, num_entailed, allocator);
   }
 
   template<class I, class Env, class Allocator2 = typename Env::allocator_type>

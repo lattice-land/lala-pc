@@ -666,6 +666,8 @@ public:
     return sub->num_deductions() + props->size();
   }
 
+  CUDA constexpr int load_deduce(int i) const { return i; }
+
   CUDA local::B deduce(int i) {
     assert(i < num_deductions());
     if(is_top()) { return false; }
@@ -750,7 +752,7 @@ public:
   }
 
   template<class Env, class Allocator2 = typename Env::allocator_type>
-  CUDA NI TFormula<Allocator2> deinterpret(const Env& env, Allocator2 allocator = Allocator2()) const {
+  CUDA NI TFormula<Allocator2> deinterpret(const Env& env, bool remove_entailed, size_t& num_entailed, Allocator2 allocator = Allocator2()) const {
     using F = TFormula<Allocator2>;
     if(props->size() == 0) {
       return sub->deinterpret(env, allocator);
@@ -758,9 +760,20 @@ public:
     typename F::Sequence seq{allocator};
     seq.push_back(sub->deinterpret(env, allocator));
     for(int i = 0; i < props->size(); ++i) {
-      seq.push_back((*props)[i].deinterpret(*sub, env, aty(), allocator));
+      if(remove_entailed && ask(i)) {
+        ++num_entailed;
+      }
+      else {
+        seq.push_back((*props)[i].deinterpret(*sub, env, aty(), allocator));
+      }
     }
     return F::make_nary(AND, std::move(seq), aty());
+  }
+
+  template<class Env, class Allocator2 = typename Env::allocator_type>
+  CUDA NI TFormula<Allocator2> deinterpret(const Env& env, Allocator2 allocator = Allocator2()) const {
+    size_t num_entailed = 0;
+    return deinterpret(env, false, num_entailed, allocator);
   }
 
   template<class I, class Env, class Allocator2 = typename Env::allocator_type>

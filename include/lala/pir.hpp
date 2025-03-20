@@ -178,6 +178,7 @@ private:
     auto alloc = deps.template get_allocator<allocator_type>();
     if constexpr(std::is_same_v<allocator_type, Alloc2>) {
       if(deps.is_shared_copy()) {
+        assert(static_cast<bool>(other.bytecodes));
         return other.bytecodes;
       }
     }
@@ -250,9 +251,9 @@ private:
     if(f.is_binary()) {
       Sig sig = f.sig();
       // Expect constraint of the form X = Y <OP> Z, or Y <OP> Z = X.
-      int left = f.seq(0).is_binary();
-      int right = f.seq(1).is_binary();
-      if(sig == EQ && (left || right)) {
+      int left = f.seq(0).is_binary() ? 1 : 0;
+      int right = f.seq(1).is_binary() ? 1 : 0;
+      if(sig == EQ && (left + right == 1)) {
         auto& X = f.seq(left);
         auto& Y = f.seq(right).seq(0);
         auto& Z = f.seq(right).seq(1);
@@ -353,13 +354,13 @@ private:
     // Reified constraint: X = (Y = Z) and X = (Y <= Z).
     if(bytecode.op == EQ || bytecode.op == LEQ) {
       // Y [op] Z
-      if(r1 >= ONE) {
+      if(r1 <= ONE) {
         return bytecode.op == EQ
           ? (r2 == r3 && r2.lb().value() == r2.ub().value())
           : r2.ub().value() <= r3.lb().value();
       }
       // not (Y [op] Z)
-      else if(r1 >= ZERO) {
+      else if(r1 <= ZERO) {
         return bytecode.op == EQ
           ? fmeet(r2, r3).is_bot().value()
           : r2.lb().value() > r3.ub().value();
@@ -623,6 +624,7 @@ public:
 
   template <class Alloc2 = allocator_type>
   CUDA snapshot_type<Alloc2> snapshot(const Alloc2& alloc = Alloc2()) const {
+    assert(static_cast<bool>(bytecodes));
     return snapshot_type<Alloc2>(bytecodes->size(), sub->snapshot(alloc));
   }
 

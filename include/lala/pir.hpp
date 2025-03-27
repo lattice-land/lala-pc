@@ -101,6 +101,7 @@ public:
   template <class A2, class Alloc2>
   friend class PIR;
 
+  using bytecodes_type = battery::vector<bytecode_type, allocator_type>;
 private:
   AType atype;
   sub_ptr sub;
@@ -111,7 +112,6 @@ private:
   static_assert(sizeof(int) == sizeof(AVar), "The size of AVar must be equal to the size of an int.");
   static_assert(sizeof(int) == sizeof(Sig), "The size of Sig must be equal to the size of an int.");
 
-  using bytecodes_type = battery::vector<bytecode_type, allocator_type>;
   using bytecodes_ptr = battery::root_ptr<battery::vector<bytecode_type, allocator_type>, allocator_type>;
 
   /** We represent the constraints X = Y [op] Z. */
@@ -160,6 +160,14 @@ public:
    , ZERO(local_universe_type::eq_zero())
    , ONE(local_universe_type::eq_one())
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, alloc))
+  {}
+
+  template <class PIR2>
+  CUDA PIR(const PIR2& other, sub_ptr sub, const allocator_type& alloc = allocator_type{})
+   : atype(atype), sub(sub)
+   , ZERO(local_universe_type::eq_zero())
+   , ONE(local_universe_type::eq_one())
+   , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, *(other.bytecodes), alloc))
   {}
 
   CUDA PIR(PIR&& other)

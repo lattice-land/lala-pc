@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <gtest/gtest-spi.h>
 #include "abstract_testing.hpp"
+#include "bound_consistency_test.hpp"
 
 #include "battery/vector.hpp"
 #include "battery/shared_ptr.hpp"
@@ -21,9 +22,6 @@ using namespace battery;
 
 using F = TFormula<standard_allocator>;
 
-using zlb = local::ZLB;
-using zub = local::ZUB;
-using Itv = Interval<zlb>;
 using IStore = VStore<Itv, standard_allocator>;
 using IPC = PC<IStore>; // Interval Propagators Completion
 
@@ -106,61 +104,8 @@ void deduce_and_test(L& ipc, int num_deds, const std::vector<Itv>& before_after,
   deduce_and_test(ipc, num_deds, before_after, before_after, is_ua, false);
 }
 
-template<class L>
-void deduce_and_test2(L& ipc, const std::vector<Itv>& before, const std::vector<Itv>& after) {
-  for(int i = 0; i < before.size(); ++i) {
-    EXPECT_EQ(ipc[i], before[i]) << "ipc[" << i << "]";
-  }
-  local::B has_changed = false;
-  GaussSeidelIteration{}.fixpoint(
-    ipc.num_deductions(),
-    [&](size_t i) { return ipc.deduce(i); },
-    has_changed);
-  for(int i = 0; i < after.size(); ++i) {
-    EXPECT_EQ(ipc[i], after[i]) << "ipc[" << i << "]";
-  }
-}
-
-template <class F>
-void test_propagator(const char* pred_name, F pred) {
-  int minval = -5;
-  int maxval = 5;
-  std::vector<Itv> itvs{Itv(minval,-2), Itv(minval,0), Itv(minval,maxval), Itv(-2,2), Itv(-1,-1), Itv(0,0), Itv(1,1), Itv(2,2), Itv(0, maxval), Itv(2, maxval)};
-  for(int i = 0; i < itvs.size(); ++i) {
-    for(int j = 0; j < itvs.size(); ++j) {
-      for(int k = 0; k < itvs.size(); ++k) {
-        Itv x = itvs[i];
-        Itv y = itvs[j];
-        Itv z = itvs[k];
-
-        std::string fzn = std::format("var {}..{}: x; var {}..{}: y; var {}..{}: z;\
-          constraint {}(x, y, z);", x.lb().value(), x.ub().value(), y.lb().value(), y.ub().value(), z.lb().value(), z.ub().value(), pred_name);
-
-        std::vector<int> xs, ys, zs;
-        for(int a = x.lb().value(); a <= x.ub().value(); ++a) {
-          for(int b = y.lb().value(); b <= y.ub().value(); ++b) {
-            for(int c = z.lb().value(); c <= z.ub().value(); ++c) {
-              if(pred(a, b, c)) {
-                xs.push_back(a);
-                ys.push_back(b);
-                zs.push_back(c);
-              }
-            }
-          }
-        }
-        Itv x2 = xs.empty() ? Itv::bot() : Itv(std::ranges::min(xs), std::ranges::max(xs));
-        Itv y2 = ys.empty() ? Itv::bot() : Itv(std::ranges::min(ys), std::ranges::max(ys));
-        Itv z2 = zs.empty() ? Itv::bot() : Itv(std::ranges::min(zs), std::ranges::max(zs));
-
-        IPC ipc = create_and_interpret_and_tell<IPC>(fzn.data());
-        deduce_and_test2(ipc, {x,y,z}, {x2,y2,z2});
-      }
-    }
-  }
-}
-
 TEST(IPCTest, TernaryPropagatorTest) {
-  test_propagator("int_plus", [](int x, int y, int z) { return x + y == z; });
+  // test_bound_propagator<IPC>("int_plus", [](int x, int y, int z) { return x + y == z; });
   // test_propagator("int_times", [](int x, int y, int z) { return x * y == z; });
   // test_propagator("int_div", [](int x, int y, int z) { return y != 0 && x / y == z; });
 }

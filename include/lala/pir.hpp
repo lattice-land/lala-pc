@@ -261,7 +261,7 @@ private:
       // Expect constraint of the form X = Y <OP> Z, or Y <OP> Z = X.
       int left = f.seq(0).is_binary() ? 1 : 0;
       int right = f.seq(1).is_binary() ? 1 : 0;
-      if(sig == EQ && (left + right == 1)) {
+      if((sig == EQ || sig == EQUIV)  && (left + right == 1)) {
         auto& X = f.seq(left);
         auto& Y = f.seq(right).seq(0);
         auto& Z = f.seq(right).seq(1);
@@ -330,6 +330,9 @@ public:
       bytecodes->reserve(bytecodes->size() + t.bytecodes.size());
       for(int i = 0; i < t.bytecodes.size(); ++i) {
         bytecodes->push_back(t.bytecodes[i]);
+        if(t.bytecodes[i].op == EQ || t.bytecodes[i].op == LEQ) {
+          sub->embed(t.bytecodes[i].x, local_universe_type(0,1));
+        }
       }
     /** This is sorting the constraints `X = Y <op> Z` according to <OP>.
      * Note that battery::sorti is much slower than std::sort, therefore the #ifdef. */
@@ -419,187 +422,166 @@ public:
     return deduce(load_deduce(i));
   }
 
+  using Itv = local_universe_type;
+  using value_t = typename Itv::LB::value_type;
+
+// Some defines to make the code more readable, and closer from the paper, without introducing local variables.
+#define xl r1.lb().value()
+#define xu r1.ub().value()
+#define yl r2.lb().value()
+#define yu r2.ub().value()
+#define zl r3.lb().value()
+#define zu r3.ub().value()
+
+#define INF std::numeric_limits<value_t>::max()
+#define MINF std::numeric_limits<value_t>::min()
+
+  // r1 = r2 / r3
+  CUDA INLINE void ediv(Itv& r1, Itv& r2, Itv& r3) {
+    if(zl < 0 && zu > 0) {
+      r1.lb() = ::max(xl, ::min(yl, yu == MINF ? INF : -yu));
+      r1.ub() = ::min(xu, ::max(yl == INF ? MINF : -yl, yu));
+    }
+    else {
+      if(zl == 0) { r3.lb() = 1; }
+      if(zu == 0) { r3.ub() = -1; }
+      if(yl == MINF || yu == INF || zl == MINF || zu == INF) { return; }
+      auto t1 = battery::ediv(yl, zl);
+      auto t2 = battery::ediv(yl, zu);
+      auto t3 = battery::ediv(yu, zl);
+      auto t4 = battery::ediv(yu, zu);
+      r1.lb() = ::max(xl, ::min(::min(t1, t2), ::min(t3, t4)));
+      r1.ub() = ::min(xu, ::max(::max(t1, t2), ::max(t3, t4)));
+    }
+  }
+
+  CUDA INLINE void mul_inv(Itv& r1, Itv& r2, Itv& r3) {
+    if(zl < 0 && zu > 0) {
+      if(yl > 0 || yu < 0) {
+        r1.lb() = ::max(xl, ::min(yl, yu == MINF ? INF : -yu));
+        r1.ub() = ::min(xu, ::max(yl == INF ? MINF : -yl, yu));
+      }
+    }
+    else {
+      if(zl == 0) { r3.lb() = 1; }
+      if(zu == 0) { r3.ub() = -1; }
+      if(yl == MINF || yu == INF || zl == MINF || zu == INF) { return; }
+      r1.lb() = ::max(xl, ::min(::min(battery::cdiv(yl, zl), battery::cdiv(yl, zu)), ::min(battery::cdiv(yu, zl), battery::cdiv(yu, zu))));
+      r1.ub() = ::min(xu, ::max(::max(battery::fdiv(yl, zl), battery::fdiv(yl, zu)), ::max(battery::fdiv(yu, zl), battery::fdiv(yu, zu))));
+    }
+  }
+
   CUDA local::B deduce(bytecode_type bytecode) {
     local::B has_changed = false;
     // We load the variables.
-    local_universe_type r1((*sub)[bytecode.x]);
-    local_universe_type r2((*sub)[bytecode.y]);
-    local_universe_type r3((*sub)[bytecode.z]);
-    // Reified constraint: X = (Y = Z) and X = (Y <= Z).
-    if(bytecode.op == EQ || bytecode.op == LEQ) {
-      // Y [op] Z
-      if(r1 <= ONE) {
-        if(bytecode.op == LEQ) {
-          r3.join_lb(LB::top());
-          r2.join_ub(UB::top());
-        }
-        has_changed |= sub->embed(bytecode.y, r3);
-        has_changed |= sub->embed(bytecode.z, r2);
-      }
-      // not (Y [op] Z)
-      else if(r1 <= ZERO) {
-        if(bytecode.op == EQ) {
-          if(r2.lb().value() == r2.ub().value()) {
-            r1 = r3;
-            r1.meet_lb(LB::prev(r2.lb()));
-            r3.meet_ub(UB::prev(r2.ub()));
-            has_changed |= sub->embed(bytecode.z, fjoin(r1,r3));
-          }
-          else if(r3.lb().value() == r3.ub().value()) {
-            r1 = r2;
-            r1.meet_lb(LB::prev(r3.lb()));
-            r2.meet_ub(UB::prev(r3.ub()));
-            has_changed |= sub->embed(bytecode.y, fjoin(r1,r2));
-          }
-        }
-        else {
-          assert(bytecode.op == LEQ);
-          r2.meet_lb(LB::prev(r3.lb()));
-          r3.meet_ub(UB::prev(r2.ub()));
-          has_changed |= sub->embed(bytecode.y, r2);
-          has_changed |= sub->embed(bytecode.z, r3);
-        }
-      }
-      // X <- 1
-      else if(r2.ub().value() <= r3.lb().value() && (bytecode.op == LEQ || r2.lb().value() == r3.ub().value())) {
-        has_changed |= sub->embed(bytecode.x, ONE);
-      }
-      // X <- 0
-      else if(r2.lb().value() > r3.ub().value() || (bytecode.op == EQ && r2.ub().value() < r3.lb().value())) {
-        has_changed |= sub->embed(bytecode.x, ZERO);
-      }
-    }
-    // Arithmetic constraint: X = Y + Z, X = Y - Z, ...
-    else {
-      // X <- Y [op] Z
-      r1.project(bytecode.op, r2, r3);
-      has_changed |= sub->embed(bytecode.x, r1);
+    Itv r1((*sub)[bytecode.x]);
+    Itv r2((*sub)[bytecode.y]);
+    Itv r3((*sub)[bytecode.z]);
+    value_t t1, t2, t3, t4; // Temporary variables for multiplication.
 
-      // Y <- X <left residual> Z
-      switch(bytecode.op) {
-        case ADD: pc::GroupAdd<local_universe_type>::left_residual(r1, r3, r2); break;
-        case MUL: pc::GroupMul<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
-        case EDIV: pc::GroupDiv<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
-        case EMOD: {
-          if(r1.is_bot() || r3.is_bot()) {
-            r2.meet_bot();
-          }
-          break;
+    switch(bytecode.op) {
+      case EQ: {
+        if(r1 == ONE) {
+          has_changed |= sub->embed(bytecode.y, r3);
+          has_changed |= sub->embed(bytecode.z, r2);
         }
-        case MIN: pc::GroupMinMax<local_universe_type, MIN>::left_residual(r1, r3, r2); break;
-        case MAX: pc::GroupMinMax<local_universe_type, MAX>::left_residual(r1, r3, r2); break;
-        default: assert(false);
-      }
-      has_changed |= sub->embed(bytecode.y, r2);
-
-      // Z <- X <right residual> Y
-      switch(bytecode.op) {
-        case ADD: pc::GroupAdd<local_universe_type>::right_residual(r1, r2, r3); break;
-        case MUL: pc::GroupMul<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
-        case EDIV: pc::GroupDiv<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
-        case EMOD: {
-          if(r1.is_bot() || r2.is_bot()) {
-            r3.meet_bot();
-          }
-          break;
+        else if(r1 == ZERO && (yl == yu || zl == zu)) {
+          has_changed |= sub->embed(zl == zu ? bytecode.y : bytecode.z, // If z is a singleton, we update y, and vice-versa.
+            Itv(
+              yl == zl ? yl + 1 : LB::top().value(),
+              yu == zu ? yu - 1 : UB::top().value()));
         }
-        case MIN: pc::GroupMinMax<local_universe_type, MIN>::right_residual(r1, r2, r3); break;
-        case MAX: pc::GroupMinMax<local_universe_type, MAX>::right_residual(r1, r2, r3); break;
-        default: assert(false);
+        else if(yu <= zl && yl == zu) { has_changed |= sub->embed(bytecode.x, ONE); }
+        else if(yl > zu || yu < zl) { has_changed |= sub->embed(bytecode.x, ZERO); }
+        return has_changed;
       }
-      has_changed |= sub->embed(bytecode.z, r3);
+      case LEQ: {
+        if(r1 == ONE) {
+          has_changed |= sub->embed(bytecode.y, Itv(yl, zu));
+          has_changed |= sub->embed(bytecode.z, Itv(yl, zu));
+        }
+        else if(r1 == ZERO) {
+          has_changed |= sub->embed(bytecode.y, Itv(zl + 1, yu));
+          has_changed |= sub->embed(bytecode.z, Itv(zl, yu - 1));
+        }
+        else if(yu <= zl) { has_changed |= sub->embed(bytecode.x, ONE); }
+        else if(yl > zu) { has_changed |= sub->embed(bytecode.x, ZERO); }
+        return has_changed;
+      }
+      case ADD: {
+        r1.lb() = (yl == MINF || zl == MINF) ? xl : ::max(xl, yl + zl);
+        r1.ub() = (yu == INF || zu == INF) ? xu : ::min(xu, yu + zu);
+        r2.lb() = (xl == MINF || zu == INF) ? yl : ::max(yl, xl - zu);
+        r2.ub() = (xu == INF || zl == MINF) ? yu : ::min(yu, xu - zl);
+        r3.lb() = (xl == MINF || xu == INF) ? zl : ::max(zl, xl - yu);
+        r3.ub() = (xu == INF || yl == MINF) ? zu : ::min(zu, xu - yl);
+        break;
+      }
+      case MUL: {
+        if(yl != MINF && yu != INF && zl != MINF && zu != INF) {
+          t1 = yl * zl;
+          t2 = yl * zu;
+          t3 = yu * zl;
+          t4 = yu * zu;
+          r1.lb() = ::max(xl, ::min(::min(t1, t2), ::min(t3, t4)));
+          r1.ub() = ::min(xu, ::max(::max(t1, t2), ::max(t3, t4)));
+        }
+        if(xl > 0 || xu < 0 || zl > 0 || zu < 0) {
+          mul_inv(r2, r1, r3);
+        }
+        if(xl > 0 || xu < 0 || yl > 0 || yu < 0) {
+          mul_inv(r3, r1, r2);
+        }
+        break;
+      }
+      case EDIV: {
+        ediv(r1, r2, r3);
+        if(xl != MINF && xu != INF && zl != MINF && zu != INF) {
+          t1 = xl * zl;
+          t2 = xl * zu;
+          t3 = xu * zl;
+          t4 = xu * zu;
+          r2.lb() = ::max(yl, ::min(::min(t1, t2), ::min(t3, t4)));
+          r2.ub() = ::min(yu, ::max(zu - 1, ::max(::max(t1, t2), ::max(t3, t4))));
+        }
+        if((yl > 0 || yu < 0) && (xl > 0 || xu < 0)) { ediv(r3, r2, r1); }
+        break;
+      }
+      case EMOD: { break; } // No propagation currently (only a checker in `ask`).
+      case MIN: {
+        r1.lb() = ::max(xl, ::min(yl, zl));
+        r1.ub() = ::min(xu, ::min(yu, zu));
+        r2.lb() = ::max(yl, xl);
+        if(xu < zl) { r2.ub() = ::min(yu, xu); }
+        r3.lb() = ::max(zl, xl);
+        if(xu < yl) { r3.ub() = ::min(zu, xu); }
+        break;
+      }
+      case MAX: {
+        r1.lb() = ::max(xl, ::max(yl, zl));
+        r1.ub() = ::min(xu, ::max(yu, zu));
+        r2.ub() = ::min(yu, xu);
+        if(xl > zu) { r2.lb() = ::max(yl, xl); }
+        r3.ub() = ::min(zu, xu);
+        if(xl > yu) { r3.lb() = ::max(zl, xl); }
+        break;
+      }
+      default: assert(false);
     }
+    has_changed |= sub->embed(bytecode.x, r1);
+    has_changed |= sub->embed(bytecode.y, r2);
+    has_changed |= sub->embed(bytecode.z, r3);
     return has_changed;
   }
 
-  // using event_type = battery::bitset<3, battery::local_memory, unsigned int>;
-  // CUDA event_type deduce(bytecode_type& bytecode) {
-  //   event_type has_changed;
-
-  //   // We load the variables.
-  //   local_universe_type r1;
-  //   local_universe_type r2((*sub)[bytecode.y]);
-  //   local_universe_type r3((*sub)[bytecode.z]);
-  //   // Reified constraint: X = (Y = Z) and X = (Y <= Z).
-  //   if(bytecode.op == EQ || bytecode.op == LEQ) {
-  //     r1 = (*sub)[bytecode.x];
-  //     // Y [op] Z
-  //     if(r1 <= ONE) {
-  //       if(bytecode.op == LEQ) {
-  //         r3.join_lb(LB::top());
-  //         r2.join_ub(UB::top());
-  //       }
-  //       has_changed.set(1, sub->embed(bytecode.y, r3));
-  //       has_changed.set(2, sub->embed(bytecode.z, r2));
-  //     }
-  //     // not (Y [op] Z)
-  //     else if(r1 <= ZERO) {
-  //       if(bytecode.op == EQ) {
-  //         if(r2.lb().value() == r2.ub().value()) {
-  //           r1 = r3;
-  //           r1.meet_lb(LB::prev(r2.lb()));
-  //           r3.meet_ub(UB::prev(r2.ub()));
-  //           has_changed.set(2, sub->embed(bytecode.z, fjoin(r1,r3)));
-  //         }
-  //         else if(r3.lb().value() == r3.ub().value()) {
-  //           r1 = r2;
-  //           r1.meet_lb(LB::prev(r3.lb()));
-  //           r2.meet_ub(UB::prev(r3.ub()));
-  //           has_changed.set(1, sub->embed(bytecode.y, fjoin(r1,r2)));
-  //         }
-  //       }
-  //       else {
-  //         assert(bytecode.op == LEQ);
-  //         r2.meet_lb(LB::prev(r3.lb()));
-  //         r3.meet_ub(UB::prev(r2.ub()));
-  //         has_changed.set(1, sub->embed(bytecode.y, r2));
-  //         has_changed.set(2, sub->embed(bytecode.z, r3));
-  //       }
-  //     }
-  //     // X <- 1
-  //     else if(r2.ub().value() <= r3.lb().value() && (bytecode.op == LEQ || r2.lb().value() == r3.ub().value())) {
-  //       has_changed.set(0, sub->embed(bytecode.x, ONE));
-  //     }
-  //     // X <- 0
-  //     else if(r2.lb().value() > r3.ub().value() || (bytecode.op == EQ && r2.ub().value() < r3.lb().value())) {
-  //       has_changed.set(0, sub->embed(bytecode.x, ZERO));
-  //     }
-  //   }
-  //   // Arithmetic constraint: X = Y + Z, X = Y - Z, ...
-  //   else {
-  //     // X <- Y [op] Z
-  //     r1.project(bytecode.op, r2, r3);
-  //     has_changed.set(0, sub->embed(bytecode.x, r1));
-
-  //     // Y <- X <left residual> Z
-  //     r1 = (*sub)[bytecode.x];
-  //     switch(bytecode.op) {
-  //       case ADD: pc::GroupAdd<local_universe_type>::left_residual(r1, r3, r2); break;
-  //       case SUB: pc::GroupSub<local_universe_type>::left_residual(r1, r3, r2); break;
-  //       case MUL: pc::GroupMul<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
-  //       case EDIV: pc::GroupDiv<local_universe_type, EDIV>::left_residual(r1, r3, r2); break;
-  //       case MIN: pc::GroupMinMax<local_universe_type, MIN>::left_residual(r1, r3, r2); break;
-  //       case MAX: pc::GroupMinMax<local_universe_type, MAX>::left_residual(r1, r3, r2); break;
-  //       default: assert(false);
-  //     }
-  //     has_changed.set(1, sub->embed(bytecode.y, r2));
-
-  //     // Z <- X <right residual> Y
-  //     r2 = (*sub)[bytecode.y];
-  //     r3.join_top();
-  //     switch(bytecode.op) {
-  //       case ADD: pc::GroupAdd<local_universe_type>::right_residual(r1, r2, r3); break;
-  //       case SUB: pc::GroupSub<local_universe_type>::right_residual(r1, r2, r3); break;
-  //       case MUL: pc::GroupMul<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
-  //       case EDIV: pc::GroupDiv<local_universe_type, EDIV>::right_residual(r1, r2, r3); break;
-  //       case MIN: pc::GroupMinMax<local_universe_type, MIN>::right_residual(r1, r2, r3); break;
-  //       case MAX: pc::GroupMinMax<local_universe_type, MAX>::right_residual(r1, r2, r3); break;
-  //       default: assert(false);
-  //     }
-  //     has_changed.set(2, sub->embed(bytecode.z, r3));
-  //   }
-  //   return has_changed;
-  // }
+#undef xl
+#undef xu
+#undef yl
+#undef yu
+#undef zl
+#undef zu
+#undef INF
+#undef MINF
 
   // Functions forwarded to the sub-domain `A`.
 

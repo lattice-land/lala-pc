@@ -355,38 +355,6 @@ public:
     return sub->embed(x, dom);
   }
 
-private:
-  CUDA local::B ask(bytecode_type bytecode) const {
-    // We load the variables.
-    local_universe_type r1((*sub)[bytecode.x]);
-    local_universe_type r2((*sub)[bytecode.y]);
-    local_universe_type r3((*sub)[bytecode.z]);
-
-    // Reified constraint: X = (Y = Z) and X = (Y <= Z).
-    if(bytecode.op == EQ || bytecode.op == LEQ) {
-      // Y [op] Z
-      if(r1 <= ONE) {
-        return bytecode.op == EQ
-          ? (r2 == r3 && r2.lb().value() == r2.ub().value())
-          : r2.ub().value() <= r3.lb().value();
-      }
-      // not (Y [op] Z)
-      else if(r1 <= ZERO) {
-        return bytecode.op == EQ
-          ? fmeet(r2, r3).is_bot().value()
-          : r2.lb().value() > r3.ub().value();
-      }
-      // We need `r1` to be a singleton to decide whether the constraint is entailed.
-      return false;
-    }
-    // Arithmetic constraint: X = Y + Z, X = Y - Z, ...
-    else {
-      local_universe_type right;
-      right.project(bytecode.op, r2, r3);
-      return (bytecode.op != EDIV || r3.lb().value() > 0 || r3.ub().value() < 0) && right == r1 && r1.lb().value() == r1.ub().value();
-    }
-  }
-
 public:
   CUDA INLINE bytecode_type load_deduce(int i) const {
   #ifdef __CUDA_ARCH__
@@ -436,6 +404,28 @@ public:
 #define INF std::numeric_limits<value_t>::max()
 #define MINF std::numeric_limits<value_t>::min()
 
+private:
+  CUDA local::B ask(bytecode_type bytecode) const {
+    // We load the variables.
+    local_universe_type r1((*sub)[bytecode.x]);
+    local_universe_type r2((*sub)[bytecode.y]);
+    local_universe_type r3((*sub)[bytecode.z]);
+    switch(bytecode.op) {
+      case EQ: return (xl == 1 && yu == zl && yl == zu) || (xu == 0 && (yu < zl || yl > zu));
+      case LEQ: return (xl == 1 && yu <= zl) || (xu == 0 && yl > zu);
+      case ADD: return (xl == xu && yl == yu && zl == zu && xl == yl + zl);
+      case MUL: return xl == xu &&
+                        ((yl == yu && zl == zu && xl == yl * zl)
+                      || (xl == 0 && ((yl == yu && yl == 0) || (zl == zu && zl == 0))));
+      case EDIV: return (xl == xu && yl == yu && zl == zu && zl != 0 && xl == battery::ediv(yl, zl))
+                     || (xl == yu && xu == yl && xl == 0 && (zl > 0 || zu < 0)); // 0 = 0 / z (z != 0).
+      case EMOD: return (xl == xu && yl == yu && zl == zu && zl != 0 && xl == battery::emod(yl, zl));
+      case MIN:
+      case MAX: return (xl == yu && xu == yl) || (xl == zu && xu == zl);
+      default: assert(false); return false;
+    }
+  }
+
   // r1 = r2 / r3
   CUDA INLINE void ediv(Itv& r1, Itv& r2, Itv& r3) {
     if(zl < 0 && zu > 0) {
@@ -471,6 +461,7 @@ public:
     }
   }
 
+public:
   CUDA local::B deduce(bytecode_type bytecode) {
     local::B has_changed = false;
     // We load the variables.
@@ -546,8 +537,17 @@ public:
         //   r2.ub() = ::min(yu, ::max(zu - 1, ::max(::max(t1, t2), ::max(t3, t4))));
         // }
         // if((yl > 0 || yu < 0) && (xl > 0 || xu < 0)) { ediv(r3, r2, r1); }
+        break;
       }
-      case EMOD: { break; } // No propagation currently (only a checker in `ask`).
+      case EMOD: {
+        if(zl == 0) { r3.lb() = 1; }
+        if(zu == 0) { r3.ub() = -1; }
+        if(yl == yu && zl == zu) {
+          r1.lb() = battery::emod(yl, zl);
+          r1.ub() = xl;
+        }
+        break;
+      }
       case MIN: {
         r1.lb() = ::max(xl, ::min(yl, zl));
         r1.ub() = ::min(xu, ::min(yu, zu));

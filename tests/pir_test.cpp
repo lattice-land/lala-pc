@@ -32,6 +32,14 @@ template <class L>
 void test_extract(const L& pir, bool is_ua) {
   AbstractDeps<standard_allocator> deps(standard_allocator{});
   L copy1(pir, deps);
+  if(is_ua) {
+    for(int i = 0; i < pir.vars(); ++i) {
+      printf("pir[%d] = [%d,%d]\n", i, pir[i].lb().value(), pir[i].ub().value());
+    }
+    for(int i = 0; i < pir.num_deductions(); ++i) {
+      EXPECT_TRUE(pir.ask(i)) << "pir.ask(" << i << ") == false";
+    }
+  }
   EXPECT_EQ(pir.is_extractable(), is_ua);
   if(pir.is_extractable()) {
     pir.extract(copy1);
@@ -117,6 +125,7 @@ TEST(PIRTest, TernaryPropagatorTest) {
   test_bound_propagator<IPIR>("int_max", [](int x, int y, int z) { return x == std::max(y, z); });
   test_bound_propagator<IPIR>("int_times", [](int x, int y, int z) { return x == y * z; }, false);
   test_bound_propagator<IPIR>("int_div", [](int x, int y, int z) { return z != 0 && x == battery::ediv(y, z); }, false);
+  test_bound_propagator<IPIR>("int_mod", [](int x, int y, int z) { return z != 0 && x == battery::emod(y, z); }, false);
 }
 
 TEST(PIRTest, TernaryProblem) {
@@ -786,7 +795,7 @@ TEST(PIRTest, IntDiv2) {
   IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
     var 0..1: y;\
     constraint int_div(y,2,0);", env);
-  deduce_and_test(pir, 1, {Itv(0, 1)}, true);
+  deduce_and_test(pir, 1, {Itv(0, 1)}, false); // NOTE: We could detect entailment but int_div is currently incomplete.
   interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 1);", pir, env);
   deduce_and_test(pir, 1, {Itv(1, 1)}, true);
 }

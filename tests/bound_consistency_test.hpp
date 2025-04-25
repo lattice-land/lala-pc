@@ -43,7 +43,7 @@ void deduce_and_test2(L& ipc, const std::vector<Itv>& before, const std::vector<
   else {
     for(int i = 0; i < after.size(); ++i) {
       if(test_completeness) {
-        EXPECT_EQ(ipc[i], after[i]) << ipc[i] << " >= " << after[i] << "ipc[" << i << "]";
+        EXPECT_EQ(ipc[i], after[i]) << ipc[i] << " == " << after[i] << "ipc[" << i << "]";
       }
       else {
         EXPECT_TRUE(ipc[i] >= after[i]) << ipc[i] << " >= " << after[i] << " is false (unsound) ipc[" << i << "]";

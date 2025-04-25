@@ -46,7 +46,7 @@ void deduce_and_test2(L& ipc, const std::vector<Itv>& before, const std::vector<
         EXPECT_EQ(ipc[i], after[i]) << ipc[i] << " >= " << after[i] << "ipc[" << i << "]";
       }
       else {
-        EXPECT_TRUE(ipc[i] >= after[i]) << ipc[i] << " >= " << after[i] << " (unsound) ipc[" << i << "]";
+        EXPECT_TRUE(ipc[i] >= after[i]) << ipc[i] << " >= " << after[i] << " is false (unsound) ipc[" << i << "]";
       }
     }
   }
@@ -85,6 +85,29 @@ void test_bound_propagator(const char* pred_name, F pred, bool test_completeness
 
         A a = create_and_interpret_and_tell<A, true>(fzn.data());
         deduce_and_test2(a, {x,y,z}, {x2,y2,z2}, test_completeness, disable_before_test);
+
+        if(!a.is_bot()) {
+          bool abstract_entailed = true;
+          for(int i = 0; i < a.num_deductions(); ++i) {
+            abstract_entailed &= a.ask(i);
+          }
+          bool is_bot = x2.is_bot() || y2.is_bot() || z2.is_bot();
+          if(is_bot) {
+            EXPECT_FALSE(abstract_entailed);
+          }
+          else {
+            if(abstract_entailed) {
+              bool concrete_entailed = true;
+              for(int a = x2.lb().value(); concrete_entailed && a <= x2.ub().value(); ++a) {
+                for(int b = y2.lb().value(); b <= y2.ub().value(); ++b) {
+                  for(int c = z2.lb().value(); c <= z2.ub().value(); ++c) {
+                    EXPECT_TRUE(pred(a, b, c)) << "The constraint is not entailed on (" << a << ", " << b << ", " << c << ") " << fzn;
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

@@ -80,6 +80,35 @@ void deduce_and_test_bot(L& pir, int num_deds, const std::vector<Itv>& before) {
   EXPECT_TRUE(pir.is_bot());
 }
 
+TEST(PIRTest, TernaryDiv) {
+  Itv x = Itv(-4, 4);
+  Itv y = Itv(-4, 4);
+  Itv z = Itv(-5, -5);
+
+  std::string fzn = std::format("var {}..{}: x; var {}..{}: y; var {}..{}: z;\
+    constraint {}(y, z, x);", x.lb().value(), x.ub().value(), y.lb().value(), y.ub().value(), z.lb().value(), z.ub().value(), "int_div");
+
+  std::vector<int> xs, ys, zs;
+  for(int a = x.lb().value(); a <= x.ub().value(); ++a) {
+    for(int b = y.lb().value(); b <= y.ub().value(); ++b) {
+      for(int c = z.lb().value(); c <= z.ub().value(); ++c) {
+        if(c != 0 && a == battery::ediv(b, c)) {
+          xs.push_back(a);
+          ys.push_back(b);
+          zs.push_back(c);
+          printf("%d = %d ediv %d\n", a, b, c);
+        }
+      }
+    }
+  }
+  Itv x2 = xs.empty() ? Itv::bot() : Itv(std::ranges::min(xs), std::ranges::max(xs));
+  Itv y2 = ys.empty() ? Itv::bot() : Itv(std::ranges::min(ys), std::ranges::max(ys));
+  Itv z2 = zs.empty() ? Itv::bot() : Itv(std::ranges::min(zs), std::ranges::max(zs));
+
+  IPIR a = create_and_interpret_and_tell<IPIR, true>(fzn.data());
+  deduce_and_test2(a, {x,y,z}, {x2, y2, z2}, false, false);
+}
+
 TEST(PIRTest, TernaryPropagatorTest) {
   test_bound_propagator<IPIR>("int_eq_reif", [](int x, int y, int z) { return (x == 0 || x == 1) && x == (y == z); }, true, true);
   test_bound_propagator<IPIR>("int_le_reif", [](int x, int y, int z) { return (x == 0 || x == 1) && x == (y <= z); }, true, true);
@@ -87,7 +116,7 @@ TEST(PIRTest, TernaryPropagatorTest) {
   test_bound_propagator<IPIR>("int_min", [](int x, int y, int z) { return x == std::min(y, z); });
   test_bound_propagator<IPIR>("int_max", [](int x, int y, int z) { return x == std::max(y, z); });
   test_bound_propagator<IPIR>("int_times", [](int x, int y, int z) { return x == y * z; }, false);
-  // test_bound_propagator<IPIR>("int_div", [](int x, int y, int z) { return z != 0 && x == battery::ediv(y, z); }, false);
+  test_bound_propagator<IPIR>("int_div", [](int x, int y, int z) { return z != 0 && x == battery::ediv(y, z); }, false);
 }
 
 TEST(PIRTest, TernaryProblem) {

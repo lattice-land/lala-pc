@@ -383,7 +383,7 @@ private:
     else {
       local_universe_type right;
       right.project(bytecode.op, r2, r3);
-      return right == r1 && r1.lb().value() == r1.ub().value();
+      return (bytecode.op != EDIV || r3.lb().value() > 0 || r3.ub().value() < 0) && right == r1 && r1.lb().value() == r1.ub().value();
     }
   }
 
@@ -491,7 +491,7 @@ public:
               yl == zl ? yl + 1 : LB::top().value(),
               yu == zu ? yu - 1 : UB::top().value()));
         }
-        else if(yu <= zl && yl == zu) { has_changed |= sub->embed(bytecode.x, ONE); }
+        else if(yu == zl && yl == zu) { has_changed |= sub->embed(bytecode.x, ONE); }
         else if(yl > zu || yu < zl) { has_changed |= sub->embed(bytecode.x, ZERO); }
         return has_changed;
       }
@@ -536,16 +536,16 @@ public:
       }
       case EDIV: {
         ediv(r1, r2, r3);
-        if(xl != MINF && xu != INF && zl != MINF && zu != INF) {
-          t1 = xl * zl;
-          t2 = xl * zu;
-          t3 = xu * zl;
-          t4 = xu * zu;
-          r2.lb() = ::max(yl, ::min(::min(t1, t2), ::min(t3, t4)));
-          r2.ub() = ::min(yu, ::max(zu - 1, ::max(::max(t1, t2), ::max(t3, t4))));
-        }
-        if((yl > 0 || yu < 0) && (xl > 0 || xu < 0)) { ediv(r3, r2, r1); }
-        break;
+        // The rest is currently not correct, we will see how to fix it.
+        // if(xl != MINF && xu != INF && zl != MINF && zu != INF) {
+        //   t1 = xl * zl;
+        //   t2 = xl * zu;
+        //   t3 = xu * zl;
+        //   t4 = xu * zu;
+        //   r2.lb() = ::max(yl, ::min(::min(t1, t2), ::min(t3, t4)));
+        //   r2.ub() = ::min(yu, ::max(zu - 1, ::max(::max(t1, t2), ::max(t3, t4))));
+        // }
+        // if((yl > 0 || yu < 0) && (xl > 0 || xu < 0)) { ediv(r3, r2, r1); }
       }
       case EMOD: { break; } // No propagation currently (only a checker in `ask`).
       case MIN: {

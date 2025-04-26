@@ -94,7 +94,7 @@ TEST(PIRTest, TernaryDiv) {
   Itv z = Itv(-5, -5);
 
   std::string fzn = std::format("var {}..{}: x; var {}..{}: y; var {}..{}: z;\
-    constraint {}(y, z, x);", x.lb().value(), x.ub().value(), y.lb().value(), y.ub().value(), z.lb().value(), z.ub().value(), "int_div");
+    constraint {}(y, z, x);", x.lb().value(), x.ub().value(), y.lb().value(), y.ub().value(), z.lb().value(), z.ub().value(), "int_ediv");
 
   std::vector<int> xs, ys, zs;
   for(int a = x.lb().value(); a <= x.ub().value(); ++a) {
@@ -124,7 +124,10 @@ TEST(PIRTest, TernaryPropagatorTest) {
   test_bound_propagator<IPIR>("int_min", [](int x, int y, int z) { return x == std::min(y, z); });
   test_bound_propagator<IPIR>("int_max", [](int x, int y, int z) { return x == std::max(y, z); });
   test_bound_propagator<IPIR>("int_times", [](int x, int y, int z) { return x == y * z; }, false);
-  test_bound_propagator<IPIR>("int_div", [](int x, int y, int z) { return z != 0 && x == battery::ediv(y, z); }, false);
+  test_bound_propagator<IPIR>("int_ediv", [](int x, int y, int z) { return z != 0 && x == battery::ediv(y, z); }, false);
+  test_bound_propagator<IPIR>("int_tdiv", [](int x, int y, int z) { return z != 0 && x == battery::tdiv(y, z); }, false);
+  test_bound_propagator<IPIR>("int_cdiv", [](int x, int y, int z) { return z != 0 && x == battery::cdiv(y, z); }, false);
+  test_bound_propagator<IPIR>("int_fdiv", [](int x, int y, int z) { return z != 0 && x == battery::fdiv(y, z); }, false);
   test_bound_propagator<IPIR>("int_mod", [](int x, int y, int z) { return z != 0 && x == battery::emod(y, z); }, false);
 }
 

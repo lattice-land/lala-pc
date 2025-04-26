@@ -268,7 +268,7 @@ private:
         bytecode_type bytecode;
         bytecode.op = f.seq(right).sig();
         if(X.is_variable() && Y.is_variable() && Z.is_variable() &&
-          (bytecode.op == ADD || bytecode.op == MUL || bytecode.op == EDIV || bytecode.op == EMOD
+          (bytecode.op == ADD || bytecode.op == MUL || is_z_division(bytecode.op) || bytecode.op == EMOD
           || bytecode.op == MIN || bytecode.op == MAX
           || bytecode.op == EQ || bytecode.op == LEQ))
         {
@@ -405,6 +405,16 @@ public:
 #define MINF std::numeric_limits<value_t>::min()
 
 private:
+  CUDA INLINE value_t div(value_t a, Sig op, value_t b) const {
+    switch(op) {
+      case TDIV: return battery::tdiv(a, b);
+      case CDIV: return battery::cdiv(a, b);
+      case FDIV: return battery::fdiv(a, b);
+      case EDIV: return battery::ediv(a, b);
+      default: assert(false); return a;
+    }
+  }
+
   CUDA local::B ask(bytecode_type bytecode) const {
     // We load the variables.
     local_universe_type r1((*sub)[bytecode.x]);
@@ -416,8 +426,11 @@ private:
       case ADD: return (xl == xu && yl == yu && zl == zu && xl == yl + zl);
       case MUL: return xl == xu &&
                         ((yl == yu && zl == zu && xl == yl * zl)
-                      || (xl == 0 && ((yl == yu && yl == 0) || (zl == zu && zl == 0))));
-      case EDIV: return (xl == xu && yl == yu && zl == zu && zl != 0 && xl == battery::ediv(yl, zl))
+                      || (xl == 0 && (r2 == 0 || r3 == 0)));
+      case TDIV:
+      case CDIV:
+      case FDIV:
+      case EDIV: return (xl == xu && yl == yu && zl == zu && zl != 0 && xl == div(yl, bytecode.op, zl))
                      || (xl == yu && xu == yl && xl == 0 && (zl > 0 || zu < 0)); // 0 = 0 / z (z != 0).
       case EMOD: return (xl == xu && yl == yu && zl == zu && zl != 0 && xl == battery::emod(yl, zl));
       case MIN:
@@ -435,7 +448,7 @@ private:
   }
 
   // r1 = r2 / r3
-  CUDA INLINE void ediv(Itv& r1, Itv& r2, Itv& r3) {
+  CUDA INLINE void itv_div(Sig op, Itv& r1, Itv& r2, Itv& r3) {
     if(zl < 0 && zu > 0) {
       r1.lb() = max(xl, min(yl, yu == MINF ? INF : -yu));
       r1.ub() = min(xu, max(yl == INF ? MINF : -yl, yu));
@@ -444,10 +457,10 @@ private:
       if(zl == 0) { r3.lb() = 1; }
       if(zu == 0) { r3.ub() = -1; }
       if(yl == MINF || yu == INF || zl == MINF || zu == INF) { return; }
-      auto t1 = battery::ediv(yl, zl);
-      auto t2 = battery::ediv(yl, zu);
-      auto t3 = battery::ediv(yu, zl);
-      auto t4 = battery::ediv(yu, zu);
+      auto t1 = div(yl, op, zl);
+      auto t2 = div(yl, op, zu);
+      auto t3 = div(yu, op, zl);
+      auto t4 = div(yu, op, zu);
       r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
       r1.ub() = min(xu, max(max(t1, t2), max(t3, t4)));
     }
@@ -533,8 +546,11 @@ public:
         }
         break;
       }
+      case TDIV:
+      case CDIV:
+      case FDIV:
       case EDIV: {
-        ediv(r1, r2, r3);
+        itv_div(bytecode.op, r1, r2, r3);
         // The rest is currently not correct, we will see how to fix it.
         // if(xl != MINF && xu != INF && zl != MINF && zu != INF) {
         //   t1 = xl * zl;
@@ -544,7 +560,7 @@ public:
         //   r2.lb() = max(yl, min(min(t1, t2), min(t3, t4)));
         //   r2.ub() = min(yu, max(zu - 1, max(max(t1, t2), max(t3, t4))));
         // }
-        // if((yl > 0 || yu < 0) && (xl > 0 || xu < 0)) { ediv(r3, r2, r1); }
+        // if((yl > 0 || yu < 0) && (xl > 0 || xu < 0)) { itv_div(bytecode.op, r3, r2, r1); }
         break;
       }
       case EMOD: {

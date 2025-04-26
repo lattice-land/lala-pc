@@ -426,11 +426,19 @@ private:
     }
   }
 
+  CUDA INLINE value_t min(value_t a, value_t b) {
+    return battery::min(a, b);
+  }
+
+  CUDA INLINE value_t max(value_t a, value_t b) {
+    return battery::max(a, b);
+  }
+
   // r1 = r2 / r3
   CUDA INLINE void ediv(Itv& r1, Itv& r2, Itv& r3) {
     if(zl < 0 && zu > 0) {
-      r1.lb() = ::max(xl, ::min(yl, yu == MINF ? INF : -yu));
-      r1.ub() = ::min(xu, ::max(yl == INF ? MINF : -yl, yu));
+      r1.lb() = max(xl, min(yl, yu == MINF ? INF : -yu));
+      r1.ub() = min(xu, max(yl == INF ? MINF : -yl, yu));
     }
     else {
       if(zl == 0) { r3.lb() = 1; }
@@ -440,24 +448,24 @@ private:
       auto t2 = battery::ediv(yl, zu);
       auto t3 = battery::ediv(yu, zl);
       auto t4 = battery::ediv(yu, zu);
-      r1.lb() = ::max(xl, ::min(::min(t1, t2), ::min(t3, t4)));
-      r1.ub() = ::min(xu, ::max(::max(t1, t2), ::max(t3, t4)));
+      r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
+      r1.ub() = min(xu, max(max(t1, t2), max(t3, t4)));
     }
   }
 
   CUDA INLINE void mul_inv(Itv& r1, Itv& r2, Itv& r3) {
     if(zl < 0 && zu > 0) {
       if(yl > 0 || yu < 0) {
-        r1.lb() = ::max(xl, ::min(yl, yu == MINF ? INF : -yu));
-        r1.ub() = ::min(xu, ::max(yl == INF ? MINF : -yl, yu));
+        r1.lb() = max(xl, min(yl, yu == MINF ? INF : -yu));
+        r1.ub() = min(xu, max(yl == INF ? MINF : -yl, yu));
       }
     }
     else {
       if(zl == 0) { r3.lb() = 1; }
       if(zu == 0) { r3.ub() = -1; }
       if(yl == MINF || yu == INF || zl == MINF || zu == INF) { return; }
-      r1.lb() = ::max(xl, ::min(::min(battery::cdiv(yl, zl), battery::cdiv(yl, zu)), ::min(battery::cdiv(yu, zl), battery::cdiv(yu, zu))));
-      r1.ub() = ::min(xu, ::max(::max(battery::fdiv(yl, zl), battery::fdiv(yl, zu)), ::max(battery::fdiv(yu, zl), battery::fdiv(yu, zu))));
+      r1.lb() = max(xl, min(min(battery::cdiv(yl, zl), battery::cdiv(yl, zu)), min(battery::cdiv(yu, zl), battery::cdiv(yu, zu))));
+      r1.ub() = min(xu, max(max(battery::fdiv(yl, zl), battery::fdiv(yl, zu)), max(battery::fdiv(yu, zl), battery::fdiv(yu, zu))));
     }
   }
 
@@ -500,12 +508,12 @@ public:
         return has_changed;
       }
       case ADD: {
-        r1.lb() = (yl == MINF || zl == MINF) ? xl : ::max(xl, yl + zl);
-        r1.ub() = (yu == INF || zu == INF) ? xu : ::min(xu, yu + zu);
-        r2.lb() = (xl == MINF || zu == INF) ? yl : ::max(yl, xl - zu);
-        r2.ub() = (xu == INF || zl == MINF) ? yu : ::min(yu, xu - zl);
-        r3.lb() = (xl == MINF || xu == INF) ? zl : ::max(zl, xl - yu);
-        r3.ub() = (xu == INF || yl == MINF) ? zu : ::min(zu, xu - yl);
+        r1.lb() = (yl == MINF || zl == MINF) ? xl : max(xl, yl + zl);
+        r1.ub() = (yu == INF || zu == INF) ? xu : min(xu, yu + zu);
+        r2.lb() = (xl == MINF || zu == INF) ? yl : max(yl, xl - zu);
+        r2.ub() = (xu == INF || zl == MINF) ? yu : min(yu, xu - zl);
+        r3.lb() = (xl == MINF || yu == INF) ? zl : max(zl, xl - yu);
+        r3.ub() = (xu == INF || yl == MINF) ? zu : min(zu, xu - yl);
         break;
       }
       case MUL: {
@@ -514,8 +522,8 @@ public:
           t2 = yl * zu;
           t3 = yu * zl;
           t4 = yu * zu;
-          r1.lb() = ::max(xl, ::min(::min(t1, t2), ::min(t3, t4)));
-          r1.ub() = ::min(xu, ::max(::max(t1, t2), ::max(t3, t4)));
+          r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
+          r1.ub() = min(xu, max(max(t1, t2), max(t3, t4)));
         }
         if(xl > 0 || xu < 0 || zl > 0 || zu < 0) {
           mul_inv(r2, r1, r3);
@@ -533,8 +541,8 @@ public:
         //   t2 = xl * zu;
         //   t3 = xu * zl;
         //   t4 = xu * zu;
-        //   r2.lb() = ::max(yl, ::min(::min(t1, t2), ::min(t3, t4)));
-        //   r2.ub() = ::min(yu, ::max(zu - 1, ::max(::max(t1, t2), ::max(t3, t4))));
+        //   r2.lb() = max(yl, min(min(t1, t2), min(t3, t4)));
+        //   r2.ub() = min(yu, max(zu - 1, max(max(t1, t2), max(t3, t4))));
         // }
         // if((yl > 0 || yu < 0) && (xl > 0 || xu < 0)) { ediv(r3, r2, r1); }
         break;
@@ -549,21 +557,21 @@ public:
         break;
       }
       case MIN: {
-        r1.lb() = ::max(xl, ::min(yl, zl));
-        r1.ub() = ::min(xu, ::min(yu, zu));
-        r2.lb() = ::max(yl, xl);
-        if(xu < zl) { r2.ub() = ::min(yu, xu); }
-        r3.lb() = ::max(zl, xl);
-        if(xu < yl) { r3.ub() = ::min(zu, xu); }
+        r1.lb() = max(xl, min(yl, zl));
+        r1.ub() = min(xu, min(yu, zu));
+        r2.lb() = max(yl, xl);
+        if(xu < zl) { r2.ub() = min(yu, xu); }
+        r3.lb() = max(zl, xl);
+        if(xu < yl) { r3.ub() = min(zu, xu); }
         break;
       }
       case MAX: {
-        r1.lb() = ::max(xl, ::max(yl, zl));
-        r1.ub() = ::min(xu, ::max(yu, zu));
-        r2.ub() = ::min(yu, xu);
-        if(xl > zu) { r2.lb() = ::max(yl, xl); }
-        r3.ub() = ::min(zu, xu);
-        if(xl > yu) { r3.lb() = ::max(zl, xl); }
+        r1.lb() = max(xl, max(yl, zl));
+        r1.ub() = min(xu, max(yu, zu));
+        r2.ub() = min(yu, xu);
+        if(xl > zu) { r2.lb() = max(yl, xl); }
+        r3.ub() = min(zu, xu);
+        if(xl > yu) { r3.lb() = max(zl, xl); }
         break;
       }
       default: assert(false);

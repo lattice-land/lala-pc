@@ -117,18 +117,32 @@ TEST(PIRTest, TernaryDiv) {
   deduce_and_test2(a, {x,y,z}, {x2, y2, z2}, false, false);
 }
 
-TEST(PIRTest, TernaryPropagatorTest) {
-  test_bound_propagator<IPIR>("int_eq_reif", [](int x, int y, int z) { return (x == 0 || x == 1) && x == (y == z); }, true, true);
-  test_bound_propagator<IPIR>("int_le_reif", [](int x, int y, int z) { return (x == 0 || x == 1) && x == (y <= z); }, true, true);
-  test_bound_propagator<IPIR>("int_plus", [](int x, int y, int z) { return x == y + z; });
-  test_bound_propagator<IPIR>("int_min", [](int x, int y, int z) { return x == std::min(y, z); });
-  test_bound_propagator<IPIR>("int_max", [](int x, int y, int z) { return x == std::max(y, z); });
-  test_bound_propagator<IPIR>("int_times", [](int x, int y, int z) { return x == y * z; }, false);
-  test_bound_propagator<IPIR>("int_ediv", [](int x, int y, int z) { return z != 0 && x == battery::ediv(y, z); }, false);
-  test_bound_propagator<IPIR>("int_tdiv", [](int x, int y, int z) { return z != 0 && x == battery::tdiv(y, z); }, false);
-  test_bound_propagator<IPIR>("int_cdiv", [](int x, int y, int z) { return z != 0 && x == battery::cdiv(y, z); }, false);
-  test_bound_propagator<IPIR>("int_fdiv", [](int x, int y, int z) { return z != 0 && x == battery::fdiv(y, z); }, false);
-  test_bound_propagator<IPIR>("int_mod", [](int x, int y, int z) { return z != 0 && x == battery::emod(y, z); }, false);
+TEST(PIRTest, TernaryPropagatorSoundnessTest) {
+  test_bound_propagator_soundness<IPIR>("int_eq_reif", [](int x, int y, int z) { return (x == 0 || x == 1) && x == (y == z); }, true, true);
+  test_bound_propagator_soundness<IPIR>("int_le_reif", [](int x, int y, int z) { return (x == 0 || x == 1) && x == (y <= z); }, true, true);
+  test_bound_propagator_soundness<IPIR>("int_plus", [](int x, int y, int z) { return x == y + z; });
+  test_bound_propagator_soundness<IPIR>("int_min", [](int x, int y, int z) { return x == std::min(y, z); });
+  test_bound_propagator_soundness<IPIR>("int_max", [](int x, int y, int z) { return x == std::max(y, z); });
+  test_bound_propagator_soundness<IPIR>("int_times", [](int x, int y, int z) { return x == y * z; }, false);
+  test_bound_propagator_soundness<IPIR>("int_ediv", [](int x, int y, int z) { return z != 0 && x == battery::ediv(y, z); }, false);
+  test_bound_propagator_soundness<IPIR>("int_tdiv", [](int x, int y, int z) { return z != 0 && x == battery::tdiv(y, z); }, false);
+  test_bound_propagator_soundness<IPIR>("int_cdiv", [](int x, int y, int z) { return z != 0 && x == battery::cdiv(y, z); }, false);
+  test_bound_propagator_soundness<IPIR>("int_fdiv", [](int x, int y, int z) { return z != 0 && x == battery::fdiv(y, z); }, false);
+  test_bound_propagator_soundness<IPIR>("int_mod", [](int x, int y, int z) { return z != 0 && x == battery::emod(y, z); }, false);
+}
+
+TEST(PIRTest, TernaryPropagatorCompletenessTest) {
+  test_bound_propagator_completeness<IPIR>("int_eq_reif", [](int x, int y, int z) { return (x == 0 || x == 1) && x == (y == z); });
+  test_bound_propagator_completeness<IPIR>("int_le_reif", [](int x, int y, int z) { return (x == 0 || x == 1) && x == (y <= z); });
+  test_bound_propagator_completeness<IPIR>("int_plus", [](int x, int y, int z) { return x == y + z; });
+  test_bound_propagator_completeness<IPIR>("int_min", [](int x, int y, int z) { return x == std::min(y, z); });
+  test_bound_propagator_completeness<IPIR>("int_max", [](int x, int y, int z) { return x == std::max(y, z); });
+  test_bound_propagator_completeness<IPIR>("int_times", [](int x, int y, int z) { return x == y * z; });
+  test_bound_propagator_completeness<IPIR>("int_ediv", [](int x, int y, int z) { return z != 0 && x == battery::ediv(y, z); });
+  test_bound_propagator_completeness<IPIR>("int_tdiv", [](int x, int y, int z) { return z != 0 && x == battery::tdiv(y, z); });
+  test_bound_propagator_completeness<IPIR>("int_cdiv", [](int x, int y, int z) { return z != 0 && x == battery::cdiv(y, z); });
+  test_bound_propagator_completeness<IPIR>("int_fdiv", [](int x, int y, int z) { return z != 0 && x == battery::fdiv(y, z); });
+  test_bound_propagator_completeness<IPIR>("int_mod", [](int x, int y, int z) { return z != 0 && x == battery::emod(y, z); });
 }
 
 TEST(PIRTest, TernaryProblem) {

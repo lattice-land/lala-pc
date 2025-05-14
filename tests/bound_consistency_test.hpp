@@ -53,7 +53,7 @@ void deduce_and_test2(L& ipc, const std::vector<Itv>& before, const std::vector<
 }
 
 template <class A, class F>
-void test_bound_propagator(const char* pred_name, F pred, bool test_completeness = true, bool disable_before_test = false) {
+void test_bound_propagator_soundness(const char* pred_name, F pred, bool test_completeness = true, bool disable_before_test = false) {
   int minval = -5;
   int maxval = 5;
   std::vector<Itv> itvs{Itv(minval, minval), Itv(minval+1, maxval-1), Itv(minval,-3), Itv(minval,-2), Itv(minval,0), Itv(minval,maxval), Itv(-2,2), Itv(-1,-1), Itv(0,0), Itv(1,1), Itv(2,2), Itv(0, maxval), Itv(2, maxval), Itv(3, maxval), Itv(maxval, maxval)};
@@ -97,8 +97,7 @@ void test_bound_propagator(const char* pred_name, F pred, bool test_completeness
           }
           else {
             if(abstract_entailed) {
-              bool concrete_entailed = true;
-              for(int a = x2.lb().value(); concrete_entailed && a <= x2.ub().value(); ++a) {
+              for(int a = x2.lb().value(); a <= x2.ub().value(); ++a) {
                 for(int b = y2.lb().value(); b <= y2.ub().value(); ++b) {
                   for(int c = z2.lb().value(); c <= z2.ub().value(); ++c) {
                     EXPECT_TRUE(pred(a, b, c)) << "The constraint is not entailed on (" << a << ", " << b << ", " << c << ") " << fzn;
@@ -107,6 +106,39 @@ void test_bound_propagator(const char* pred_name, F pred, bool test_completeness
               }
             }
           }
+        }
+      }
+    }
+  }
+}
+
+template <class A, class F>
+void test_bound_propagator_completeness(const char* pred_name, F pred) {
+  int minval = -5;
+  int maxval = 5;
+  for(int i = minval; i < maxval; ++i) {
+    for(int j = minval; j < maxval; ++j) {
+      for(int k = minval; k < maxval; ++k) {
+        Itv x(i,i);
+        Itv y(j,j);
+        Itv z(k,k);
+
+        std::string fzn = std::format("var {}..{}: x; var {}..{}: y; var {}..{}: z;\
+          constraint {}(y, z, x);", x.lb().value(), x.ub().value(), y.lb().value(), y.ub().value(), z.lb().value(), z.ub().value(), pred_name);
+
+        A a = create_and_interpret_and_tell<A, true>(fzn.data());
+        bool abstract_entailed = true;
+        for(int i = 0; i < a.num_deductions(); ++i) {
+          abstract_entailed &= a.ask(i);
+        }
+        if(!pred(i,j,k)) {
+          EXPECT_FALSE(abstract_entailed) << "The constraint is entailed on (" << i << ", " << j << ", " << k << ") but should not be." << fzn;
+          deduce_and_test2(a, {x,y,z}, {Itv::bot(), Itv::bot(), Itv::bot()}, true, false);
+          EXPECT_TRUE(a.is_bot());
+        }
+        else {
+          EXPECT_TRUE(abstract_entailed) << "The constraint is not entailed on (" << i << ", " << j << ", " << k << ") but should be." << fzn;
+          deduce_and_test2(a, {x,y,z}, {x,y,z}, true, false);
         }
       }
     }

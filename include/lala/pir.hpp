@@ -433,8 +433,8 @@ private:
       case EDIV: return (xl == xu && yl == yu && zl == zu && zl != 0 && xl == div(yl, bytecode.op, zl))
                      || (xl == yu && xu == yl && xl == 0 && (zl > 0 || zu < 0)); // 0 = 0 / z (z != 0).
       case EMOD: return (xl == xu && yl == yu && zl == zu && zl != 0 && xl == battery::emod(yl, zl));
-      case MIN:
-      case MAX: return (xl == yu && xu == yl) || (xl == zu && xu == zl);
+      case MIN: return (xl == yu && xu == yl && yu <= zl) || (xl == zu && xu == zl && zu <= yl);
+      case MAX: return (xl == yu && xu == yl && yl >= zu) || (xl == zu && xu == zl && zl >= yu);
       default: assert(false); return false;
     }
   }

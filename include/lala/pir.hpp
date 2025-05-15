@@ -468,10 +468,8 @@ private:
 
   CUDA INLINE void mul_inv(Itv& r1, Itv& r2, Itv& r3) {
     if(zl < 0 && zu > 0) {
-      if(yl > 0 || yu < 0) {
-        r1.lb() = max(xl, min(yl, yu == MINF ? INF : -yu));
-        r1.ub() = min(xu, max(yl == INF ? MINF : -yl, yu));
-      }
+      r1.lb() = max(xl, min(yl, yu == MINF ? INF : -yu));
+      r1.ub() = min(xu, max(yl == INF ? MINF : -yl, yu));
     }
     else {
       if(zl == 0) { r3.lb() = 1; }

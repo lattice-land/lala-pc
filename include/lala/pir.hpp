@@ -466,17 +466,19 @@ private:
     }
   }
 
-  CUDA INLINE void mul_inv(Itv& r1, Itv& r2, Itv& r3) {
-    if(zl < 0 && zu > 0) {
-      r1.lb() = max(xl, min(yl, yu == MINF ? INF : -yu));
-      r1.ub() = min(xu, max(yl == INF ? MINF : -yl, yu));
-    }
-    else {
+  CUDA INLINE void mul_inv(const Itv& r1, Itv& r2, Itv& r3) {
+    if(xl > 0 || xu < 0) {
       if(zl == 0) { r3.lb() = 1; }
       if(zu == 0) { r3.ub() = -1; }
-      if(yl == MINF || yu == INF || zl == MINF || zu == INF) { return; }
-      r1.lb() = max(xl, min(min(battery::cdiv(yl, zl), battery::cdiv(yl, zu)), min(battery::cdiv(yu, zl), battery::cdiv(yu, zu))));
-      r1.ub() = min(xu, max(max(battery::fdiv(yl, zl), battery::fdiv(yl, zu)), max(battery::fdiv(yu, zl), battery::fdiv(yu, zu))));
+    }
+    if((xl > 0 || xu < 0) && zl < 0 && zu > 0) {
+      r2.lb() = max(yl, min(xl, xu == MINF ? INF : -xu));
+      r2.ub() = min(yu, max(xl == INF ? MINF : -xl, xu));
+    }
+    else if(xl > 0 || xu < 0 || zl > 0 || zu < 0) {
+      if(xl == MINF || xu == INF || zl == MINF || zu == INF) { return; }
+      r2.lb() = max(yl, min(min(battery::cdiv(xl, zl), battery::cdiv(xl, zu)), min(battery::cdiv(xu, zl), battery::cdiv(xu, zu))));
+      r2.ub() = min(yu, max(max(battery::fdiv(xl, zl), battery::fdiv(xl, zu)), max(battery::fdiv(xu, zl), battery::fdiv(xu, zu))));
     }
   }
 
@@ -536,12 +538,8 @@ public:
           r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
           r1.ub() = min(xu, max(max(t1, t2), max(t3, t4)));
         }
-        if(xl > 0 || xu < 0 || zl > 0 || zu < 0) {
-          mul_inv(r2, r1, r3);
-        }
-        if(xl > 0 || xu < 0 || yl > 0 || yu < 0) {
-          mul_inv(r3, r1, r2);
-        }
+        mul_inv(r1, r2, r3);
+        mul_inv(r1, r3, r2);
         break;
       }
       case TDIV:

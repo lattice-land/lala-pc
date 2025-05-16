@@ -457,6 +457,8 @@ private:
       if(zl == 0) { r3.lb() = 1; }
       if(zu == 0) { r3.ub() = -1; }
       if(yl == MINF || yu == INF || zl == MINF || zu == INF) { return; }
+      // Although it usually does not hurt to compute with bottom values, in this case, we want to prevent it from being equal to 0 (the previous conditions suppose r3 != bot).
+      if(r3.is_bot()) { return; }
       auto t1 = div(yl, op, zl);
       auto t2 = div(yl, op, zu);
       auto t3 = div(yu, op, zl);
@@ -477,6 +479,8 @@ private:
     }
     else if(xl > 0 || xu < 0 || zl > 0 || zu < 0) {
       if(xl == MINF || xu == INF || zl == MINF || zu == INF) { return; }
+      // Although it usually does not hurt to compute with bottom values, in this case, we want to prevent it from being equal to 0 (the previous conditions suppose r3 != bot).
+      if(r3.is_bot()) { return; }
       r2.lb() = max(yl, min(min(battery::cdiv(xl, zl), battery::cdiv(xl, zu)), min(battery::cdiv(xu, zl), battery::cdiv(xu, zu))));
       r2.ub() = min(yu, max(max(battery::fdiv(xl, zl), battery::fdiv(xl, zu)), max(battery::fdiv(xu, zl), battery::fdiv(xu, zu))));
     }

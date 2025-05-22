@@ -268,7 +268,7 @@ private:
         bytecode_type bytecode;
         bytecode.op = f.seq(right).sig();
         if(X.is_variable() && Y.is_variable() && Z.is_variable() &&
-          (bytecode.op == ADD || bytecode.op == MUL || is_z_division(bytecode.op) || bytecode.op == EMOD
+          (bytecode.op == ADD || bytecode.op == MUL || ::lala::is_z_division(bytecode.op) || bytecode.op == EMOD
           || bytecode.op == MIN || bytecode.op == MAX
           || bytecode.op == EQ || bytecode.op == LEQ))
         {

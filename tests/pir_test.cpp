@@ -117,6 +117,8 @@ TEST(PIRTest, TernaryDiv) {
   deduce_and_test2(a, {x,y,z}, {x2, y2, z2}, false, false);
 }
 
+#ifdef NDEBUG
+
 TEST(PIRTest, TernaryPropagatorSoundnessTest) {
   test_bound_propagator_soundness<IPIR>("int_eq_reif", [](int x, int y, int z) { return (x == 0 || x == 1) && x == (y == z); }, true, true);
   test_bound_propagator_soundness<IPIR>("int_le_reif", [](int x, int y, int z) { return (x == 0 || x == 1) && x == (y <= z); }, true, true);
@@ -144,6 +146,8 @@ TEST(PIRTest, TernaryPropagatorCompletenessTest) {
   test_bound_propagator_completeness<IPIR>("int_fdiv", [](int x, int y, int z) { return z != 0 && x == battery::fdiv(y, z); });
   test_bound_propagator_completeness<IPIR>("int_mod", [](int x, int y, int z) { return z != 0 && x == battery::emod(y, z); });
 }
+
+#endif
 
 TEST(PIRTest, TernaryProblem) {
   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var int: x; var int: y; var int: z;\

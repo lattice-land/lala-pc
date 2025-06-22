@@ -439,16 +439,16 @@ private:
     }
   }
 
-  CUDA INLINE value_t min(value_t a, value_t b) {
+  CUDA INLINE value_t min(value_t a, value_t b) const {
     return battery::min(a, b);
   }
 
-  CUDA INLINE value_t max(value_t a, value_t b) {
+  CUDA INLINE value_t max(value_t a, value_t b) const {
     return battery::max(a, b);
   }
 
   // r1 = r2 / r3
-  CUDA INLINE void itv_div(Sig op, Itv& r1, Itv& r2, Itv& r3) {
+  CUDA INLINE void itv_div(Sig op, Itv& r1, Itv& r2, Itv& r3) const {
     if(zl < 0 && zu > 0) {
       r1.lb() = max(xl, min(yl, yu == MINF ? INF : -yu));
       r1.ub() = min(xu, max(yl == INF ? MINF : -yl, yu));
@@ -465,6 +465,68 @@ private:
       auto t4 = div(yu, op, zu);
       r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
       r1.ub() = min(xu, max(max(t1, t2), max(t3, t4)));
+    }
+  }
+
+  CUDA INLINE Itv num_fdiv(const Itv& r1, const Itv& r3) const {
+    if(zl < 0 && zu > 0) {
+      return Itv(min(min(xl, -xu), min(xl * zu, (xu + 1) * zl + 1)),
+                 max(max(-xl, xu), max(xl * zl, (xu + 1) * zu - 1)));
+    }
+    else {
+      return Itv(min(min(xl * zl, xl * zu), min((xu + 1) * zl + 1, (xu + 1) * zu + 1)),
+                 max(max(xl * zl, xl * zu), max((xu + 1) * zl - 1, (xu + 1) * zu - 1)));
+    }
+  }
+
+  CUDA INLINE Itv num_cdiv(const Itv& r1, const Itv& r3) const {
+    if(zl < 0 && zu > 0) {
+      return Itv(min(min(xl, -xu), min(xu * zl, (xl - 1) * zu + 1)),
+                 max(max(-xl, xu), max(xu * zu, (xl - 1) * zl - 1)));
+    }
+    else {
+      return Itv(min(min(xu * zl, xu * zu), min((xl - 1) * zl + 1, (xl - 1) * zu + 1)),
+                 max(max(xu * zl, xu * zu), max((xl - 1) * zl - 1, (xl - 1) * zu - 1)));
+    }
+  }
+
+  CUDA INLINE void itv_div_num(Sig op, Itv& r1, Itv& r2, Itv& r3) const {
+    switch(op) {
+      case FDIV: {
+        r2.meet(num_fdiv(r1, r3));
+        break;
+      }
+      case CDIV: {
+        r2.meet(num_cdiv(r1, r3));
+        break;
+      }
+      case TDIV: {
+        if(xl > 0) {
+          r2.meet(num_fdiv(r1, r3));
+        }
+        else if(xu < 0) {
+          r2.meet(num_cdiv(r1, r3));
+        }
+        else {
+          Itv r(min(zl, -zu) + 1, max(-zl, zu) - 1);
+          if(xl != 0) { r.join(num_cdiv(Itv(xl,-1), r3)); }
+          if(xu != 0) { r.join(num_fdiv(Itv(1, xu), r3)); }
+          r2.meet(r);
+        }
+        break;
+      }
+      case EDIV: {
+        if(zl > 0) {
+          r2.meet(num_fdiv(r1, r3));
+        }
+        else if(zu < 0) {
+          r2.meet(num_cdiv(r1, r3));
+        }
+        else {
+          r2.meet(fjoin(num_cdiv(r1, Itv(zl, -1)), num_fdiv(r1, Itv(1, zu))));
+        }
+        break;
+      }
     }
   }
 
@@ -551,6 +613,7 @@ public:
       case FDIV:
       case EDIV: {
         itv_div(bytecode.op, r1, r2, r3);
+        itv_div_num(bytecode.op, r1, r2, r3);
         // The rest is currently not correct, we will see how to fix it.
         // if(xl != MINF && xu != INF && zl != MINF && zu != INF) {
         //   t1 = xl * zl;

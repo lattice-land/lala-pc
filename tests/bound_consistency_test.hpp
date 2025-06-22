@@ -56,7 +56,7 @@ template <class A, class F>
 void test_bound_propagator_soundness(const char* pred_name, F pred, bool test_completeness = true, bool disable_before_test = false) {
   int minval = -5;
   int maxval = 5;
-  std::vector<Itv> itvs{Itv(minval, minval), Itv(minval+1, maxval-1), Itv(minval,-3), Itv(minval,-2), Itv(minval,0), Itv(minval,maxval), Itv(-2,-1), Itv(-1,0), Itv(-2,2), Itv(-1,-1), Itv(0,0), Itv(1,1), Itv(2,2), Itv(0,1), Itv(1,2), Itv(0, maxval), Itv(2, maxval), Itv(3, maxval), Itv(maxval, maxval), Itv(1,0)};
+  std::vector<Itv> itvs{Itv(minval, minval), Itv(minval+1, maxval-1), Itv(minval,-3), Itv(minval,-2), Itv(minval,0), Itv(minval,maxval), Itv(-2,-1), Itv(-1,0), Itv(-2,2), Itv(-1,-1), Itv(0,0), Itv(1,1), Itv(2,2), Itv(0,1), Itv(1,2), Itv(0, maxval), Itv(2, maxval), Itv(3, maxval), Itv(maxval, maxval), Itv(1,0), Itv(2,10), Itv(-25,25), Itv(-2, 3)};
   for(int i = 0; i < itvs.size(); ++i) {
     for(int j = 0; j < itvs.size(); ++j) {
       for(int k = 0; k < itvs.size(); ++k) {

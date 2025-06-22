@@ -811,14 +811,82 @@ TEST(PIRTest, IntDiv1) {
   deduce_and_test(pir, 1, {Itv(1, 1), Itv(1, 1), Itv(0, 1)}, {Itv(1, 1), Itv(1, 1), Itv(1, 1)}, true);
 }
 
-TEST(PIRTest, IntDiv2) {
+TEST(PIRTest, IntTDiv0y2) {
   VarEnv<standard_allocator> env;
   IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
     var 0..1: y;\
-    constraint int_div(y,2,0);", env);
-  deduce_and_test(pir, 1, {Itv(0, 1)}, false); // NOTE: We could detect entailment but int_div is currently incomplete.
+    constraint int_tdiv(y,2,0);", env);
+  deduce_and_test(pir, 1, {Itv(0, 1)}, false);
   interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 1);", pir, env);
   deduce_and_test(pir, 1, {Itv(1, 1)}, true);
+}
+
+TEST(PIRTest, IntFDiv0y2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 0..1: y;\
+    constraint int_fdiv(y,2,0);", env);
+  deduce_and_test(pir, 1, {Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 1);", pir, env);
+  deduce_and_test(pir, 1, {Itv(1, 1)}, true);
+}
+
+TEST(PIRTest, IntEDiv0y2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 0..1: y;\
+    constraint int_ediv(y,2,0);", env);
+  deduce_and_test(pir, 1, {Itv(0, 1)}, false);
+  interpret_must_succeed<IKind::TELL>("constraint int_eq(y, 1);", pir, env);
+  deduce_and_test(pir, 1, {Itv(1, 1)}, true);
+}
+
+TEST(PIRTest, IntCDiv0y2) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 0..1: y;\
+    constraint int_cdiv(y,2,0);", env);
+  deduce_and_test(pir, 1, {Itv(0, 1)}, {Itv(0, 0)}, true);
+}
+
+TEST(PIRTest, IntEDiv1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 2..10: x;\
+    var -25..25: y;\
+    var -2..3: z;\
+    constraint int_ediv(y,z,x);", env);
+  deduce_and_test(pir, 1, {Itv(2, 10), Itv(-25, 25), Itv(-2, 3)}, {Itv(2, 10), Itv(-20, 25), Itv(-2, 3)}, false);
+}
+
+TEST(PIRTest, IntCDiv1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 2..10: x;\
+    var -25..25: y;\
+    var -2..3: z;\
+    constraint int_cdiv(y,z,x);", env);
+  deduce_and_test(pir, 1, {Itv(2, 10), Itv(-25, 25), Itv(-2, 3)}, {Itv(2, 10), Itv(-20, 25), Itv(-2, 3)}, false);
+}
+
+TEST(PIRTest, IntTDiv1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 2..10: x;\
+    var -25..25: y;\
+    var -2..3: z;\
+    constraint int_tdiv(y,z,x);", env);
+  deduce_and_test(pir, 1, {Itv(2, 10), Itv(-25, 25), Itv(-2, 3)}, {Itv(2, 10), Itv(-21, 25), Itv(-2, 3)}, false);
+}
+
+TEST(PIRTest, IntFDiv1) {
+  VarEnv<standard_allocator> env;
+  IPIR pir = create_and_interpret_and_tell<IPIR, true>("\
+    var 2..10: x;\
+    var -25..25: y;\
+    var -2..3: z;\
+    constraint int_fdiv(y,z,x);", env);
+  deduce_and_test(pir, 1, {Itv(2, 10), Itv(-25, 25), Itv(-2, 3)}, {Itv(2, 10), Itv(-21, 25), Itv(-2, 3)}, false);
 }
 
 TEST(PIRTest, IntAbs1) {

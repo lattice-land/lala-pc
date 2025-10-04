@@ -519,7 +519,7 @@ private:
   }
 
   // Lemma A.11
-  CUDA INLINE Itv den_fdiv(const Itv& r1, const Itv& r2) const {
+  CUDA Itv den_fdiv(const Itv& r1, const Itv& r2) const {
     using namespace battery;
     if(xl > 0 || xu + 1 < 0) {
       if(yl > 0) {
@@ -576,7 +576,7 @@ private:
   }
 
   // Lemma C.12
-  CUDA INLINE Itv den_cdiv(const Itv& r1, const Itv& r2) const {
+  CUDA Itv den_cdiv(const Itv& r1, const Itv& r2) const {
     using namespace battery;
     if(xl - 1 > 0 || xu < 0) {
       if(yl > 0) {
@@ -628,7 +628,7 @@ private:
   }
 
   // Lemma C.13
-  CUDA INLINE Itv den_tdiv(const Itv& r1, const Itv& r2, const Itv& r3) const {
+  CUDA Itv den_tdiv(const Itv& r1, const Itv& r2, const Itv& r3) const {
     if(xl > 0) { return den_fdiv(r1, r2); }
     else if(xu < 0) { return den_cdiv(r1, r2); }
     else if(xl == 0 && xu == 0) {

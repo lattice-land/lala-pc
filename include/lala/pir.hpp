@@ -600,21 +600,25 @@ private:
       else if(yl < 0 && 0 < yu) {
         return fjoin(den_cdiv(r1, Itv(yl, -1)), den_cdiv(r1, Itv(1, yu)));
       }
+      else if(yl == 0 && yu == 0) {
+        return Itv::bot();
+      }
     }
     else if(xl == 0 && xu == 0) {
-      if(yl > 0) { return Itv(MINF, -yl + 1); }
+      if(yl > 0) { return Itv(MINF, -yl - 1); }
       else if(yu < 0) { return Itv(-yu + 1, INF); }
     }
-    else if(xl == -1 && xu == -1) {
+    else if(xl == 1 && xu == 1) {
       if(yl > 0) { return Itv(yl, INF); }
       else if(yu < 0) { return Itv(MINF, yu); }
       else if(0 == yl && yl < yu) { return Itv(1, INF); }
       else if(yl < yu && yu == 0) { return Itv(MINF, -1); }
+      else if(yl == 0 && yu == 0) { return Itv::bot(); }
     }
-    else if(xl < 0 && xl == xu) {
+    else if(xl < 0 && xu == 0) {
       return fjoin(den_cdiv(Itv(xl, -1), r2), den_cdiv(Itv(0, 0), r2));
     }
-    else if(xl == 1 && xl < xu) {
+    else if(xl == 1 && 1 < xu) {
       return fjoin(den_cdiv(Itv(1, 1), r2), den_cdiv(Itv(2, xu), r2));
     }
     else if(xl <= 0 && xu >= 1) {

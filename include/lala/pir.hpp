@@ -268,7 +268,7 @@ private:
         bytecode_type bytecode;
         bytecode.op = f.seq(right).sig();
         if(X.is_variable() && Y.is_variable() && Z.is_variable() &&
-          (bytecode.op == ADD || bytecode.op == MUL || ::lala::is_z_division(bytecode.op) || bytecode.op == EMOD
+          (bytecode.op == ADD || bytecode.op == MUL || ::lala::is_z_division(bytecode.op)
           || bytecode.op == MIN || bytecode.op == MAX
           || bytecode.op == EQ || bytecode.op == LEQ))
         {
@@ -355,7 +355,6 @@ public:
     return sub->embed(x, dom);
   }
 
-public:
   CUDA INLINE bytecode_type load_deduce(int i) const {
   #ifdef __CUDA_ARCH__
     // Vectorize load (int4).
@@ -432,7 +431,6 @@ private:
       case FDIV:
       case EDIV: return (xl == xu && yl == yu && zl == zu && zl != 0 && xl == div(yl, bytecode.op, zl))
                      || (xl == yu && xu == yl && xl == 0 && (zl > 0 || zu < 0)); // 0 = 0 / z (z != 0).
-      case EMOD: return (xl == xu && yl == yu && zl == zu && zl != 0 && xl == battery::emod(yl, zl));
       case MIN: return (xl == yu && xu == yl && yu <= zl) || (xl == zu && xu == zl && zu <= yl);
       case MAX: return (xl == yu && xu == yl && yl >= zu) || (xl == zu && xu == zl && zl >= yu);
       default: assert(false); return false;
@@ -789,15 +787,6 @@ public:
           if(!r2.is_bot()) {
             itv_div_den(bytecode.op, r1, r2, r3);
           }
-        }
-        break;
-      }
-      case EMOD: {
-        if(zl == 0) { r3.lb() = 1; }
-        if(zu == 0) { r3.ub() = -1; }
-        if(yl == yu && zl == zu) {
-          r1.lb() = battery::emod(yl, zl);
-          r1.ub() = xl;
         }
         break;
       }

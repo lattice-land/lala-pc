@@ -306,7 +306,7 @@ TEST(PIRTest, TopProp) {
 }
 
 // x,y,z in [3..10] /\ x + y + z <= 9
-TEST(PIRTest, TernaryAdd2) {
+TEST(PIRTest, TernaryAdd1) {
   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 3); constraint int_le(x, 10);\
     constraint int_ge(y, 3); constraint int_le(y, 10);\
@@ -316,7 +316,7 @@ TEST(PIRTest, TernaryAdd2) {
 }
 
 // x,y,z in [3..10] /\ x + y + z <= 10
-TEST(PIRTest, TernaryAdd3) {
+TEST(PIRTest, TernaryAdd2) {
   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, 3); constraint int_le(x, 10);\
     constraint int_ge(y, 3); constraint int_le(y, 10);\
@@ -326,7 +326,7 @@ TEST(PIRTest, TernaryAdd3) {
 }
 
 // x,y,z in [-2..2] /\ x + y + z <= -5
-TEST(PIRTest, TernaryAdd4) {
+TEST(PIRTest, TernaryAdd3) {
   IPIR pir = create_and_interpret_and_tell<IPIR, true>("var int: x; var int: y; var int: z;\
     constraint int_ge(x, -2); constraint int_le(x, 2);\
     constraint int_ge(y, -2); constraint int_le(y, 2);\

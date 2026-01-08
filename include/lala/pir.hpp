@@ -10,6 +10,7 @@
 #include "battery/allocator.hpp"
 #include "battery/algorithm.hpp"
 #include "battery/bitset.hpp"
+#include "battery/utility.hpp"
 
 #include "lala/logic/logic.hpp"
 #include "lala/logic/ternarize.hpp"
@@ -351,6 +352,31 @@ public:
     return has_changed;
   }
 
+  template <class Alloc2>
+  CUDA local::B fdeduce(const tell_type<Alloc2>& t) {
+    local::B has_changed = sub->fdeduce(t.sub_value);
+    if(t.bytecodes.size() > 0) {
+      bytecodes->reserve(bytecodes.size() + t.bytecodes.size());
+      for(int i = 0; i < t.bytecodes.size(); ++i) {
+        bytecodes->push_back(t.bytecodes[i]);
+        if(t.bytecodes[i].op == EQ || t.bytecodes.op == LEQ) {
+          sub->embed(t.bytecodes[i].x, local_universe_type(0,1));
+        }
+      }
+    #ifdef __CUDA_ARCH__
+      battery::sorti(*bytecodes,
+        [&](int i, int j) { return (*bytecodes)[i].op < (*bytecodes)[j].op; });
+    #else 
+      std::stable_sort(bytecodes->data(), bytecodes->data() + bytecodes->size(),
+        [](const bytecode_type& a, const bytecode_type&b ) {
+          return a.op == b.op ? (a.y.vid() == b.y.vid() ? (a.x.vid() == b.x.vid() ? a.z.vid() < b.z.vid() : a.x.vid() < b.x.vid()) : a.y.vid() < b.y.vid()) : a.op < b.op;
+        });
+    #endif 
+      has_changed = true;
+    }
+    return has_changed;
+  }
+
   CUDA bool embed(AVar x, const universe_type& dom) {
     return sub->embed(x, dom);
   }
@@ -388,6 +414,11 @@ public:
   CUDA local::B deduce(int i) {
     assert(i < num_deductions());
     return deduce(load_deduce(i));
+  }
+
+  CUDA local::B fdeduce(int i) {
+    assert(i < num_deductions());
+    return fdeduce(load_deduce(i));
   }
 
   using Itv = local_universe_type;
@@ -699,17 +730,22 @@ private:
 
   CUDA INLINE void mul_inv(const Itv& r1, Itv& r2, Itv& r3) {
     if(xl > 0 || xu < 0) {
+      printf("we're in the first mul_inv case.\n");
       if(zl == 0) { r3.lb() = 1; }
       if(zu == 0) { r3.ub() = -1; }
     }
     if((xl > 0 || xu < 0) && zl < 0 && zu > 0) {
+      printf("we're in the second mul_inv case.\n");
       r2.lb() = max(yl, min(xl, xu == MINF ? INF : -xu));
       r2.ub() = min(yu, max(xl == INF ? MINF : -xl, xu));
     }
     else if(xl > 0 || xu < 0 || zl > 0 || zu < 0) {
+      printf("we're in the third mul_inv case1.\n");
       if(xl == MINF || xu == INF || zl == MINF || zu == INF) { return; }
       // Although it usually does not hurt to compute with bottom values, in this case, we want to prevent it from being equal to 0 (the previous conditions suppose r3 != bot).
+      printf("we're in the third mul_inv case2.\n");
       if(r3.is_bot()) { return; }
+      printf("we're in mul_inv to update r2 value.\n");
       r2.lb() = max(yl, min(min(battery::cdiv(xl, zl), battery::cdiv(xl, zu)), min(battery::cdiv(xu, zl), battery::cdiv(xu, zu))));
       r2.ub() = min(yu, max(max(battery::fdiv(xl, zl), battery::fdiv(xl, zu)), max(battery::fdiv(xu, zl), battery::fdiv(xu, zu))));
     }
@@ -795,6 +831,100 @@ public:
           r1.lb() = battery::emod(yl, zl);
           r1.ub() = xl;
         }
+        break;
+      }
+      case MIN: {
+        r1.lb() = max(xl, min(yl, zl));
+        r1.ub() = min(xu, min(yu, zu));
+        r2.lb() = max(yl, xl);
+        if(xu < zl) { r2.ub() = min(yu, xu); }
+        r3.lb() = max(zl, xl);
+        if(xu < yl) { r3.ub() = min(zu, xu); }
+        break;
+      }
+      case MAX: {
+        r1.lb() = max(xl, max(yl, zl));
+        r1.ub() = min(xu, max(yu, zu));
+        r2.ub() = min(yu, xu);
+        if(xl > zu) { r2.lb() = max(yl, xl); }
+        r3.ub() = min(zu, xu);
+        if(xl > yu) { r3.lb() = max(zl, xl); }
+        break;
+      }
+      default: assert(false);
+    }
+    has_changed |= sub->embed(bytecode.x, r1);
+    has_changed |= sub->embed(bytecode.y, r2);
+    has_changed |= sub->embed(bytecode.z, r3);
+    return has_changed;
+  }
+
+  CUDA local::B fdeduce(bytecode_type bytecode) {
+    local::B has_changed = false;
+    // We load the variables. 
+    Itv r1((*sub)[bytecode.x]);
+    Itv r2((*sub)[bytecode.y]);
+    Itv r3((*sub)[bytecode.z]);
+    value_t t1, t2, t3, t4, t5, t6, t7, t8; // Temporary variables for multipilication. 
+    switch(bytecode.op) {
+      case EQ: {
+        if(r1 == ONE) {
+          has_changed |= sub->embed(bytecode.y, r3);
+          has_changed |= sub->embed(bytecode.z, r2);
+        }
+        else if(r1 == ZERO && (yl == yu || zl == zu)) { // If z is a singleton, we update y, and vice-versa.
+          // has_changed |= sub->embed(zl == zu ? bytecode.y : bytecode.z,
+          // Itv(
+          //   yl == zl ? yl + MINF : LB::top().value(),
+          //   yu == zu ? yu - MINF : UB::top().value()));
+        }
+        else if (yu == zl && yl == zu) { has_changed |= sub->embed(bytecode.x, ONE); } // ? not sure why yet.
+        else if (yl > zu || yu < zl) { has_changed |= sub->embed(bytecode.x, ZERO); }
+        return has_changed;
+      }
+      case LEQ: {
+        if(r1 == ONE) {
+          has_changed |= sub->embed(bytecode.y, Itv(yl, zu));
+          has_changed |= sub->embed(bytecode.z, Itv(yl, zu));
+        }
+        else if(r1 == ZERO) { 
+          // has_changed |= sub->embed(bytecode.y, Itv(zl + MINF, yu));
+          // has_changed |= sub->embed(bytecode.z, Itv(zl, yu - MINF));
+        }
+        else if(yu <= zl) { has_changed |= sub->embed(bytecode.x, ONE); }
+        else if(yl > zu) { has_changed |= sub->embed(bytecode.x, ZERO); }
+        return has_changed;
+      }
+      case ADD: {
+        r1.lb() = (yl == MINF || zl == MINF) ? xl : max(xl, battery::add_down(yl, zl));
+        r1.ub() = (yu == INF || zu == INF) ? xu : min(xu, battery::add_up(yu, zu));
+        r2.lb() = (xl == MINF || zu == INF) ? yl : max(yl, battery::sub_down(xl, zu));
+        r2.ub() = (xu == INF || zl == MINF) ? yu : min(yu, battery::sub_up(xu, zl));
+        r3.lb() = (xl == MINF || yu == INF) ? zl : max(zl, battery::sub_down(xl, yu));
+        r3.ub() = (xu == INF || yl == MINF) ? zu : min(zu, battery::sub_up(xu, yl));
+        break;
+      }
+      case MUL: {
+        printf("before mul: xl = %f, xu = %f, yl = %f, yu = %f, zl = %f, zu = %f\n", xl, xu , yl, yu, zl, zu);
+        if(yl != MINF && yu != INF && zl != MINF && zu != INF) {
+          t1 = battery::mul_down(yl, zl);
+          t2 = battery::mul_down(yl, zu);
+          t3 = battery::mul_down(yu, zl);
+          t4 = battery::mul_down(yu, zu);
+          t5 = battery::mul_up(yl, zl);
+          t6 = battery::mul_up(yl, zu);
+          t7 = battery::mul_up(yu, zl);
+          t8 = battery::mul_up(yu, zu);
+          r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
+          r1.ub() = min(xu, max(max(t5, t6), max(t7, t8)));
+        }
+        printf("after updating r1: xl = %f, xu = %f, yl = %f, yu = %f, zl = %f, zu = %f\n", xl, xu , yl, yu, zl, zu);
+        printf("this is first mul_inv ... \n");
+        mul_inv(r1, r2, r3);
+        printf("after first mul_inv: xl = %f, xu = %f, yl = %f, yu = %f, zl = %f, zu = %f\n", xl, xu , yl, yu, zl, zu);
+        printf("this is second mul_inv ... \n");
+        mul_inv(r1, r3, r2);
+        printf("after second mul_inv: xl = %f, xu = %f, yl = %f, yu = %f, zl = %f, zu = %f\n", xl, xu , yl, yu, zl, zu);
         break;
       }
       case MIN: {

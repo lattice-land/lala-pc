@@ -10,6 +10,7 @@
 #include "battery/allocator.hpp"
 #include "battery/algorithm.hpp"
 #include "battery/bitset.hpp"
+#include "battery/utility.hpp"
 
 #include "lala/logic/logic.hpp"
 #include "lala/logic/ternarize.hpp"
@@ -351,6 +352,31 @@ public:
     return has_changed;
   }
 
+  template <class Alloc2>
+  CUDA local::B fdeduce(const tell_type<Alloc2>& t) {
+    local::B has_changed = sub->fdeduce(t.sub_value);
+    if(t.bytecodes.size() > 0) {
+      bytecodes->reserve(bytecodes.size() + t.bytecodes.size());
+      for(int i = 0; i < t.bytecodes.size(); ++i) {
+        bytecodes->push_back(t.bytecodes[i]);
+        if(t.bytecodes[i].op == EQ || t.bytecodes.op == LEQ) {
+          sub->embed(t.bytecodes[i].x, local_universe_type(0,1));
+        }
+      }
+    #ifdef __CUDA_ARCH__
+      battery::sorti(*bytecodes,
+        [&](int i, int j) { return (*bytecodes)[i].op < (*bytecodes)[j].op; });
+    #else 
+      std::stable_sort(bytecodes->data(), bytecodes->data() + bytecodes->size(),
+        [](const bytecode_type& a, const bytecode_type&b ) {
+          return a.op == b.op ? (a.y.vid() == b.y.vid() ? (a.x.vid() == b.x.vid() ? a.z.vid() < b.z.vid() : a.x.vid() < b.x.vid()) : a.y.vid() < b.y.vid()) : a.op < b.op;
+        });
+    #endif 
+      has_changed = true;
+    }
+    return has_changed;
+  }
+
   CUDA bool embed(AVar x, const universe_type& dom) {
     return sub->embed(x, dom);
   }
@@ -387,6 +413,11 @@ public:
   CUDA local::B deduce(int i) {
     assert(i < num_deductions());
     return deduce(load_deduce(i));
+  }
+
+  CUDA local::B fdeduce(int i) {
+    assert(i < num_deductions());
+    return fdeduce(load_deduce(i));
   }
 
   using Itv = local_universe_type;
@@ -717,6 +748,15 @@ private:
     }
   }
 
+  CUDA INLINE void fmul_inv(const Itv& r1, Itv& r2, Itv& r3) {
+    if(zl < 0.0 && zu > 0.0) { return; }
+    else {
+      if(r3.is_bot()) { return; } 
+      r2.lb() = max(yl, min(min(battery::div_down(xl, zl), battery::div_down(xl, zu)), min(battery::div_down(xu, zl), battery::div_down(xu, zu))));
+      r2.ub() = min(yu, max(max(battery::div_up(xl, zl), battery::div_up(xl, zu)), max(battery::div_up(xu, zl), battery::div_up(xu, zu))));
+    }
+  }
+
 public:
   CUDA local::B deduce(bytecode_type bytecode) {
     local::B has_changed = false;
@@ -788,6 +828,90 @@ public:
             itv_div_den(bytecode.op, r1, r2, r3);
           }
         }
+        break;
+      }
+      case MIN: {
+        r1.lb() = max(xl, min(yl, zl));
+        r1.ub() = min(xu, min(yu, zu));
+        r2.lb() = max(yl, xl);
+        if(xu < zl) { r2.ub() = min(yu, xu); }
+        r3.lb() = max(zl, xl);
+        if(xu < yl) { r3.ub() = min(zu, xu); }
+        break;
+      }
+      case MAX: {
+        r1.lb() = max(xl, max(yl, zl));
+        r1.ub() = min(xu, max(yu, zu));
+        r2.ub() = min(yu, xu);
+        if(xl > zu) { r2.lb() = max(yl, xl); }
+        r3.ub() = min(zu, xu);
+        if(xl > yu) { r3.lb() = max(zl, xl); }
+        break;
+      }
+      default: assert(false);
+    }
+    has_changed |= sub->embed(bytecode.x, r1);
+    has_changed |= sub->embed(bytecode.y, r2);
+    has_changed |= sub->embed(bytecode.z, r3);
+    return has_changed;
+  }
+
+  CUDA local::B fdeduce(bytecode_type bytecode) {
+    local::B has_changed = false;
+    // We load the variables. 
+    Itv r1((*sub)[bytecode.x]);
+    Itv r2((*sub)[bytecode.y]);
+    Itv r3((*sub)[bytecode.z]);
+    value_t t1, t2, t3, t4, t5, t6, t7, t8; // Temporary variables for multipilication. 
+    switch(bytecode.op) {
+      case EQ: {
+        if(r1 == ONE) {
+          has_changed |= sub->embed(bytecode.y, r3);
+          has_changed |= sub->embed(bytecode.z, r2);
+        }
+        else if(r1 == ZERO && (yl == yu || zl == zu)) { 
+          // TODO:  
+        }
+        else if (yu == zl && yl == zu) { has_changed |= sub->embed(bytecode.x, ONE); } 
+        else if (yl > zu || yu < zl) { has_changed |= sub->embed(bytecode.x, ZERO); }
+        return has_changed;
+      }
+      case LEQ: {
+        if(r1 == ONE) {
+          has_changed |= sub->embed(bytecode.y, Itv(yl, zu));
+          has_changed |= sub->embed(bytecode.z, Itv(yl, zu));
+        }
+        else if(r1 == ZERO) { 
+          // TODO: 
+        }
+        else if(yu <= zl) { has_changed |= sub->embed(bytecode.x, ONE); }
+        else if(yl > zu) { has_changed |= sub->embed(bytecode.x, ZERO); }
+        return has_changed;
+      }
+      case ADD: {
+        r1.lb() = (yl == MINF || zl == MINF) ? xl : max(xl, battery::add_down(yl, zl));
+        r1.ub() = (yu == INF || zu == INF) ? xu : min(xu, battery::add_up(yu, zu));
+        r2.lb() = (xl == MINF || zu == INF) ? yl : max(yl, battery::sub_down(xl, zu));
+        r2.ub() = (xu == INF || zl == MINF) ? yu : min(yu, battery::sub_up(xu, zl));
+        r3.lb() = (xl == MINF || yu == INF) ? zl : max(zl, battery::sub_down(xl, yu));
+        r3.ub() = (xu == INF || yl == MINF) ? zu : min(zu, battery::sub_up(xu, yl));
+        break;
+      }
+      case MUL: {
+        if(yl != MINF && yu != INF && zl != MINF && zu != INF) {
+          t1 = battery::mul_down(yl, zl);
+          t2 = battery::mul_down(yl, zu);
+          t3 = battery::mul_down(yu, zl);
+          t4 = battery::mul_down(yu, zu);
+          t5 = battery::mul_up(yl, zl);
+          t6 = battery::mul_up(yl, zu);
+          t7 = battery::mul_up(yu, zl);
+          t8 = battery::mul_up(yu, zu);
+          r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
+          r1.ub() = min(xu, max(max(t5, t6), max(t7, t8)));
+        }
+        fmul_inv(r1, r2, r3);
+        fmul_inv(r1, r3, r2);
         break;
       }
       case MIN: {

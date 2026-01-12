@@ -15,6 +15,10 @@ using zlb = local::ZLB;
 using zub = local::ZUB;
 using Itv = Interval<zlb>;
 
+using flb = local::FLB; 
+using fub = local::FUB;
+using FItv = Interval<flb>;
+
 template<class L>
 void deduce_and_test2(L& ipc, const std::vector<Itv>& before, const std::vector<Itv>& after, bool test_completeness, bool disable_before_test) {
   bool has_bot = std::ranges::any_of(after, [](const Itv& itv) { return itv.is_bot(); });

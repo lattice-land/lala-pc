@@ -312,62 +312,56 @@ TEST(FPIRTest, TernaryAdd4) {
     constraint float_le(float_plus(float_plus(x, y),z), -5.77321);");
   deduce_and_test(fpir, 2, 
     {create_float_interval<FItv>("-2.123456","2.123456"), create_float_interval<FItv>("-2.123456","2.123456"), create_float_interval<FItv>("-2.123456","2.123456")}, 
-    {create_float_interval<FItv>("-2.123456","-1.52629"), create_float_interval<FItv>("-2.123456","-1.52629"), create_float_interval<FItv>("-2.123456","-1.52629")}, false);
+    {FItv(-2.123456, -1.5262979999999997), FItv(-2.123456, -1.5262979999999997), FItv(-2.123456, -1.5262979999999997)}, false);
 }
 
 TEST(FPIRTest, TernaryAdd5) {
   FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var float: x; var float: y; var float: z;\
-    constraint float_ge(x, -2.0); constraint float_le(x, 2.0);\
-    constraint float_ge(y, -2.0); constraint float_le(y, 2.0);\
-    constraint float_ge(z, -2.0); constraint float_le(z, 2.0);\
-    constraint float_le(float_plus(float_plus(x, y),z), -5.0);");
+    constraint float_ge(x, 0.0981234); constraint float_le(x, 0.9102345);\
+    constraint float_ge(y, -8.7654321); constraint float_le(y, 2.123456);\
+    constraint float_ge(z, -1.3333333); constraint float_le(z, 1.123456);\
+    constraint float_le(float_plus(float_plus(x, y),z), -3.555555);");
   deduce_and_test(fpir, 2, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, false);
+    {create_float_interval<FItv>("0.0981234","0.9102345"), create_float_interval<FItv>("-8.7654321","2.123456"), create_float_interval<FItv>("-1.3333333","1.123456")}, 
+    {create_float_interval<FItv>("0.0981234","0.9102345"), FItv(-8.7654321000000017,-2.3203450999999994), create_float_interval<FItv>("-1.3333333","1.123456")}, false);
 }
 
 TEST(FPIRTest, TernaryAdd6) {
   FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var float: x; var float: y; var float: z;\
-    constraint float_ge(x, -2.0); constraint float_le(x, 2.0);\
-    constraint float_ge(y, -2.0); constraint float_le(y, 2.0);\
-    constraint float_ge(z, -2.0); constraint float_le(z, 2.0);\
-    constraint float_le(float_plus(float_plus(x, y),z), -5.0);");
+    constraint float_ge(x, 1.8888); constraint float_le(x, 2.789999);\
+    constraint float_ge(y, -3.333); constraint float_le(y, -2.22222);\
+    constraint float_ge(z, 2.88888); constraint float_le(z, 3.11111);\
+    constraint float_le(float_plus(float_plus(x, y),z), 5.4321);");
   deduce_and_test(fpir, 2, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, false);
+    {create_float_interval<FItv>("1.8888","2.789999"), create_float_interval<FItv>("-3.333","-2.22222"), create_float_interval<FItv>("2.88888","3.11111")}, false);
 }
 
 TEST(FPIRTest, TernaryAdd7) {
   FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var float: x; var float: y; var float: z;\
-    constraint float_ge(x, -2.0); constraint float_le(x, 2.0);\
-    constraint float_ge(y, -2.0); constraint float_le(y, 2.0);\
-    constraint float_ge(z, -2.0); constraint float_le(z, 2.0);\
-    constraint float_le(float_plus(float_plus(x, y),z), -5.0);");
-  deduce_and_test(fpir, 2, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, false);
+    constraint float_ge(x, 1.8888); constraint float_le(x, 2.789999);\
+    constraint float_ge(y, -3.333); constraint float_le(y, -2.22222);\
+    constraint float_ge(z, 2.88888); constraint float_le(z, 3.11111);\
+    constraint float_ge(float_plus(float_plus(x, y),z), 5.4321);");
+  deduce_and_test_bot(fpir, 2, 
+    {create_float_interval<FItv>("1.8888","2.789999"), create_float_interval<FItv>("-3.333","-2.22222"), create_float_interval<FItv>("2.88888","3.11111")});
 }
 
 TEST(FPIRTest, TernaryMul1) {
-  FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var float: x; var float: y; var float: z;\
-    constraint float_ge(x, -2.0); constraint float_le(x, 2.0);\
-    constraint float_ge(y, -2.0); constraint float_le(y, 2.0);\
-    constraint float_ge(z, -2.0); constraint float_le(z, 2.0);\
-    constraint float_le(float_plus(float_plus(x, y),z), -5.0);");
-  deduce_and_test(fpir, 2, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, false);
+  FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var float: x; var float: y;\
+    constraint float_ge(x, 1.8888); constraint float_le(x, 2.789999);\
+    constraint float_ge(y, -3.333); constraint float_le(y, -2.22222);\
+    constraint float_le(float_times(x, y), -5.3);");
+  deduce_and_test(fpir, 1, 
+    {create_float_interval<FItv>("1.8888","2.789999"), create_float_interval<FItv>("-3.333","-2.22222")}, false);
 }
 
 TEST(FPIRTest, TernaryMul2) {
   FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var float: x; var float: y; var float: z;\
-    constraint float_ge(x, -2.0); constraint float_le(x, 2.0);\
-    constraint float_ge(y, -2.0); constraint float_le(y, 2.0);\
-    constraint float_ge(z, -2.0); constraint float_le(z, 2.0);\
-    constraint float_le(float_plus(float_plus(x, y),z), -5.0);");
-  deduce_and_test(fpir, 2, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, false); 
+    constraint float_ge(x, -5.777); constraint float_le(x, 5.777);\
+    constraint float_ge(y, -3.879); constraint float_le(y, 3.879);\
+    constraint float_le(float_times(x, y), -4.37);");
+  deduce_and_test(fpir, 1, 
+    {create_float_interval<FItv>("-5.777","5.777"), create_float_interval<FItv>("-3.879","3.879")}, false); 
 }
 
 TEST(FPIRTest, TernaryMul3) {
@@ -375,10 +369,10 @@ TEST(FPIRTest, TernaryMul3) {
     constraint float_ge(x, -2.0); constraint float_le(x, 2.0);\
     constraint float_ge(y, -2.0); constraint float_le(y, 2.0);\
     constraint float_ge(z, -2.0); constraint float_le(z, 2.0);\
-    constraint float_le(float_plus(float_plus(x, y),z), -5.0);");
+    constraint float_eq(float_times(x, float_times(y,z)), 1.0);");
   deduce_and_test(fpir, 2, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, false);
+    {create_float_interval<FItv>("-2.0","2.0"), create_float_interval<FItv>("-2.0","2.0"), create_float_interval<FItv>("-2.0","2.0")}, 
+    {create_float_interval<FItv>("-2.0","2.0"), create_float_interval<FItv>("-2.0","2.0"), create_float_interval<FItv>("-2.0","2.0")}, false);
 }
 
 TEST(FPIRTest, TernaryMul4) {
@@ -386,21 +380,45 @@ TEST(FPIRTest, TernaryMul4) {
     constraint float_ge(x, -2.0); constraint float_le(x, 2.0);\
     constraint float_ge(y, -2.0); constraint float_le(y, 2.0);\
     constraint float_ge(z, -2.0); constraint float_le(z, 2.0);\
-    constraint float_le(float_plus(float_plus(x, y),z), -5.0);");
-  deduce_and_test(fpir, 2, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, false);
+    constraint float_le(float_times(x, float_times(y,z)), 1.0);\
+    constraint float_ge(float_times(x, float_times(y,z)), 1.0);");
+  deduce_and_test(fpir, 4, 
+    {create_float_interval<FItv>("-2.0","2.0"), create_float_interval<FItv>("-2.0","2.0"), create_float_interval<FItv>("-2.0","2.0")}, 
+    {create_float_interval<FItv>("-2.0","2.0"), create_float_interval<FItv>("-2.0","2.0"), create_float_interval<FItv>("-2.0","2.0")}, false);
 }
 
-TEST(FPIRTest, TernaryMul5) {
+TEST(FPIRTest, TernaryAffine1) {
+  FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var float: x; var float: y; var float: z; var float: w;\
+    constraint float_ge(x, 0.0); constraint float_le(x, 1.0);\
+    constraint float_ge(y, 0.0); constraint float_le(y, 1.0);\
+    constraint float_ge(z, 0.0); constraint float_le(z, 1.0);\
+    constraint float_eq(float_plus(float_plus(float_plus(float_times(0.0017209835350513458,x), float_times(-0.002840534085407853,y)), float_times(-0.012471789494156837,z)),-0.20525498688220978), w);");
+  deduce_and_test(fpir, 7, 
+    {create_float_interval<FItv>("0.0","1.0"), create_float_interval<FItv>("0.0","1.0"), create_float_interval<FItv>("0.0","1.0"), FItv::top()}, 
+    {create_float_interval<FItv>("0.0","1.0"), create_float_interval<FItv>("0.0","1.0"), create_float_interval<FItv>("0.0","1.0"), FItv(-0.2205673104617745, -0.20353400334715844)}, false);
+}
+
+TEST(FPIRTest, TernaryAffine2) {
+  FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var float: x; var float: y; var float: z; var float: w; var float: m;\
+    constraint float_ge(x, 0.0); constraint float_le(x, 1.0);\
+    constraint float_ge(y, 0.0); constraint float_le(y, 1.0);\
+    constraint float_ge(z, 0.0); constraint float_le(z, 1.0);\
+    constraint float_eq(float_plus(float_plus(float_plus(float_times(0.0017209835350513458,x), float_times(-0.002840534085407853,y)), float_times(-0.012471789494156837,z)),-0.20525498688220978), w);\
+    constraint float_max(0.0, w, m);");
+  deduce_and_test(fpir, 8, 
+    {create_float_interval<FItv>("0.0","1.0"), create_float_interval<FItv>("0.0","1.0"), create_float_interval<FItv>("0.0","1.0"), FItv::top(), FItv::top()}, 
+    {create_float_interval<FItv>("0.0","1.0"), create_float_interval<FItv>("0.0","1.0"), create_float_interval<FItv>("0.0","1.0"), FItv(-0.2205673104617745, -0.20353400334715844), create_float_interval<FItv>("0.0", "0.0")}, false);
+}
+
+TEST(FPIRTest, TernaryAffine3) {
   FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var float: x; var float: y; var float: z;\
-    constraint float_ge(x, -2.0); constraint float_le(x, 2.0);\
-    constraint float_ge(y, -2.0); constraint float_le(y, 2.0);\
-    constraint float_ge(z, -2.0); constraint float_le(z, 2.0);\
-    constraint float_le(float_plus(float_plus(x, y),z), -5.0);");
-  deduce_and_test(fpir, 2, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, 
-    {create_float_interval<FItv>("",""), create_float_interval<FItv>("",""), create_float_interval<FItv>("","")}, false);
+    constraint float_ge(x, 0.0); constraint float_le(x, 1.0);\
+    constraint float_ge(y, 0.0); constraint float_le(y, 1.0);\
+    constraint float_ge(z, 0.0); constraint float_le(z, 1.0);\
+    constraint float_eq(float_plus(float_plus(float_plus(float_times(0.0017209835350513458,x), float_times(-0.002840534085407853,y)), float_times(-0.012471789494156837,z)),-0.20525498688220978), -0.20525498688220978);");
+  deduce_and_test(fpir, 6, 
+    {create_float_interval<FItv>("0.0","1.0"), create_float_interval<FItv>("0.0","1.0"), create_float_interval<FItv>("0.0","1.0")}, 
+    {create_float_interval<FItv>("0.0","1.0"), FItv(0.0,0.60586617984704428), FItv(0.0,0.13799010445595417)}, false);
 }
 
 // x,y,z in [0.0..1.0] /\ 2.0x + y + 4.0z <= 2.0

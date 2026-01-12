@@ -730,24 +730,28 @@ private:
 
   CUDA INLINE void mul_inv(const Itv& r1, Itv& r2, Itv& r3) {
     if(xl > 0 || xu < 0) {
-      printf("we're in the first mul_inv case.\n");
       if(zl == 0) { r3.lb() = 1; }
       if(zu == 0) { r3.ub() = -1; }
     }
     if((xl > 0 || xu < 0) && zl < 0 && zu > 0) {
-      printf("we're in the second mul_inv case.\n");
       r2.lb() = max(yl, min(xl, xu == MINF ? INF : -xu));
       r2.ub() = min(yu, max(xl == INF ? MINF : -xl, xu));
     }
     else if(xl > 0 || xu < 0 || zl > 0 || zu < 0) {
-      printf("we're in the third mul_inv case1.\n");
       if(xl == MINF || xu == INF || zl == MINF || zu == INF) { return; }
       // Although it usually does not hurt to compute with bottom values, in this case, we want to prevent it from being equal to 0 (the previous conditions suppose r3 != bot).
-      printf("we're in the third mul_inv case2.\n");
       if(r3.is_bot()) { return; }
-      printf("we're in mul_inv to update r2 value.\n");
       r2.lb() = max(yl, min(min(battery::cdiv(xl, zl), battery::cdiv(xl, zu)), min(battery::cdiv(xu, zl), battery::cdiv(xu, zu))));
       r2.ub() = min(yu, max(max(battery::fdiv(xl, zl), battery::fdiv(xl, zu)), max(battery::fdiv(xu, zl), battery::fdiv(xu, zu))));
+    }
+  }
+
+  CUDA INLINE void fmul_inv(const Itv& r1, Itv& r2, Itv& r3) {
+    if(zl < 0.0 && zu > 0.0) { return; }
+    else {
+      if(r3.is_bot()) { return; } 
+      r2.lb() = max(yl, min(min(battery::div_down(xl, zl), battery::div_down(xl, zu)), min(battery::div_down(xu, zl), battery::div_down(xu, zu))));
+      r2.ub() = min(yu, max(max(battery::div_up(xl, zl), battery::div_up(xl, zu)), max(battery::div_up(xu, zl), battery::div_up(xu, zu))));
     }
   }
 
@@ -872,13 +876,10 @@ public:
           has_changed |= sub->embed(bytecode.y, r3);
           has_changed |= sub->embed(bytecode.z, r2);
         }
-        else if(r1 == ZERO && (yl == yu || zl == zu)) { // If z is a singleton, we update y, and vice-versa.
-          // has_changed |= sub->embed(zl == zu ? bytecode.y : bytecode.z,
-          // Itv(
-          //   yl == zl ? yl + MINF : LB::top().value(),
-          //   yu == zu ? yu - MINF : UB::top().value()));
+        else if(r1 == ZERO && (yl == yu || zl == zu)) { 
+          // TODO:  
         }
-        else if (yu == zl && yl == zu) { has_changed |= sub->embed(bytecode.x, ONE); } // ? not sure why yet.
+        else if (yu == zl && yl == zu) { has_changed |= sub->embed(bytecode.x, ONE); } 
         else if (yl > zu || yu < zl) { has_changed |= sub->embed(bytecode.x, ZERO); }
         return has_changed;
       }
@@ -888,8 +889,7 @@ public:
           has_changed |= sub->embed(bytecode.z, Itv(yl, zu));
         }
         else if(r1 == ZERO) { 
-          // has_changed |= sub->embed(bytecode.y, Itv(zl + MINF, yu));
-          // has_changed |= sub->embed(bytecode.z, Itv(zl, yu - MINF));
+          // TODO: 
         }
         else if(yu <= zl) { has_changed |= sub->embed(bytecode.x, ONE); }
         else if(yl > zu) { has_changed |= sub->embed(bytecode.x, ZERO); }
@@ -905,7 +905,6 @@ public:
         break;
       }
       case MUL: {
-        printf("before mul: xl = %f, xu = %f, yl = %f, yu = %f, zl = %f, zu = %f\n", xl, xu , yl, yu, zl, zu);
         if(yl != MINF && yu != INF && zl != MINF && zu != INF) {
           t1 = battery::mul_down(yl, zl);
           t2 = battery::mul_down(yl, zu);
@@ -918,13 +917,8 @@ public:
           r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
           r1.ub() = min(xu, max(max(t5, t6), max(t7, t8)));
         }
-        printf("after updating r1: xl = %f, xu = %f, yl = %f, yu = %f, zl = %f, zu = %f\n", xl, xu , yl, yu, zl, zu);
-        printf("this is first mul_inv ... \n");
-        mul_inv(r1, r2, r3);
-        printf("after first mul_inv: xl = %f, xu = %f, yl = %f, yu = %f, zl = %f, zu = %f\n", xl, xu , yl, yu, zl, zu);
-        printf("this is second mul_inv ... \n");
-        mul_inv(r1, r3, r2);
-        printf("after second mul_inv: xl = %f, xu = %f, yl = %f, yu = %f, zl = %f, zu = %f\n", xl, xu , yl, yu, zl, zu);
+        fmul_inv(r1, r2, r3);
+        fmul_inv(r1, r3, r2);
         break;
       }
       case MIN: {

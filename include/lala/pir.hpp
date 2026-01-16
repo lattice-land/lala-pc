@@ -352,31 +352,6 @@ public:
     return has_changed;
   }
 
-  template <class Alloc2>
-  CUDA local::B fdeduce(const tell_type<Alloc2>& t) {
-    local::B has_changed = sub->fdeduce(t.sub_value);
-    if(t.bytecodes.size() > 0) {
-      bytecodes->reserve(bytecodes.size() + t.bytecodes.size());
-      for(int i = 0; i < t.bytecodes.size(); ++i) {
-        bytecodes->push_back(t.bytecodes[i]);
-        if(t.bytecodes[i].op == EQ || t.bytecodes.op == LEQ) {
-          sub->embed(t.bytecodes[i].x, local_universe_type(0,1));
-        }
-      }
-    #ifdef __CUDA_ARCH__
-      battery::sorti(*bytecodes,
-        [&](int i, int j) { return (*bytecodes)[i].op < (*bytecodes)[j].op; });
-    #else 
-      std::stable_sort(bytecodes->data(), bytecodes->data() + bytecodes->size(),
-        [](const bytecode_type& a, const bytecode_type&b ) {
-          return a.op == b.op ? (a.y.vid() == b.y.vid() ? (a.x.vid() == b.x.vid() ? a.z.vid() < b.z.vid() : a.x.vid() < b.x.vid()) : a.y.vid() < b.y.vid()) : a.op < b.op;
-        });
-    #endif 
-      has_changed = true;
-    }
-    return has_changed;
-  }
-
   CUDA bool embed(AVar x, const universe_type& dom) {
     return sub->embed(x, dom);
   }
@@ -392,8 +367,9 @@ public:
   #endif
   }
 
-  CUDA local::B ask(int i) const {
-    return ask(load_deduce(i));
+  CUDA local::B ask(int i, bool is_using_z = true) const {
+    if (is_using_z) return ask(load_deduce(i));
+    return fask(load_deduce(i));
   }
 
   template <class Alloc2>
@@ -406,18 +382,24 @@ public:
     return sub->ask(t.sub_value);
   }
 
+  template <class Alloc2> 
+  CUDA local::B fask(const ask_type<Alloc2>& t) const {
+    for(int i = 0; i < t.bytecodes.size(); ++i) {
+      if(!fask(t.bytecodes[i])) {
+        return false;
+      }
+    }
+    return sub->fask(t.sub_value);
+  }
+
   CUDA int num_deductions() const {
     return bytecodes->size();
   }
 
 public:
-  CUDA local::B deduce(int i) {
+  CUDA local::B deduce(int i, bool is_using_z = true) {
     assert(i < num_deductions());
-    return deduce(load_deduce(i));
-  }
-
-  CUDA local::B fdeduce(int i) {
-    assert(i < num_deductions());
+    if (is_using_z) return deduce(load_deduce(i));
     return fdeduce(load_deduce(i));
   }
 
@@ -470,6 +452,23 @@ private:
     }
   }
 
+  CUDA local::B fask(bytecode_type bytecode) const {
+    local_universe_type r1((*sub)[bytecode.x]);
+    local_universe_type r2((*sub)[bytecode.y]);
+    local_universe_type r3((*sub)[bytecode.z]);
+    switch(bytecode.op){
+      case EQ: return (xl == 1.0 && yu == zl && yl == zu) || (xu == 0.0 && (yu < zl || yl > zu));
+      case LEQ: return (xl == 1.0 && yu <= zl) || (xu == 0.0 && yl > zu);
+      case ADD: return (xl == xu && yl == yu && zl == zu && xl == battery::add_down(yl, zl));
+      case MUL: return (xl == xu && 
+                        ((yl == yu && zl == zu && xl == battery::mul_down(yl, zl)) 
+                          || (xl == 0.0 && (r2 == 0.0 || r3 == 0.0))));
+      case MIN: return (xl == yu && xu == yl && yu <= zl) || (xl == zu && xu == zl && zu <= yl);
+      case MAX: return (xl == yu && xu == yl && yl >= zu) || (xl == zu && xu == zl && zl >= yu);
+      default: assert(false); return false;
+    }
+  }
+
   CUDA INLINE value_t min(value_t a, value_t b) const {
     return battery::min(a, b);
   }
@@ -496,6 +495,14 @@ private:
       auto t4 = div(yu, op, zu);
       r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
       r1.ub() = min(xu, max(max(t1, t2), max(t3, t4)));
+    }
+  }
+
+  CUDA INLINE void fitv_div(const Itv& r1, Itv& r2, const Itv& r3) {
+    if ((zl < 0.0 && zu > 0.0) || xl == MINF || xu == INF || zl == MINF || zu == INF || r3.is_bot()) { return; }
+    else {
+      r2.lb() = max(yl, min(min(battery::div_down(xl, zl), battery::div_down(xl, zu)), min(battery::div_down(xu, zl), battery::div_down(xu, zu))));
+      r2.ub() = min(yu, max(max(battery::div_up(xl, zl), battery::div_up(xl, zu)), max(battery::div_up(xu, zl), battery::div_up(xu, zu))));
     }
   }
 
@@ -746,15 +753,6 @@ private:
     }
   }
 
-  CUDA INLINE void fmul_inv(const Itv& r1, Itv& r2, Itv& r3) {
-    if(zl < 0.0 && zu > 0.0) { return; }
-    else {
-      if(r3.is_bot()) { return; } 
-      r2.lb() = max(yl, min(min(battery::div_down(xl, zl), battery::div_down(xl, zu)), min(battery::div_down(xu, zl), battery::div_down(xu, zu))));
-      r2.ub() = min(yu, max(max(battery::div_up(xl, zl), battery::div_up(xl, zu)), max(battery::div_up(xu, zl), battery::div_up(xu, zu))));
-    }
-  }
-
 public:
   CUDA local::B deduce(bytecode_type bytecode) {
     local::B has_changed = false;
@@ -876,9 +874,7 @@ public:
           has_changed |= sub->embed(bytecode.y, r3);
           has_changed |= sub->embed(bytecode.z, r2);
         }
-        else if(r1 == ZERO && (yl == yu || zl == zu)) { 
-          // TODO:  
-        }
+        else if(r1 == ZERO && (yl == yu || zl == zu)) {}
         else if (yu == zl && yl == zu) { has_changed |= sub->embed(bytecode.x, ONE); } 
         else if (yl > zu || yu < zl) { has_changed |= sub->embed(bytecode.x, ZERO); }
         return has_changed;
@@ -889,7 +885,9 @@ public:
           has_changed |= sub->embed(bytecode.z, Itv(yl, zu));
         }
         else if(r1 == ZERO) { 
-          // TODO: 
+          // if y <= z is false, we update the intervals by y >= z.
+          has_changed |= sub->embed(bytecode.y, Itv(zl, yu));
+          has_changed |= sub->embed(bytecode.z, Itv(zl, yu)); 
         }
         else if(yu <= zl) { has_changed |= sub->embed(bytecode.x, ONE); }
         else if(yl > zu) { has_changed |= sub->embed(bytecode.x, ZERO); }
@@ -917,8 +915,8 @@ public:
           r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
           r1.ub() = min(xu, max(max(t5, t6), max(t7, t8)));
         }
-        fmul_inv(r1, r2, r3);
-        fmul_inv(r1, r3, r2);
+        fitv_div(r1, r2, r3);
+        fitv_div(r1, r3, r2);
         break;
       }
       case MIN: {

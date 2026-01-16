@@ -40,7 +40,7 @@ void test_extract(const L& fpir, bool is_ua) {
       printf("fpir[%d] = [%f,%f]\n", i, fpir[i].lb().value(), fpir[i].ub().value());
     }
     for(int i = 0; i < fpir.num_deductions(); ++i) {
-      EXPECT_TRUE(fpir.ask(i)) << "fpir.ask(" << i << ") == false";
+      EXPECT_TRUE(fpir.ask(i, false)) << "fpir.ask(" << i << ") == false";
     }
   }
   EXPECT_EQ(fpir.is_extractable(), is_ua);
@@ -62,7 +62,7 @@ void deduce_and_test(L& fpir, int num_deds, const std::vector<FItv>& before, con
   }
   GaussSeidelIteration{}.fixpoint(
     fpir.num_deductions(),
-    [&](size_t i) { return fpir.fdeduce(i); });
+    [&](size_t i) { return fpir.deduce(i, false); });
   /** Note: We don't test has_changed anymore due to the internal variable, it usually changes due to the unbounded domains of the internal variables. */
   for(int i = 0; i < after.size(); ++i) {
     std::cout << "fpir[" << i << "]" << std::setprecision(std::numeric_limits<double>::max_digits10) << fpir[i].lb().value() << ", " << fpir[i].ub().value() << std::endl;
@@ -86,7 +86,7 @@ void deduce_and_test_bot(L& fpir, int num_deds, const std::vector<FItv>& before)
   local::B has_changed = false;
   GaussSeidelIteration{}.fixpoint(
     fpir.num_deductions(),
-    [&](size_t i) { return fpir.fdeduce(i); },
+    [&](size_t i) { return fpir.deduce(i, false); },
     has_changed
   );
   EXPECT_TRUE(has_changed);
@@ -778,10 +778,10 @@ TEST(FPIRTest, MaxConstraint3) {
   deduce_and_test(fpir, 1, {FItv::top(), FItv(0.0, 1.0), FItv(0.0, 1.0)}, {FItv::top(), FItv(0.0,0.0), FItv(0.0,0.0)}, true);
 
   interpret_must_succeed<IKind::TELL, true, false>("constraint float_eq(b1, float_le(x, 5.0));", fpir, env);
-  deduce_and_test(fpir, 2, {FItv::top(), FItv(0.0,0.0), FItv(0.0,0.0)}, {FItv::top(), FItv(0.0, 0.0), FItv(0.0, 0.0)}, false);
+  deduce_and_test(fpir, 2, {FItv::top(), FItv(0.0,0.0), FItv(0.0,0.0)}, {FItv(5.0, FItv::UB::top()), FItv(0.0, 0.0), FItv(0.0, 0.0)}, false);
 
   interpret_must_succeed<IKind::TELL, true, false>("constraint float_eq(b2, float_ge(x, 7.0));", fpir, env);
-  deduce_and_test(fpir, 3, {FItv::top(), FItv(0.0, 0.0), FItv(0.0, 0.0)}, {FItv::top(), FItv(0.0, 0.0), FItv(0.0, 0.0)}, false);
+  deduce_and_test(fpir, 3, {FItv(5.0, FItv::UB::top()), FItv(0.0, 0.0), FItv(0.0, 0.0)}, {FItv(5.0, 7.0), FItv(0.0, 0.0), FItv(0.0, 0.0)}, false);
 }
 
 TEST(FPIRTest, FloatTimes1) {
@@ -920,5 +920,5 @@ TEST(FPIRTest, InfiniteDomain2) {
   deduce_and_test(fpir, 1, {FItv::top(), FItv(0.0,1.0)}, false);
 
   interpret_must_succeed<IKind::TELL, false, false>("constraint float_eq(b, 0.0);", fpir, env);
-  deduce_and_test(fpir, 1, {FItv::top(), FItv(0.0,0.0)}, {FItv::top(), FItv(0.0,0.0)}, false);
+  deduce_and_test(fpir, 1, {FItv::top(), FItv(0.0,0.0)}, {FItv(5.0, FItv::UB::top()), FItv(0.0,0.0)}, false);
 }

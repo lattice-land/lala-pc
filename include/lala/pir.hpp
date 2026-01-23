@@ -366,9 +366,12 @@ public:
   #endif
   }
 
-  CUDA local::B ask(int i, bool is_using_z = true) const {
-    if (is_using_z) return ask(load_deduce(i));
-    return fask(load_deduce(i));
+  CUDA local::B ask(int i) const {
+    return ask(load_deduce(i));
+  }
+
+  CUDA local::B fask(int i, const double epsilon) const {
+    return fask(load_deduce(i), epsilon);
   }
 
   template <class Alloc2>
@@ -396,9 +399,13 @@ public:
   }
 
 public:
-  CUDA local::B deduce(int i, bool is_using_z = true) {
+  CUDA local::B deduce(int i) {
     assert(i < num_deductions());
-    if (is_using_z) return deduce(load_deduce(i));
+    return deduce(load_deduce(i));
+  }
+
+  CUDA local::B fdeduce(int i) {
+    assert(i < num_deductions());
     return fdeduce(load_deduce(i));
   }
 
@@ -450,16 +457,16 @@ private:
     }
   }
 
-  CUDA local::B fask(bytecode_type bytecode) const {
+  CUDA local::B fask(bytecode_type bytecode, double epsilon) const {
     local_universe_type r1((*sub)[bytecode.x]);
     local_universe_type r2((*sub)[bytecode.y]);
     local_universe_type r3((*sub)[bytecode.z]);
     switch(bytecode.op){
-      case EQ: return (xl == 1.0 && yu == zl && yl == zu) || (xu == 0.0 && (yu < zl || yl > zu));
+      case EQ: return (xl == 1.0 && yu - zl <= epsilon && yl - zu <= epsilon) || (xu == 0.0 && (yu < zl || yl > zu));
       case LEQ: return (xl == 1.0 && yu <= zl) || (xu == 0.0 && yl > zu);
-      case ADD: return (xl == xu && yl == yu && zl == zu && xl == battery::add_down(yl, zl));
-      case MUL: return (xl == xu && 
-                        ((yl == yu && zl == zu && xl == battery::mul_down(yl, zl)) 
+      case ADD: return (xu - xl <= epsilon && yu - yl <= epsilon && zu - zl <= epsilon && xl == battery::add_down(yl, zl));
+      case MUL: return (xu - xl <= epsilon && 
+                        ((yu - yl <= epsilon && zu - zl <= epsilon && xl == battery::mul_down(yl, zl))
                           || (xl == 0.0 && (r2 == 0.0 || r3 == 0.0))));
       case MIN: return (xl == yu && xu == yl && yu <= zl) || (xl == zu && xu == zl && zu <= yl);
       case MAX: return (xl == yu && xu == yl && yl >= zu) || (xl == zu && xu == zl && zl >= yu);

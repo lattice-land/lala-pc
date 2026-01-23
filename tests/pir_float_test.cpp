@@ -40,7 +40,7 @@ void test_extract(const L& fpir, bool is_ua) {
       printf("fpir[%d] = [%f,%f]\n", i, fpir[i].lb().value(), fpir[i].ub().value());
     }
     for(int i = 0; i < fpir.num_deductions(); ++i) {
-      EXPECT_TRUE(fpir.ask(i, false)) << "fpir.ask(" << i << ") == false";
+      EXPECT_TRUE(fpir.fask(i, 1e-6)) << "fpir.fask(" << i << ") == false";
     }
   }
   EXPECT_EQ(fpir.is_extractable(), is_ua);
@@ -62,7 +62,7 @@ void fdeduce_and_test(L& fpir, int num_deds, const std::vector<FItv>& before, co
   }
   GaussSeidelIteration{}.fixpoint(
     fpir.num_deductions(),
-    [&](size_t i) { return fpir.deduce(i, false); });
+    [&](size_t i) { return fpir.fdeduce(i); });
   /** Note: We don't test has_changed anymore due to the internal variable, it usually changes due to the unbounded domains of the internal variables. */
   for(int i = 0; i < after.size(); ++i) {
     std::cout << "fpir[" << i << "]" << std::setprecision(std::numeric_limits<double>::max_digits10) << fpir[i].lb().value() << ", " << fpir[i].ub().value() << std::endl;
@@ -88,7 +88,7 @@ void fdeduce_and_test_bot(L& fpir, int num_deds, const std::vector<FItv>& before
   local::B has_changed = false;
   GaussSeidelIteration{}.fixpoint(
     fpir.num_deductions(),
-    [&](size_t i) { return fpir.deduce(i, false); },
+    [&](size_t i) { return fpir.fdeduce(i); },
     has_changed
   );
   EXPECT_TRUE(has_changed);

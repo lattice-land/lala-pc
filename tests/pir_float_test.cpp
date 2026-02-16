@@ -70,6 +70,8 @@ void fdeduce_and_test(L& fpir, int num_deds, const std::vector<FItv>& before, co
     // EXPECT_EQ(fpir[i], after[i]) << "fpir[" << i << "]";
     EXPECT_DOUBLE_EQ(fpir[i].lb().value(), after[i].lb().value());
     EXPECT_DOUBLE_EQ(fpir[i].ub().value(), after[i].ub().value());
+    // EXPECT_NEAR(fpir[i].lb().value(), after[i].lb().value(), 1e-6);
+    // EXPECT_NEAR(fpir[i].ub().value(), after[i].ub().value(), 1e-6);
   }
   test_extract(fpir, is_ua);
 }
@@ -98,8 +100,8 @@ void fdeduce_and_test_bot(L& fpir, int num_deds, const std::vector<FItv>& before
 #ifdef NDEBUG
 
 TEST(FPIRTest, TernaryPropagatorSoundnessTest) {
-  test_fbound_propagator_soundness<FPIR>("float_eq_reif", [](double x, double y, double z) { return (x == 0 || x == 1) && x == (y == z); }, true, true);
-  test_fbound_propagator_soundness<FPIR>("float_le_reif", [](double x, double y, double z) { return (x == 0 || x == 1) && x == (y <= z); }, true, true);
+  test_fbound_propagator_soundness<FPIR>("float_eq_reif", [](double x, double y, double z) { return (x == 0.0 || x == 1.0) && x == (y == z); }, true, true);
+  test_fbound_propagator_soundness<FPIR>("float_le_reif", [](double x, double y, double z) { return (x == 0.0 || x == 1.0) && x == (y <= z); }, true, true);
   test_fbound_propagator_soundness<FPIR>("float_plus", [](double x, double y, double z) { return x == y + z; });
   test_fbound_propagator_soundness<FPIR>("float_min", [](double x, double y, double z) { return x == std::min(y, z); });
   test_fbound_propagator_soundness<FPIR>("float_max", [](double x, double y, double z) { return x == std::max(y, z); });
@@ -107,8 +109,8 @@ TEST(FPIRTest, TernaryPropagatorSoundnessTest) {
 }
 
 TEST(FPIRTest, TernaryPropagatorCompletenessTest) {
-  test_fbound_propagator_completeness<FPIR>("float_eq_reif", [](double x, double y, double z) { return (x == 0 || x == 1) && x == (y == z); });
-  test_fbound_propagator_completeness<FPIR>("float_le_reif", [](double x, double y, double z) { return (x == 0 || x == 1) && x == (y <= z); });
+  test_fbound_propagator_completeness<FPIR>("float_eq_reif", [](double x, double y, double z) { return (x == 0.0 || x == 1.0) && x == (y == z); });
+  test_fbound_propagator_completeness<FPIR>("float_le_reif", [](double x, double y, double z) { return (x == 0.0 || x == 1.0) && x == (y <= z); });
   test_fbound_propagator_completeness<FPIR>("float_plus", [](double x, double y, double z) { return x == y + z; });
   test_fbound_propagator_completeness<FPIR>("float_min", [](double x, double y, double z) { return x == std::min(y, z); });
   test_fbound_propagator_completeness<FPIR>("float_max", [](double x, double y, double z) { return x == std::max(y, z); });
@@ -997,6 +999,31 @@ TEST(FPIRTest, FloatTimes9) {
     var 10.3322111..11.9877777: z; \
     constraint float_times(x, y, z);", env);
   fdeduce_and_test_bot(fpir, 1, {create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("0.99999", "5.123456"), create_float_interval<FItv>("10.3322111", "11.9877777")});
+}
+
+TEST(FPIRTest, FloatTimes10) {
+  VarEnv<standard_allocator> env;
+  FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("\
+    var float: x1;\
+    var float: x2;\
+    var float: x3;\
+    var float: x4;\
+    var float: x5;\
+    var float: x6;\
+    var float: x7;\
+    constraint float_ge(x1, 1.0); constraint float_le(x1, 2.0);\
+    constraint float_ge(x2, 2.0); constraint float_le(x2, 3.0);\
+    constraint float_eq(x3, float_plus(float_times(0.800000011920929, x1), float_times(-0.699999988079071, x2)));\
+    constraint float_eq(x4, float_plus(float_times(0.6000000238418579, x1), float_times(0.5, x2)));\
+    constraint float_eq(x5, float_max(0.0, x3));\
+    constraint float_eq(x6, float_max(0.0, x4));\
+    constraint float_eq(x7, float_plus(float_times(-1.0, x5), float_times(0.4000000059604645, x6)));", env);
+  fdeduce_and_test(fpir, 11, 
+    {create_float_interval<FItv>("1.0", "2.0"), create_float_interval<FItv>("2.0", "3.0"), FItv::top(), FItv::top(), FItv::top(), FItv::top()},
+    {create_float_interval<FItv>("1.0", "2.0"), create_float_interval<FItv>("2.0", "3.0"), 
+    create_float_interval<FItv>("-1.3", "0.2"), create_float_interval<FItv>("1.6", "2.7"), 
+    create_float_interval<FItv>("0.0", "0.2"), create_float_interval<FItv>("1.6", "2.7"),
+    create_float_interval<FItv>("0.44", "1.08")}, false);
 }
 
 TEST(FPIRTest, FloatAbs1) {

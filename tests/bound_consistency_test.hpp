@@ -77,7 +77,7 @@ void fdeduce_and_test2(L& fpc, const std::vector<FItv>& before, const std::vecto
   local::B has_changed = false;
   GaussSeidelIteration{}.fixpoint(
     fpc.num_deductions(),
-    [&](size_t i) { return fpc.deduce(i, false); },
+    [&](size_t i) { return fpc.fdeduce(i); },
     has_changed);
   if(fpc.is_bot()) {
     EXPECT_TRUE(has_bot);
@@ -200,7 +200,7 @@ void test_fbound_propagator_soundness(const char* pred_name, F pred, bool test_c
         if(!a.is_bot()) {
           bool abstract_entailed = true;
           for(int i = 0; i < a.num_deductions(); ++i) {
-            abstract_entailed &= a.ask(i, false);
+            abstract_entailed &= a.fask(i, 1e-6);
           }
           bool is_bot = x2.is_bot() || y2.is_bot() || z2.is_bot();
           if(is_bot) {
@@ -282,12 +282,12 @@ void test_fbound_propagator_completeness(const char* pred_name, F pred, bool wit
           local::B has_changed = false;
           GaussSeidelIteration{}.fixpoint(
             a.num_deductions(),
-            [&](size_t i) { return a.deduce(i, false); },
+            [&](size_t i) { return a.fdeduce(i); },
             has_changed);
         }
         bool abstract_entailed = true;
         for(int i = 0; i < a.num_deductions(); ++i) {
-          abstract_entailed &= a.ask(i, false);
+          abstract_entailed &= a.fask(i, 1e-6);
         }
         if(!pred(i,j,k)) {
           EXPECT_FALSE(abstract_entailed) << "The constraint is entailed on (" << i << ", " << j << ", " << k << ") but should not be." << fzn;

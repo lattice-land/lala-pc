@@ -404,9 +404,9 @@ public:
     return deduce(load_deduce(i));
   }
 
-  CUDA local::B fdeduce(int i) {
+  CUDA local::B fdeduce(int i, const double epsilon) {
     assert(i < num_deductions());
-    return fdeduce(load_deduce(i));
+    return fdeduce(load_deduce(i), epsilon);
   }
 
   using Itv = local_universe_type;
@@ -420,8 +420,8 @@ public:
 #define zl r3.lb().value()
 #define zu r3.ub().value()
 
-#define INF std::numeric_limits<value_t>::max()
-#define MINF std::numeric_limits<value_t>::min()
+#define INF battery::limits<value_t>::inf()
+#define MINF battery::limits<value_t>::neg_inf()
 
 private:
   CUDA INLINE value_t div(value_t a, Sig op, value_t b) const {
@@ -457,32 +457,39 @@ private:
     }
   }
 
+  /*
+  Since we use fembed to avoid updating interval with small width (width < epsilon), the smallest interval that we have must be width == epsilon.
+  Therefore, to check entailment, we have to check use intervals, meaning lb + epsilon = ub.
+  */
   CUDA local::B fask(bytecode_type bytecode) const {
     if constexpr(std::is_floating_point_v<value_t>) {
       local_universe_type r1((*sub)[bytecode.x]);
       local_universe_type r2((*sub)[bytecode.y]);
       local_universe_type r3((*sub)[bytecode.z]);
-      if (battery::isinf(xl) && battery::isinf(xu) && battery::isinf(yl) && battery::isinf(yu) && battery::isinf(zl) && battery::isinf(zu)) return false;
-      double mx = battery::add_down(xl, battery::div_down(battery::sub_down(xu, xl), 2.0));
-      double my = battery::add_down(yl, battery::div_down(battery::sub_down(yu, yl), 2.0));
-      double mz = battery::add_down(zl, battery::div_down(battery::sub_down(zu, zl), 2.0));
+      if (xl == MINF || xu == INF || yl == MINF || yu == INF || zl == MINF || zu == INF) { return false; }
+      if (r1.width().lb().value() > 1e-6 || r2.width().lb().value() > 1e-6 || r3.width().lb().value() > 1e-6) { return false; }
+      return true;
+      // double mx = battery::add_down(xl, battery::div_down(r1.width().lb().value(), 2.0));
+      // double my = battery::add_down(yl, battery::div_down(r2.width().lb().value(), 2.0));
+      // double mz = battery::add_down(zl, battery::div_down(r3.width().lb().value(), 2.0));
+
       switch(bytecode.op){
-        // case EQ: return (xl == 1.0 && yu == zl && yl == zu) || (xu == 0.0 && (yu < zl || yl > zu));
-        // case LEQ: return (xl == 1.0 && yu <= zl) || (xu == 0.0 && yl > zu);
-        // case ADD: return (xl == xu && yl == yu && zl == zu && xl == battery::add_down(static_cast<double>(yl), static_cast<double>(zl)));
-        // case MUL: return xl == xu &&
-        //                   ((yl == yu && zl == zu && xl == battery::mul_down(static_cast<double>(yl), static_cast<double>(zl)))
-        //                 || (xl == 0.0 && (r2 == 0.0 || r3 == 0.0)));
-        // case MIN: return (xl == yl && xu == yu && yu <= zl) || (xl == zl && xu == zu && zu <= yl);
-        // case MAX: return (xl == yl && xu == yu && yl >= zu) || (xl == zl && xu == zu && zl >= yu);
-        case EQ: return (mx == 1.0 && my == mz) || (mx == 0.0 && (my < mz || my > mz));
-        // case LEQ: return (mx == 1.0 && my <= mz) || (mx == 0.0 && my > mz);
+        case EQ: return (xl == ONE && yu == zl && yl == zu) || (xu == ZERO && (yu < zl || yl > zu));
         case LEQ: return (xl == 1.0 && yu <= zl) || (xu == 0.0 && yl > zu);
-        case ADD: return mx == battery::add_down(my, mz);
-        case MUL: return (mx == battery::mul_down(my, mz)) || (xl == 0.0 && (r2 == 0.0 || r3 == 0.0));
-        case MIN: return (mx == my && my <= mz) || (mx == mz && mz <= my);
-        case MAX: return (mx == my && my >= mz) || (mx == mz && mz >= my);
-        default: assert(false); return false;
+        case ADD: return (xl == xu && yl == yu && zl == zu && xl == battery::add_down(yl, zl));
+        case MUL: return xl == xu &&
+                        ((yl == yu && zl == zu && xl == battery::mul_down(yl, zl))
+                      || (xl == 0.0 && (r2 == 0.0 || r3 == 0.0)));
+        case MIN: return (xl == yu && xu == yl && yu <= zl) || (xl == zu && xu == zl && zu <= yl);
+        case MAX: return (xl == yl && xu == yu && yl >= zu) || (xl == zl && xu == zu && zl >= yu);
+
+      //   case EQ: return (xl == ONE && my == mz) || (xu == ZERO && (my > mz || my < mz));
+      //   case LEQ: return (xl == ONE && yu <= zl) || (xu == ZERO && yl > zu);
+      //   case ADD: return mx == battery::add_down(my, mz) || mx == battery::add_up(my, mz);
+      //   case MUL: return mx == battery::mul_down(my, mz) || mx == battery::mul_up(my, mz);
+      //   case MIN: return (yu < zl && mx == my) || (zu < yl && mx == mz);
+      //   case MAX: return (yu < zl && mx == mz) || (xu < yl && mx == my);
+      //   default: assert(false); return false;
       }
     }
     else return false;
@@ -517,25 +524,7 @@ private:
     }
   }
 
-  CUDA INLINE void fitv_div(const Itv& r1, Itv& r2, const Itv& r3) {
-    if constexpr(std::is_floating_point_v<value_t>) {
-      if ((zl < 0.0 && zu > 0.0) || (battery::isinf(xl) && xl < 0.0) || (battery::isinf(xu) && xu > 0.0) || (battery::isinf(zl) && zl < 0.0) || (battery::isinf(zu) && zu > 0.0) || r3.is_bot()) { return; } 
-      else {
-        value_t t1, t2, t3, t4, t5, t6, t7, t8;
-        t1 = battery::div_down(xl, zl);
-        t2 = battery::div_down(xl, zu);
-        t3 = battery::div_down(xu, zl);
-        t4 = battery::div_down(xu, zu);
-        t5 = battery::div_up(xl, zl);
-        t6 = battery::div_up(xl, zu);
-        t7 = battery::div_up(xu, zl);
-        t8 = battery::div_up(xu, zu);
-        r2.lb() = battery::max(yl, battery::min(battery::min(t1, t2), battery::min(t3, t4)));
-        r2.ub() = battery::min(yu, battery::max(battery::max(t5, t6), battery::max(t7, t8)));
-      }
-    }
-    else return;
-  }
+  
 
   CUDA INLINE Itv num_fdiv(const Itv& r1, const Itv& r3) const {
     if(zl < 0 && zu > 0) {
@@ -887,7 +876,39 @@ public:
     return has_changed;
   }
 
-  CUDA local::B fdeduce(bytecode_type bytecode) {
+  /*
+  r2 = r1 / r3
+  preconditions: r1, r2, and r3 are different from bottom.
+  */
+  CUDA INLINE void fitv_div(const Itv& r1, Itv& r2, const Itv& r3) {
+    if constexpr(std::is_floating_point_v<value_t>) {
+      if ((zl <= 0.0 && zu >= 0.0) || xl == MINF || xu == INF || zl == MINF || zu == INF) { return; } 
+      else {
+        value_t t1 = battery::div_down(xl, zl);
+        value_t t2 = battery::div_down(xl, zu);
+        value_t t3 = battery::div_down(xu, zl);
+        value_t t4 = battery::div_down(xu, zu);
+
+        value_t t5 = battery::div_up(xl, zl);
+        value_t t6 = battery::div_up(xl, zu);
+        value_t t7 = battery::div_up(xu, zl);
+        value_t t8 = battery::div_up(xu, zu);
+        r2.lb() = battery::max(yl, battery::min(battery::min(t1, t2), battery::min(t3, t4)));
+        r2.ub() = battery::min(yu, battery::max(battery::max(t5, t6), battery::max(t7, t8)));
+      }
+    }
+  }
+
+  CUDA local::B fembed(AVar x, const Itv& r, const double epsilon) {
+    double width = (*sub)[x.vid()].width().lb().value(); // if ub = inf, then width will be [-inf, inf].
+    local::B has_changed = sub->embed(x, r);
+    if(has_changed && width - r.width().lb().value() < epsilon && width != MINF) {
+      return false;
+    }
+    return has_changed;
+  }
+
+  CUDA local::B fdeduce(bytecode_type bytecode, const double epsilon) {
     if constexpr(std::is_floating_point_v<value_t>) {
       local::B has_changed = false;
       // We load the variables. 
@@ -895,54 +916,59 @@ public:
       Itv r2((*sub)[bytecode.y]);
       Itv r3((*sub)[bytecode.z]);
       value_t t1, t2, t3, t4, t5, t6, t7, t8; // Temporary variables for multipilication. 
+      
       switch(bytecode.op) {
         case EQ: {
           if(r1 == ONE) {
-            has_changed |= sub->embed(bytecode.y, r3);
-            has_changed |= sub->embed(bytecode.z, r2);
+            has_changed |= fembed(bytecode.y, r3, epsilon);
+            has_changed |= fembed(bytecode.z, r2, epsilon);
           }
           else if(r1 == ZERO && (yl == yu || zl == zu)) {}
-          else if (yu == zl && yl == zu) { has_changed |= sub->embed(bytecode.x, ONE); } 
-          else if (yl > zu || yu < zl) { has_changed |= sub->embed(bytecode.x, ZERO); }
+          else if (yu == zl && yl == zu) { has_changed |= fembed(bytecode.x, ONE, epsilon); } 
+          else if (yl > zu || yu < zl) { has_changed |= fembed(bytecode.x, ZERO, epsilon); }
           return has_changed;
         }
         case LEQ: {
           if(r1 == ONE) {
-            has_changed |= sub->embed(bytecode.y, Itv(yl, zu));
-            has_changed |= sub->embed(bytecode.z, Itv(yl, zu));
+            has_changed |= fembed(bytecode.y, Itv(yl, zu), epsilon);
+            has_changed |= fembed(bytecode.z, Itv(yl, zu), epsilon);
           }
           else if(r1 == ZERO) { 
             // if y <= z is false, we update the intervals by y >= z.
-            has_changed |= sub->embed(bytecode.y, Itv(zl, yu));
-            has_changed |= sub->embed(bytecode.z, Itv(zl, yu)); 
+            has_changed |= fembed(bytecode.y, Itv(zl, yu), epsilon);
+            has_changed |= fembed(bytecode.z, Itv(zl, yu), epsilon); 
           }
-          else if(yu <= zl) { has_changed |= sub->embed(bytecode.x, ONE); }
-          else if(yl > zu) { has_changed |= sub->embed(bytecode.x, ZERO); }
+          else if(yu <= zl) { has_changed |= fembed(bytecode.x, ONE, epsilon); }
+          else if(yl > zu) { has_changed |= fembed(bytecode.x, ZERO, epsilon); }
           return has_changed;
         }
         case ADD: {
-          r1.lb() = ((battery::isinf(yl) && yl < 0.0) || (battery::isinf(zl) && zl < 0.0)) ? xl : max(xl, battery::add_down(yl, zl));
-          r1.ub() = ((battery::isinf(yu) && yu > 0.0) || (battery::isinf(zu) && zu > 0.0)) ? xu : min(xu, battery::add_up(yu, zu));
-          r2.lb() = ((battery::isinf(xl) && xl < 0.0) || (battery::isinf(zu) && zu > 0.0)) ? yl : max(yl, battery::sub_down(xl, zu));
-          r2.ub() = ((battery::isinf(xu) && xu > 0.0) || (battery::isinf(zl) && zl < 0.0)) ? yu : min(yu, battery::sub_up(xu, zl));
-          r3.lb() = ((battery::isinf(xl) && xl < 0.0) || (battery::isinf(yu) && yu > 0.0)) ? zl : max(zl, battery::sub_down(xl, yu));
-          r3.ub() = ((battery::isinf(xu) && xu > 0.0) || (battery::isinf(yl) && yl < 0.0)) ? zu : min(zu, battery::sub_up(xu, yl));
+          r1.lb() = (yl == MINF || zl == MINF) ? xl : battery::max(xl, battery::add_down(yl, zl));
+          r1.ub() = (yu == INF || zu == INF) ? xu : battery::min(xu, battery::add_up(yu, zu));
+          r2.lb() = (xl == MINF || zu == INF) ? yl : battery::max(yl, battery::sub_down(xl, zu));
+          r2.ub() = (xu == INF || zl == MINF) ? yu : battery::min(yu, battery::sub_up(xu, zl));
+          r3.lb() = (xl == MINF || yu == INF) ? zl : battery::max(zl, battery::sub_down(xl, yu));
+          r3.ub() = (xu == INF || yl == MINF) ? zu : battery::min(zu, battery::sub_up(xu, yl));
           break;
         }
         case MUL: {
-          if (!(battery::isinf(yl) && yl > 0.0) && !(battery::isinf(yu) && yu < 0.0) && !(battery::isinf(zl) && zl > 0.0) && !(battery::isinf(zu) && zu < 0.0)) {
-            t1 = battery::mul_down(yl, zl);
-            t2 = battery::mul_down(yl, zu);
-            t3 = battery::mul_down(yu, zl);
-            t4 = battery::mul_down(yu, zu);
-            t5 = battery::mul_up(yl, zl);
-            t6 = battery::mul_up(yl, zu);
-            t7 = battery::mul_up(yu, zl);
-            t8 = battery::mul_up(yu, zu);
+          if(r2.is_bot() || r3.is_bot()) { break; }
+          else {
+           t1 = battery::mul_down(yl, zl);
+           t2 = battery::mul_down(yl, zu);
+           t3 = battery::mul_down(yu, zl);
+           t4 = battery::mul_down(yu, zu);
+           t5 = battery::mul_up(yl, zl);
+           t6 = battery::mul_up(yl, zu);
+           t7 = battery::mul_up(yu, zl);
+           t8 = battery::mul_up(yu, zu);
+
             r1.lb() = battery::max(xl, battery::min(battery::min(t1, t2), battery::min(t3, t4)));
             r1.ub() = battery::min(xu, battery::max(battery::max(t5, t6), battery::max(t7, t8)));
           }
+          if(r1.is_bot()) { break; }
           fitv_div(r1, r2, r3);
+          if(r2.is_bot()) { break; }
           fitv_div(r1, r3, r2);
           break;
         }
@@ -966,12 +992,15 @@ public:
         }
         default: assert(false);
       }
-      has_changed |= sub->embed(bytecode.x, r1);
-      has_changed |= sub->embed(bytecode.y, r2);
-      has_changed |= sub->embed(bytecode.z, r3);
+      has_changed |= fembed(bytecode.x, r1, epsilon);
+      has_changed |= fembed(bytecode.y, r2, epsilon);
+      has_changed |= fembed(bytecode.z, r3, epsilon);
       return has_changed;
     }
-    else return false; 
+    else {
+      assert(false);
+      return false;
+    }
   }
 
 #undef xl

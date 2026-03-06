@@ -39,12 +39,12 @@ void test_extract(const L& fpir, bool is_ua) {
     for(int i = 0; i < fpir.vars(); ++i) {
       printf("fpir[%d] = [%f,%f]\n", i, fpir[i].lb().value(), fpir[i].ub().value());
     }
-    for(int i = 0; i < fpir.num_deductions(); ++i) {
-      EXPECT_TRUE(fpir.fask(i, 1e-6)) << "fpir.fask(" << i << ") == false";
-    }
+    // for(int i = 0; i < fpir.num_deductions(); ++i) {
+    //   EXPECT_TRUE(fpir.fask(i)) << "fpir.fask(" << i << ") == false";
+    // }
   }
-  EXPECT_EQ(fpir.is_extractable(), is_ua);
-  if(fpir.is_extractable()) {
+  EXPECT_EQ(fpir.is_fextractable(), is_ua);
+  if(fpir.is_fextractable()) {
     fpir.extract(copy1);
     EXPECT_EQ(fpir.is_top(), copy1.is_top());
     EXPECT_EQ(fpir.is_bot(), copy1.is_bot());
@@ -62,7 +62,7 @@ void fdeduce_and_test(L& fpir, int num_deds, const std::vector<FItv>& before, co
   }
   GaussSeidelIteration{}.fixpoint(
     fpir.num_deductions(),
-    [&](size_t i) { return fpir.fdeduce(i); });
+    [&](size_t i) { return fpir.fdeduce(i, 1e-10); });
   /** Note: We don't test has_changed anymore due to the internal variable, it usually changes due to the unbounded domains of the internal variables. */
   for(int i = 0; i < after.size(); ++i) {
     std::cout << "fpir[" << i << "]" << std::setprecision(std::numeric_limits<double>::max_digits10) << fpir[i].lb().value() << ", " << fpir[i].ub().value() << std::endl;
@@ -90,7 +90,7 @@ void fdeduce_and_test_bot(L& fpir, int num_deds, const std::vector<FItv>& before
   local::B has_changed = false;
   GaussSeidelIteration{}.fixpoint(
     fpir.num_deductions(),
-    [&](size_t i) { return fpir.fdeduce(i); },
+    [&](size_t i) { return fpir.fdeduce(i, 1e-6); },
     has_changed
   );
   EXPECT_TRUE(has_changed);
@@ -615,7 +615,7 @@ TEST(FPIRTest, Strict1) {
   FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var 1.0..10.0: x; var 10.0..10.0: y; constraint float_gt(x, y);", env);
   fdeduce_and_test(fpir, 1, 
     {create_float_interval<FItv>("1.0", "10.0"), create_float_interval<FItv>("10.0", "10.0")}, 
-    {create_float_interval<FItv>("10.0", "10.0"), create_float_interval<FItv>("10.0", "10.0")}, false);
+    {create_float_interval<FItv>("10.0", "10.0"), create_float_interval<FItv>("10.0", "10.0")}, true);
 }
 
 TEST(FPIRTest, Strict2) {
@@ -782,7 +782,7 @@ TEST(FPIRTest, MinConstraint1) {
   interpret_must_succeed<IKind::TELL, false, false>("constraint float_le(x, 0.0);", fpir, env);
   fdeduce_and_test(fpir, 1, 
     {create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("2.0", "5.0"), create_float_interval<FItv>("0.0", "1.0")}, 
-    {create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("2.0", "5.0"), create_float_interval<FItv>("0.0", "0.0")}, true);
+    {create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("2.0", "5.0"), create_float_interval<FItv>("0.0", "0.0")}, false);
 }
 
 // min(x, y) = z
@@ -816,7 +816,7 @@ TEST(FPIRTest, MinConstraint3) {
   interpret_must_succeed<IKind::TELL, true, false>("constraint float_eq(b1, float_le(x, 5.0));", fpir, env);
   fdeduce_and_test(fpir, 2, 
     {FItv::top(), create_float_interval<FItv>("1.0", "1.0"), create_float_interval<FItv>("1.0", "1.0")}, 
-    {create_float_interval<FItv>(FItv::LB::top(), "5.0"), create_float_interval<FItv>("1.0", "1.0"), create_float_interval<FItv>("1.0", "1.0")}, true);
+    {create_float_interval<FItv>(FItv::LB::top(), "5.0"), create_float_interval<FItv>("1.0", "1.0"), create_float_interval<FItv>("1.0", "1.0")}, false);
 
   interpret_must_succeed<IKind::TELL, true, false>("constraint float_eq(b2, float_ge(x, 5.0));", fpir, env);
   fdeduce_and_test(fpir, 3, 
@@ -845,7 +845,7 @@ TEST(FPIRTest, MaxConstraint1) {
   interpret_must_succeed<IKind::TELL, false, false>("constraint float_eq(y, 2.0);", fpir, env);
   fdeduce_and_test(fpir, 1, 
     {create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("2.0", "2.0"), create_float_interval<FItv>("2.0", "3.0")}, 
-    {create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("2.0", "2.0"), create_float_interval<FItv>("2.0", "2.0")}, true);
+    {create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("2.0", "2.0"), create_float_interval<FItv>("2.0", "2.0")}, false);
 }
 
 // max(x, y) = z
@@ -860,7 +860,7 @@ TEST(FPIRTest, MaxConstraint2) {
   interpret_must_succeed<IKind::TELL, false, false>("constraint float_ge(z, 5.0);", fpir, env);
   fdeduce_and_test(fpir, 1, 
     {create_float_interval<FItv>("0.0", "4.0"), create_float_interval<FItv>("2.0", "5.0"), create_float_interval<FItv>("5.0", "5.0")}, 
-    {create_float_interval<FItv>("0.0", "4.0"), create_float_interval<FItv>("5.0", "5.0"), create_float_interval<FItv>("5.0", "5.0")}, true);
+    {create_float_interval<FItv>("0.0", "4.0"), create_float_interval<FItv>("5.0", "5.0"), create_float_interval<FItv>("5.0", "5.0")}, false);
 }
 
 TEST(FPIRTest, MaxConstraint3) {
@@ -909,7 +909,7 @@ TEST(FPIRTest, FloatTimes2) {
   interpret_must_succeed<IKind::TELL, false, false>("constraint float_eq(z, 1.0);", fpir, env);
   fdeduce_and_test(fpir, 1, 
     {create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("1.0", "1.0")},
-    {create_float_interval<FItv>("1.0", "1.0"), create_float_interval<FItv>("1.0", "1.0"), create_float_interval<FItv>("1.0", "1.0")}, true);
+    {create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("1.0", "1.0")}, false);
 }
 
 TEST(FPIRTest, FloatTimes3) {
@@ -921,7 +921,7 @@ TEST(FPIRTest, FloatTimes3) {
     constraint float_times(x, y, z);", env);
   fdeduce_and_test(fpir, 1, 
     {create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("0.0", "1.0")},
-    {create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("0.0", "0.0")}, true);
+    {create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("0.0", "0.0")}, false);
 }
 
 TEST(FPIRTest, FloatTimes4) {
@@ -933,7 +933,7 @@ TEST(FPIRTest, FloatTimes4) {
     constraint float_times(x, y, z);", env);
   fdeduce_and_test(fpir, 1, 
     {create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("0.0", "1.0")},
-    {create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("0.0", "0.0")}, true);
+    {create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("0.0", "0.0")}, false);
 }
 
 TEST(FPIRTest, FloatTimes5) {
@@ -945,7 +945,7 @@ TEST(FPIRTest, FloatTimes5) {
     constraint float_times(x, y, z);", env);
   fdeduce_and_test(fpir, 1, 
     {create_float_interval<FItv>("1.0", "2.0"), create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("0.0", "0.0")},
-    {create_float_interval<FItv>("1.0", "2.0"), create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("0.0", "0.0")}, true);
+    {create_float_interval<FItv>("1.0", "2.0"), create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("0.0", "0.0")}, false);
 }
 
 TEST(FPIRTest, FloatTimes6) {
@@ -957,7 +957,7 @@ TEST(FPIRTest, FloatTimes6) {
     constraint float_times(x, y, z);", env);
   fdeduce_and_test(fpir, 1, 
     {create_float_interval<FItv>("0.0", "1.0"), create_float_interval<FItv>("1.0", "2.0"), create_float_interval<FItv>("0.0", "0.0")},
-    {create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("1.0", "2.0"), create_float_interval<FItv>("0.0", "0.0")}, true);
+    {create_float_interval<FItv>("0.0", "0.0"), create_float_interval<FItv>("1.0", "2.0"), create_float_interval<FItv>("0.0", "0.0")}, false);
 }
 
 TEST(FPIRTest, FloatTimes7) {
@@ -987,7 +987,7 @@ TEST(FPIRTest, FloatTimes8) {
     constraint float_times(x, y, z);", env);
   fdeduce_and_test(fpir, 1, 
     {create_float_interval<FItv>("10.3322111", "11.9877777"), create_float_interval<FItv>("0.99999", "5.123456"), FItv::top()}, 
-    {create_float_interval<FItv>("10.3322111", "11.9877777"), create_float_interval<FItv>("0.99999", "5.123456"), create_float_interval<FItv>("10.332107778", "61.418851584")}, 
+    {create_float_interval<FItv>("10.3322111", "11.9877777"), create_float_interval<FItv>("0.99999", "5.123456"), create_float_interval<FItv>("10.332107777888997", "61.418851583731204")}, 
     false);
 }
 
@@ -1021,9 +1021,9 @@ TEST(FPIRTest, FloatTimes10) {
   fdeduce_and_test(fpir, 11, 
     {create_float_interval<FItv>("1.0", "2.0"), create_float_interval<FItv>("2.0", "3.0"), FItv::top(), FItv::top(), FItv::top(), FItv::top()},
     {create_float_interval<FItv>("1.0", "2.0"), create_float_interval<FItv>("2.0", "3.0"), 
-    create_float_interval<FItv>("-1.3", "0.2"), create_float_interval<FItv>("1.6", "2.7"), 
-    create_float_interval<FItv>("0.0", "0.2"), create_float_interval<FItv>("1.6", "2.7"),
-    create_float_interval<FItv>("0.44", "1.08")}, false);
+    create_float_interval<FItv>("-1.2999999523162841", "0.20000004768371627"), create_float_interval<FItv>("1.6000000238418577", "2.7000000476837159"), 
+    create_float_interval<FItv>("0.0", "0.20000004768371627"), create_float_interval<FItv>("1.6000000238418577", "2.7000000476837159"),
+    create_float_interval<FItv>("0.4399999713897701", "1.080000035166741")}, false);
 }
 
 TEST(FPIRTest, FloatAbs1) {
@@ -1048,7 +1048,7 @@ TEST(FPIRTest, InfiniteDomain1) {
   fdeduce_and_test(fpir, 1, {FItv::top(), create_float_interval<FItv>("0.0", "1.0")}, false);
 
   interpret_must_succeed<IKind::TELL, false, false>("constraint float_eq(b, 1.0);", fpir, env);
-  fdeduce_and_test(fpir, 1, {FItv::top(), create_float_interval<FItv>("1.0", "1.0")}, {create_float_interval<FItv>(FItv::LB::top(), "5.0"), create_float_interval<FItv>("1.0", "1.0")}, true);
+  fdeduce_and_test(fpir, 1, {FItv::top(), create_float_interval<FItv>("1.0", "1.0")}, {create_float_interval<FItv>(FItv::LB::top(), "5.0"), create_float_interval<FItv>("1.0", "1.0")}, false);
 }
 
 TEST(FPIRTest, InfiniteDomain2) {

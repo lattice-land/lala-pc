@@ -370,8 +370,12 @@ public:
     return ask(load_deduce(i));
   }
 
-  CUDA local::B fask(int i) const {
-    return fask(load_deduce(i));
+  CUDA local::B is_fsolution(int i, const double epsilon) const {
+    return is_fsolution(load_deduce(i), epsilon);
+  }
+
+  CUDA local::B has_fsolution(int i) const {
+    return has_fsolution(load_deduce(i));
   }
 
   template <class Alloc2>
@@ -385,13 +389,23 @@ public:
   }
 
   template <class Alloc2> 
-  CUDA local::B fask(const ask_type<Alloc2>& t) const {
+  CUDA local::B is_fsolution(const ask_type<Alloc2>& t, const double epsilon) const {
     for(int i = 0; i < t.bytecodes.size(); ++i) {
-      if(!fask(t.bytecodes[i])) {
+      if(!is_fsolution(t.bytecodes[i], epsilon)) {
         return false;
       }
     }
-    return sub->ask(t.sub_value);
+    return true;
+  }
+
+  template <class Alloc2>
+  CUDA local::B has_fsolution(const ask_type<Alloc2>& t) const {
+    for(int i = 0; i < t.bytecodes.size(); ++i) {
+      if(!has_fsolution(t.bytecodes[i])) {
+        return false;
+      }
+    }
+    return true;
   }
 
   CUDA int num_deductions() const {
@@ -457,40 +471,46 @@ private:
     }
   }
 
-  /*
-  Since we use fembed to avoid updating interval with small width (width < epsilon), the smallest interval that we have must be width == epsilon.
-  Therefore, to check entailment, we have to check use intervals, meaning lb + epsilon = ub.
-  */
-  CUDA local::B fask(bytecode_type bytecode) const {
+  CUDA local::B is_fsolution(bytecode_type bytecode, const double epsilon) const {
     if constexpr(std::is_floating_point_v<value_t>) {
       local_universe_type r1((*sub)[bytecode.x]);
       local_universe_type r2((*sub)[bytecode.y]);
       local_universe_type r3((*sub)[bytecode.z]);
       if (xl == MINF || xu == INF || yl == MINF || yu == INF || zl == MINF || zu == INF) { return false; }
-      if (r1.width().lb().value() > 1e-6 || r2.width().lb().value() > 1e-6 || r3.width().lb().value() > 1e-6) { return false; }
+      if (r1.width().lb().value() > epsilon || r2.width().lb().value() > epsilon || r3.width().lb().value() > epsilon) { return false; }
       return true;
-      // double mx = battery::add_down(xl, battery::div_down(r1.width().lb().value(), 2.0));
-      // double my = battery::add_down(yl, battery::div_down(r2.width().lb().value(), 2.0));
-      // double mz = battery::add_down(zl, battery::div_down(r3.width().lb().value(), 2.0));
+    }
+    else return false;
+  }
 
-      switch(bytecode.op){
-        case EQ: return (xl == ONE && yu == zl && yl == zu) || (xu == ZERO && (yu < zl || yl > zu));
-        case LEQ: return (xl == 1.0 && yu <= zl) || (xu == 0.0 && yl > zu);
-        case ADD: return (xl == xu && yl == yu && zl == zu && xl == battery::add_down(yl, zl));
-        case MUL: return xl == xu &&
-                        ((yl == yu && zl == zu && xl == battery::mul_down(yl, zl))
-                      || (xl == 0.0 && (r2 == 0.0 || r3 == 0.0)));
-        case MIN: return (xl == yu && xu == yl && yu <= zl) || (xl == zu && xu == zl && zu <= yl);
-        case MAX: return (xl == yl && xu == yu && yl >= zu) || (xl == zl && xu == zu && zl >= yu);
+  CUDA local::B has_fsolution(bytecode_type bytecode) const {
+    if constexpr(std::is_floating_point_v<value_t>) {
+      local_universe_type r1((*sub)[bytecode.x]);
+      local_universe_type r2((*sub)[bytecode.y]);
+      local_universe_type r3((*sub)[bytecode.z]);
 
-      //   case EQ: return (xl == ONE && my == mz) || (xu == ZERO && (my > mz || my < mz));
-      //   case LEQ: return (xl == ONE && yu <= zl) || (xu == ZERO && yl > zu);
-      //   case ADD: return mx == battery::add_down(my, mz) || mx == battery::add_up(my, mz);
-      //   case MUL: return mx == battery::mul_down(my, mz) || mx == battery::mul_up(my, mz);
-      //   case MIN: return (yu < zl && mx == my) || (zu < yl && mx == mz);
-      //   case MAX: return (yu < zl && mx == mz) || (xu < yl && mx == my);
-      //   default: assert(false); return false;
+      switch(bytecode.op) {
+        case EQ: return (xl == ONE && battery::sub_down(yl, zu) <= 0 && battery::sub_up(yu, zl) >= 0) 
+                      || (xu == ZERO && (yu < zl || yl > zu));
+        case LEQ: return (xl == ONE && yu <= zl) || (xu == ZERO && yl > zu);
+        case ADD: return (battery::sub_down(xl, battery::add_up(yu, zu)) <= 0 && battery::sub_up(xu, battery::add_down(yl, zl)) >= 0);
+        case MUL: {
+          value_t t1 = battery::mul_down(yl, zl);
+          value_t t2 = battery::mul_down(yl, zu);
+          value_t t3 = battery::mul_down(yu, zl);
+          value_t t4 = battery::mul_down(yu, zu);
+          value_t t5 = battery::mul_up(yl, zl);
+          value_t t6 = battery::mul_up(yl, zu);
+          value_t t7 = battery::mul_up(yu, zl);
+          value_t t8 = battery::mul_up(yu, zu);
+          return (battery::sub_down(xl, battery::max(battery::max(t1, t2), battery::max(t3, t4))) <= 0 
+            && battery::sub_up(xu, battery::min(battery::min(t5, t6), battery::min(t7, t8))) >= 0);
+        } 
+        case MIN: return true;
+        case MAX: return true;
+        default: assert(false); return false;
       }
+      return true;
     }
     else return false;
   }
@@ -900,9 +920,10 @@ public:
   }
 
   CUDA local::B fembed(AVar x, const Itv& r, const double epsilon) {
-    double width = (*sub)[x.vid()].width().lb().value(); // if ub = inf, then width will be [-inf, inf].
+    using bound_type = typename Itv::LB::value_type;
+    bound_type width = (*sub)[x.vid()].width().lb().value(); // if ub = inf, then width will be [-inf, inf].
     local::B has_changed = sub->embed(x, r);
-    if(has_changed && width - r.width().lb().value() < epsilon && width != MINF) {
+    if(has_changed && battery::sub_down(width, r.width().lb().value()) < epsilon && width != MINF) {
       return false;
     }
     return has_changed;
@@ -1076,7 +1097,7 @@ public:
       return false;
     }
     for(int i = 0; i < bytecodes->size(); ++i) {
-      if(!fask(i)) {
+      if(!is_fsolution(i, epsilon)) {
         return false;
       }
     }

@@ -39,9 +39,6 @@ void test_extract(const L& fpir, bool is_ua) {
     for(int i = 0; i < fpir.vars(); ++i) {
       printf("fpir[%d] = [%f,%f]\n", i, fpir[i].lb().value(), fpir[i].ub().value());
     }
-    // for(int i = 0; i < fpir.num_deductions(); ++i) {
-    //   EXPECT_TRUE(fpir.fask(i)) << "fpir.fask(" << i << ") == false";
-    // }
   }
   EXPECT_EQ(fpir.is_fextractable(), is_ua);
   if(fpir.is_fextractable()) {

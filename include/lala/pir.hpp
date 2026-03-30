@@ -503,8 +503,8 @@ private:
           value_t t6 = battery::mul_up(yl, zu);
           value_t t7 = battery::mul_up(yu, zl);
           value_t t8 = battery::mul_up(yu, zu);
-          return (battery::sub_down(xl, battery::max(battery::max(t1, t2), battery::max(t3, t4))) <= 0 
-            && battery::sub_up(xu, battery::min(battery::min(t5, t6), battery::min(t7, t8))) >= 0);
+          return (battery::sub_down(xl, battery::max(battery::max(t5, t6), battery::max(t7, t8))) <= 0 
+            && battery::sub_up(xu, battery::min(battery::min(t1, t2), battery::min(t3, t4))) >= 0);
         } 
         case MIN: return true;
         case MAX: return true;
@@ -1115,16 +1115,6 @@ public:
     }
     else {
       sub->extract(ua);
-    }
-  }
-
-  template <class B> 
-  CUDA void fextract(B& ua) const { 
-    if constexpr(impl::is_pir_like<B>::value) {
-      sub->fextract(*ua.sub);
-    }
-    else {
-      sub->fextract(ua);
     }
   }
 

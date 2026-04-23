@@ -477,7 +477,30 @@ private:
       local_universe_type r2((*sub)[bytecode.y]);
       local_universe_type r3((*sub)[bytecode.z]);
       if (xl == MINF || xu == INF || yl == MINF || yu == INF || zl == MINF || zu == INF) { return false; }
-      if (r1.width().lb().value() > epsilon || r2.width().lb().value() > epsilon || r3.width().lb().value() > epsilon) { return false; }
+      // if (r1.width().lb().value() > epsilon || r2.width().lb().value() > epsilon || r3.width().lb().value() > epsilon) { return false; }
+      // TODO: inner box checking.
+      // I should use max(abs(L),abs(U)) to check if it is less than epsilon.
+      switch(bytecode.op) {
+        case EQ: return (xl == ONE && battery::sub_down(yl, zu) >= -epsilon && battery::sub_up(yu, zl) <= epsilon) 
+                      || (xu == ZERO && (yu < zl || yl > zu));
+        case LEQ: return (xl == ONE && yu <= zl) || (xu == ZERO && yl > zu);
+        case ADD: return (battery::sub_down(xl, battery::add_up(yu, zu)) >= -epsilon 
+                        && battery::sub_up(xu, battery::add_down(yl, zl)) <= epsilon);
+        case MUL: {
+          value_t t1 = battery::mul_down(yl, zl);
+          value_t t2 = battery::mul_down(yl, zu);
+          value_t t3 = battery::mul_down(yu, zl);
+          value_t t4 = battery::mul_down(yu, zu);
+          value_t t5 = battery::mul_up(yl, zl);
+          value_t t6 = battery::mul_up(yl, zu);
+          value_t t7 = battery::mul_up(yu, zl);
+          value_t t8 = battery::mul_up(yu, zu);
+          return (battery::sub_down(xl, battery::max(battery::max(t5, t6), battery::max(t7, t8))) >= -epsilon
+            && battery::sub_up(xu, battery::min(battery::min(t1, t2), battery::min(t3, t4))) <= epsilon);
+        }
+        case MIN: return true;
+        case MAX: return true;
+      }
       return true;
     }
     else return false;
@@ -920,10 +943,9 @@ public:
   }
 
   CUDA local::B fembed(AVar x, const Itv& r, const double epsilon) {
-    using bound_type = typename Itv::LB::value_type;
-    bound_type width = (*sub)[x.vid()].width().lb().value(); // if ub = inf, then width will be [-inf, inf].
+    value_t width = battery::sub_down((*sub)[x.vid()].ub().value(), (*sub)[x.vid()].lb().value());
     local::B has_changed = sub->embed(x, r);
-    if(has_changed && battery::sub_down(width, r.width().lb().value()) < epsilon && width != MINF) {
+    if(has_changed && width <= epsilon) {
       return false;
     }
     return has_changed;
@@ -937,9 +959,11 @@ public:
       Itv r2((*sub)[bytecode.y]);
       Itv r3((*sub)[bytecode.z]);
       value_t t1, t2, t3, t4, t5, t6, t7, t8; // Temporary variables for multipilication. 
-      
+    
+      // printf("before fdeduce: r1 = [%.20lf, %.20lf], r2 = [%.20lf, %.20lf], r3 = [%.20lf, %.20lf]\n", r1.lb().value(), r1.ub().value(), r2.lb().value(), r2.ub().value(), r3.lb().value(), r3.ub().value());
       switch(bytecode.op) {
         case EQ: {
+          // printf("EQ\n");
           if(r1 == ONE) {
             has_changed |= fembed(bytecode.y, r3, epsilon);
             has_changed |= fembed(bytecode.z, r2, epsilon);
@@ -950,6 +974,7 @@ public:
           return has_changed;
         }
         case LEQ: {
+          // printf("LEQ\n");
           if(r1 == ONE) {
             has_changed |= fembed(bytecode.y, Itv(yl, zu), epsilon);
             has_changed |= fembed(bytecode.z, Itv(yl, zu), epsilon);
@@ -964,25 +989,35 @@ public:
           return has_changed;
         }
         case ADD: {
+          // printf("ADD\n");
           r1.lb() = (yl == MINF || zl == MINF) ? xl : battery::max(xl, battery::add_down(yl, zl));
           r1.ub() = (yu == INF || zu == INF) ? xu : battery::min(xu, battery::add_up(yu, zu));
           r2.lb() = (xl == MINF || zu == INF) ? yl : battery::max(yl, battery::sub_down(xl, zu));
           r2.ub() = (xu == INF || zl == MINF) ? yu : battery::min(yu, battery::sub_up(xu, zl));
           r3.lb() = (xl == MINF || yu == INF) ? zl : battery::max(zl, battery::sub_down(xl, yu));
           r3.ub() = (xu == INF || yl == MINF) ? zu : battery::min(zu, battery::sub_up(xu, yl));
+
+          // r1.lb() = (battery::isinf(yl) || battery::isinf(zl)) ? xl : battery::max(xl, battery::add_down(yl, zl));
+          // r1.ub() = (battery::isinf(yu) || battery::isinf(zu)) ? xu : battery::min(xu, battery::add_up(yu, zu));
+          // r2.lb() = (battery::isinf(xl) || battery::isinf(zu)) ? yl : battery::max(yl, battery::sub_down(xl, zu));
+          // r2.ub() = (battery::isinf(xu) || battery::isinf(zl)) ? yu : battery::min(yu, battery::sub_up(xu, zl));
+          // r3.lb() = (battery::isinf(xl) || battery::isinf(yu)) ? zl : battery::max(zl, battery::sub_down(xl, yu));
+          // r3.ub() = (battery::isinf(xu) || battery::isinf(yl)) ? zu : battery::min(zu, battery::sub_up(xu, yl));
+          
           break;
         }
         case MUL: {
+          // printf("MUL\n");
           if(r2.is_bot() || r3.is_bot()) { break; }
           else {
-           t1 = battery::mul_down(yl, zl);
-           t2 = battery::mul_down(yl, zu);
-           t3 = battery::mul_down(yu, zl);
-           t4 = battery::mul_down(yu, zu);
-           t5 = battery::mul_up(yl, zl);
-           t6 = battery::mul_up(yl, zu);
-           t7 = battery::mul_up(yu, zl);
-           t8 = battery::mul_up(yu, zu);
+            t1 = battery::mul_down(yl, zl);
+            t2 = battery::mul_down(yl, zu);
+            t3 = battery::mul_down(yu, zl);
+            t4 = battery::mul_down(yu, zu);
+            t5 = battery::mul_up(yl, zl);
+            t6 = battery::mul_up(yl, zu);
+            t7 = battery::mul_up(yu, zl);
+            t8 = battery::mul_up(yu, zu);
 
             r1.lb() = battery::max(xl, battery::min(battery::min(t1, t2), battery::min(t3, t4)));
             r1.ub() = battery::min(xu, battery::max(battery::max(t5, t6), battery::max(t7, t8)));

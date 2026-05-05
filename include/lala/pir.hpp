@@ -117,6 +117,10 @@ private:
   /** We represent the constraints X = Y [op] Z. */
   bytecodes_ptr bytecodes;
 
+  /** When false, skip the operator-based sort in deduce(tell_type).
+   *  Set to false when loading a pre-ordered TCN to preserve file order. */
+  bool sort_bytecodes;
+
   using LB = typename local_universe_type::LB;
   using UB = typename local_universe_type::UB;
 
@@ -160,6 +164,7 @@ public:
    , ZERO(local_universe_type::eq_zero())
    , ONE(local_universe_type::eq_one())
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, alloc))
+   , sort_bytecodes(true)
   {}
 
   template <class PIR2>
@@ -168,6 +173,7 @@ public:
    , ZERO(local_universe_type::eq_zero())
    , ONE(local_universe_type::eq_one())
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, *(other.bytecodes), alloc))
+   , sort_bytecodes(other.sort_bytecodes)
   {}
 
   CUDA PIR(PIR&& other)
@@ -176,6 +182,7 @@ public:
     , ZERO(std::move(other.ZERO))
     , ONE(std::move(other.ONE))
     , bytecodes(std::move(other.bytecodes))
+    , sort_bytecodes(other.sort_bytecodes)
   {}
 
 private:
@@ -202,7 +209,14 @@ public:
    , ZERO(other.ZERO)
    , ONE(other.ONE)
    , bytecodes(init_bytecodes(other, deps))
+   , sort_bytecodes(other.sort_bytecodes)
   {}
+
+  /** Disable the operator-based sort applied after each tell.
+   *  Call this before interpreting a pre-ordered TCN to preserve file order. */
+  void disable_sort_bytecodes() {
+    sort_bytecodes = false;
+  }
 
   CUDA allocator_type get_allocator() const {
     return bytecodes.get_allocator();
@@ -335,7 +349,9 @@ public:
         }
       }
     /** This is sorting the constraints `X = Y <op> Z` according to <OP>.
-     * Note that battery::sorti is much slower than std::sort, therefore the #ifdef. */
+     * Note that battery::sorti is much slower than std::sort, therefore the #ifdef.
+     * Skipped when sort_bytecodes is false (e.g. when loading a pre-ordered TCN). */
+    if(sort_bytecodes) {
     #ifdef __CUDA_ARCH__
       battery::sorti(*bytecodes,
         [&](int i, int j) { return (*bytecodes)[i].op < (*bytecodes)[j].op; });
@@ -346,6 +362,7 @@ public:
           return a.op == b.op ? (a.y.vid() == b.y.vid() ? (a.x.vid() == b.x.vid() ? a.z.vid() < b.z.vid() : a.x.vid() < b.x.vid()) : a.y.vid() < b.y.vid()) : a.op < b.op;
         });
     #endif
+    }
       has_changed = true;
     }
     return has_changed;

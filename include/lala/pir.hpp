@@ -370,7 +370,7 @@ public:
     return ask(load_deduce(i));
   }
 
-  CUDA local::B is_fsolution(int i, const double epsilon) const {
+  CUDA local::B is_fsolution(int i, const float epsilon) const {
     return is_fsolution(load_deduce(i), epsilon);
   }
 
@@ -389,7 +389,7 @@ public:
   }
 
   template <class Alloc2> 
-  CUDA local::B is_fsolution(const ask_type<Alloc2>& t, const double epsilon) const {
+  CUDA local::B is_fsolution(const ask_type<Alloc2>& t, const float epsilon) const {
     for(int i = 0; i < t.bytecodes.size(); ++i) {
       if(!is_fsolution(t.bytecodes[i], epsilon)) {
         return false;
@@ -418,7 +418,7 @@ public:
     return deduce(load_deduce(i));
   }
 
-  CUDA local::B fdeduce(int i, const double epsilon) {
+  CUDA local::B fdeduce(int i, const float epsilon) {
     assert(i < num_deductions());
     return fdeduce(load_deduce(i), epsilon);
   }
@@ -471,7 +471,7 @@ private:
     }
   }
 
-  CUDA local::B is_fsolution(bytecode_type bytecode, const double epsilon) const {
+  CUDA local::B is_fsolution(bytecode_type bytecode, const float epsilon) const {
     if constexpr(std::is_floating_point_v<value_t>) {
       local_universe_type r1((*sub)[bytecode.x]);
       local_universe_type r2((*sub)[bytecode.y]);
@@ -953,8 +953,8 @@ public:
     }
   }
 
-  CUDA local::B fembed(AVar x, const Itv& r, const double epsilon) {
-    value_t width = battery::sub_down((*sub)[x.vid()].ub().value(), (*sub)[x.vid()].lb().value());
+  CUDA local::B fembed(AVar x, const Itv& r, const float epsilon) {
+    value_t width = battery::sub_up((*sub)[x.vid()].ub().value(), (*sub)[x.vid()].lb().value());
     local::B has_changed = sub->embed(x, r);
     if(has_changed && width <= epsilon) {
       return false;
@@ -962,7 +962,7 @@ public:
     return has_changed;
   }
 
-  CUDA local::B fdeduce(bytecode_type bytecode, const double epsilon) {
+  CUDA local::B fdeduce(bytecode_type bytecode, const float epsilon) {
     if constexpr(std::is_floating_point_v<value_t>) {
       local::B has_changed = false;
       // We load the variables. 
@@ -1125,7 +1125,7 @@ public:
 
   /** An abstract element is extractable when it is not equal to bot, if all propagators are entailed and if the underlying abstract element is extractable. */
   template <class ExtractionStrategy = NonAtomicExtraction>
-  CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy(), const double epsilon = 1e-6) const {
+  CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy(), const float epsilon = 1e-6) const {
     if(is_bot()) {
       return false;
     }

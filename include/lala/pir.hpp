@@ -374,10 +374,6 @@ public:
     return is_fsolution(load_deduce(i), epsilon);
   }
 
-  CUDA local::B has_fsolution(int i) const {
-    return has_fsolution(load_deduce(i));
-  }
-
   template <class Alloc2>
   CUDA local::B ask(const ask_type<Alloc2>& t) const {
     for(int i = 0; i < t.bytecodes.size(); ++i) {
@@ -392,16 +388,6 @@ public:
   CUDA local::B is_fsolution(const ask_type<Alloc2>& t, const float epsilon) const {
     for(int i = 0; i < t.bytecodes.size(); ++i) {
       if(!is_fsolution(t.bytecodes[i], epsilon)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  template <class Alloc2>
-  CUDA local::B has_fsolution(const ask_type<Alloc2>& t) const {
-    for(int i = 0; i < t.bytecodes.size(); ++i) {
-      if(!has_fsolution(t.bytecodes[i])) {
         return false;
       }
     }
@@ -478,29 +464,7 @@ private:
       local_universe_type r3((*sub)[bytecode.z]);
       if (xl == MINF || xu == INF || yl == MINF || yu == INF || zl == MINF || zu == INF) { return false; }
       if (r1.width().ub().value() > epsilon || r2.width().ub().value() > epsilon || r3.width().ub().value() > epsilon) { return false; }
-      // // TODO: inner box checking.
-      // // I should use max(abs(L),abs(U)) to check if it is less than epsilon.
-      // switch(bytecode.op) {
-      //   case EQ: return (xl == ONE && battery::sub_down(yl, zu) >= -epsilon && battery::sub_up(yu, zl) <= epsilon) 
-      //                 || (xu == ZERO && (yu < zl || yl > zu));
-      //   case LEQ: return (xl == ONE && yu <= zl) || (xu == ZERO && yl > zu);
-      //   case ADD: return (battery::sub_down(xl, battery::add_up(yu, zu)) >= -epsilon 
-      //                   && battery::sub_up(xu, battery::add_down(yl, zl)) <= epsilon);
-      //   case MUL: {
-      //     value_t t1 = battery::mul_down(yl, zl);
-      //     value_t t2 = battery::mul_down(yl, zu);
-      //     value_t t3 = battery::mul_down(yu, zl);
-      //     value_t t4 = battery::mul_down(yu, zu);
-      //     value_t t5 = battery::mul_up(yl, zl);
-      //     value_t t6 = battery::mul_up(yl, zu);
-      //     value_t t7 = battery::mul_up(yu, zl);
-      //     value_t t8 = battery::mul_up(yu, zu);
-      //     return (battery::sub_down(xl, battery::max(battery::max(t5, t6), battery::max(t7, t8))) >= -epsilon
-      //       && battery::sub_up(xu, battery::min(battery::min(t1, t2), battery::min(t3, t4))) <= epsilon);
-      //   }
-      //   case MIN: return true;
-      //   case MAX: return true;
-      // }
+      
       value_t mx = battery::midpoint(xl, xu);
       value_t my = battery::midpoint(yl, yu);
       value_t mz = battery::midpoint(zl, zu);
@@ -509,40 +473,8 @@ private:
         case LEQ: return (mx == ONE && my <= mz) || (mx == ZERO && my > mz);
         case ADD: return mx >= battery::add_down(my, mz) && mx <= battery::add_up(my, mz);
         case MUL: return mx >= battery::mul_down(my, mz) && mx <= battery::mul_up(my, mz);
-        case MIN: return mx == my || mx == mz;
-        case MAX: return mx == my || mx == mz;
-      }
-      return true;
-    }
-    else return false;
-  }
-
-  CUDA local::B has_fsolution(bytecode_type bytecode) const {
-    if constexpr(std::is_floating_point_v<value_t>) {
-      local_universe_type r1((*sub)[bytecode.x]);
-      local_universe_type r2((*sub)[bytecode.y]);
-      local_universe_type r3((*sub)[bytecode.z]);
-
-      switch(bytecode.op) {
-        case EQ: return (xl == ONE && battery::sub_down(yl, zu) <= 0 && battery::sub_up(yu, zl) >= 0) 
-                      || (xu == ZERO && (yu < zl || yl > zu));
-        case LEQ: return (xl == ONE && yu <= zl) || (xu == ZERO && yl > zu);
-        case ADD: return (battery::sub_down(xl, battery::add_up(yu, zu)) <= 0 && battery::sub_up(xu, battery::add_down(yl, zl)) >= 0);
-        case MUL: {
-          value_t t1 = battery::mul_down(yl, zl);
-          value_t t2 = battery::mul_down(yl, zu);
-          value_t t3 = battery::mul_down(yu, zl);
-          value_t t4 = battery::mul_down(yu, zu);
-          value_t t5 = battery::mul_up(yl, zl);
-          value_t t6 = battery::mul_up(yl, zu);
-          value_t t7 = battery::mul_up(yu, zl);
-          value_t t8 = battery::mul_up(yu, zu);
-          return (battery::sub_down(xl, battery::max(battery::max(t5, t6), battery::max(t7, t8))) <= 0 
-            && battery::sub_up(xu, battery::min(battery::min(t1, t2), battery::min(t3, t4))) >= 0);
-        } 
-        case MIN: return true;
-        case MAX: return true;
-        default: assert(false); return false;
+        case MIN: return mx == battery::min(my, mz);
+        case MAX: return mx == battery::max(my, mz);
       }
       return true;
     }

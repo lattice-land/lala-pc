@@ -1057,25 +1057,16 @@ public:
 
   /** An abstract element is extractable when it is not equal to bot, if all propagators are entailed and if the underlying abstract element is extractable. */
   template <class ExtractionStrategy = NonAtomicExtraction>
-  CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy(), const float epsilon = 1e-6) const {
+  CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy()) const {
     if(is_bot()) {
       return false;
     }
-    if constexpr(std::is_floating_point_v<decltype((*sub)[0].lb().value())>) {
-      for(int i = 0; i < bytecodes->size(); ++i) {
-        if(!is_fsolution(i, epsilon)) {
-          return false;
-        }
+    for(int i = 0; i < bytecodes->size(); ++i) {
+      if(!ask(i)) {
+        return false;
       }
     }
-    else {
-      for(int i = 0; i < bytecodes->size(); ++i) {
-        if(!ask(i)) {
-          return false;
-        }
-      }
-    }
-    return sub->is_extractable(strategy, epsilon);
+    return sub->is_extractable(strategy);
   }
 
   /** Extract the current element into `ua`.

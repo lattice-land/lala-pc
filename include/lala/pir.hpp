@@ -10,6 +10,7 @@
 #include "battery/allocator.hpp"
 #include "battery/algorithm.hpp"
 #include "battery/bitset.hpp"
+#include "battery/utility.hpp"
 
 #include "lala/logic/logic.hpp"
 #include "lala/logic/ternarize.hpp"
@@ -169,7 +170,7 @@ public:
 
   template <class PIR2>
   CUDA PIR(const PIR2& other, sub_ptr sub, const allocator_type& alloc = allocator_type{})
-   : atype(atype), sub(sub)
+   : atype(other.atype), sub(sub)
    , ZERO(local_universe_type::eq_zero())
    , ONE(local_universe_type::eq_one())
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, *(other.bytecodes), alloc))
@@ -386,6 +387,10 @@ public:
     return ask(load_deduce(i));
   }
 
+  CUDA local::B is_fsolution(int i, const float epsilon) const {
+    return is_fsolution(load_deduce(i), epsilon);
+  }
+
   template <class Alloc2>
   CUDA local::B ask(const ask_type<Alloc2>& t) const {
     for(int i = 0; i < t.bytecodes.size(); ++i) {
@@ -396,6 +401,16 @@ public:
     return sub->ask(t.sub_value);
   }
 
+  template <class Alloc2> 
+  CUDA local::B is_fsolution(const ask_type<Alloc2>& t, const float epsilon) const {
+    for(int i = 0; i < t.bytecodes.size(); ++i) {
+      if(!is_fsolution(t.bytecodes[i], epsilon)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   CUDA int num_deductions() const {
     return bytecodes->size();
   }
@@ -404,6 +419,11 @@ public:
   CUDA local::B deduce(int i) {
     assert(i < num_deductions());
     return deduce(load_deduce(i));
+  }
+
+  CUDA local::B fdeduce(int i, const float epsilon) {
+    assert(i < num_deductions());
+    return fdeduce(load_deduce(i), epsilon);
   }
 
   using Itv = local_universe_type;
@@ -417,8 +437,8 @@ public:
 #define zl r3.lb().value()
 #define zu r3.ub().value()
 
-#define INF std::numeric_limits<value_t>::max()
-#define MINF std::numeric_limits<value_t>::min()
+#define INF battery::limits<value_t>::inf()
+#define MINF battery::limits<value_t>::neg_inf()
 
 private:
   CUDA INLINE value_t div(value_t a, Sig op, value_t b) const {
@@ -454,6 +474,40 @@ private:
     }
   }
 
+  CUDA local::B is_fsolution(bytecode_type bytecode, const float epsilon) const {
+    if constexpr(std::is_floating_point_v<value_t>) {
+      local_universe_type r1((*sub)[bytecode.x]);
+      local_universe_type r2((*sub)[bytecode.y]);
+      local_universe_type r3((*sub)[bytecode.z]);
+      if (xl == MINF || xu == INF || yl == MINF || yu == INF || zl == MINF || zu == INF) { return false; }
+      if (r1.width().ub().value() > epsilon || r2.width().ub().value() > epsilon || r3.width().ub().value() > epsilon) { return false; }
+
+      /** `is_fsolution` only ever needs to certify a POSTCONDITION's own bytecodes (see
+       * `verify()`/`setup_verification_oracle` in jet/common_solving.hpp), and postconditions
+       * in this project are restricted to inequalities directly over existing variables (e.g.
+       * `Y_0 <= Y_1`, `Y_0 <= c`) -- never a compound arithmetic expression needing an
+       * intermediate ADD/MUL/MIN/MAX bytecode of its own. So only `LEQ` (and the reification
+       * constant's own `EQ`, when a `LEQ` bytecode's `x` is itself a top-level fact) needs a
+       * genuine check here; `EQ`/`ADD`/`MUL`/`MIN`/`MAX` are dead code for a postcondition's
+       * own bytecode range under that restriction, and are left permissive (`true`) rather
+       * than implementing (and having to maintain) unused generality. This is NOT sound in
+       * general -- only under the "postconditions are inequalities over variables" assumption
+       * above; if that ever changes, these cases need the real midpoint-consistency checks
+       * back (see git history / `battery::add_up`, `mul_up`, etc. for the pattern). */
+      switch(bytecode.op) {
+        case EQ: return true;
+        case LEQ: return (r1.lb().value() == ONE && r1.ub().value() == ONE && r2.ub().value() <= r3.lb().value())
+                      || (r1.lb().value() == ZERO && r1.ub().value() == ZERO && r2.lb().value() > r3.ub().value());
+        case ADD: return true;
+        case MUL: return true;
+        case MIN: return true;
+        case MAX: return true;
+        default: return false;
+      }
+    }
+    else return false;
+  }
+
   CUDA INLINE value_t min(value_t a, value_t b) const {
     return battery::min(a, b);
   }
@@ -482,6 +536,8 @@ private:
       r1.ub() = min(xu, max(max(t1, t2), max(t3, t4)));
     }
   }
+
+  
 
   CUDA INLINE Itv num_fdiv(const Itv& r1, const Itv& r3) const {
     if(zl < 0 && zu > 0) {
@@ -831,6 +887,293 @@ public:
     has_changed |= sub->embed(bytecode.y, r2);
     has_changed |= sub->embed(bytecode.z, r3);
     return has_changed;
+  }
+
+  /*
+  r2 = r1 / r3
+  preconditions: r1, r2, and r3 are different from bottom.
+  */
+  CUDA INLINE void fitv_div(const Itv& r1, Itv& r2, Itv& r3) {
+    // if constexpr(std::is_floating_point_v<value_t>) {
+    //   if ((zl <= 0.0 && zu >= 0.0) || xl == MINF || xu == INF || zl == MINF || zu == INF) { return; } 
+    //   else {
+    //     value_t t1 = battery::div_down(xl, zl);
+    //     value_t t2 = battery::div_down(xl, zu);
+    //     value_t t3 = battery::div_down(xu, zl);
+    //     value_t t4 = battery::div_down(xu, zu);
+
+    //     value_t t5 = battery::div_up(xl, zl);
+    //     value_t t6 = battery::div_up(xl, zu);
+    //     value_t t7 = battery::div_up(xu, zl);
+    //     value_t t8 = battery::div_up(xu, zu);
+    //     r2.lb() = battery::max(yl, battery::min(battery::min(t1, t2), battery::min(t3, t4)));
+    //     r2.ub() = battery::min(yu, battery::max(battery::max(t5, t6), battery::max(t7, t8)));
+    //   }
+    // }
+    
+    // mulback : div_nz
+    if constexpr(std::is_floating_point_v<value_t>){
+      if (r1.is_bot() || r3.is_bot()) { r2.meet_bot(); return; }
+      if ((zl == value_t{0.0} && zu == value_t{0.0}) || (xl <= value_t{0.0} && value_t{0.0} <= xu && zl <= value_t{0.0} && value_t{0.0} <= zu)) return;
+
+      if (xl == value_t{0.0} && xu == value_t{0.0}) {
+        if (zl < value_t{0.0} || zu > value_t{0.0}) {
+          r2.meet_lb(LB{0.0});
+          r2.meet_ub(UB{0.0});
+          return;
+        }
+      }
+
+      if (zl < value_t{0.0} && zu > value_t{0.0}) return;
+      
+      // Bounded case
+      if (zl != value_t{0.0} && zu != value_t{0.0} && !r1.lb().is_top() && !r1.ub().is_top() && !r3.lb().is_top() && !r3.ub().is_top()){
+        r2.meet_lb(LB(battery::min(battery::min(battery::div_down<value_t>(xl, zl), battery::div_down<value_t>(xl, zu)), battery::min(battery::div_down<value_t>(xu, zl), battery::div_down<value_t>(xu, zu)))));
+        r2.meet_ub(UB(battery::max(battery::max(battery::div_up<value_t>(xl, zl), battery::div_up<value_t>(xl, zu)), battery::max(battery::div_up<value_t>(xu, zl), battery::div_up<value_t>(xu, zu)))));
+      }
+      else {
+        /** When `z` touches zero at its upper bound (`zu == 0`, i.e. `z` is
+         * entirely `<= 0` and approaches zero from the negative side), the
+         * stored `zu` is always the ordinary, UNSIGNED `+0.0`: `meet` cannot
+         * encode "this zero is conceptually negative" via the sign bit,
+         * since it compares via `strict_order`, under which `+0.0` and
+         * `-0.0` are the same element (see `PreFLB`: "-0 and +0 are treated
+         * as the same element"). But raw IEEE754 division DOES depend on
+         * the zero's sign, and using the wrong (positive) one silently
+         * flips the sign of the resulting bound -- e.g. for `x > 0`, as `z`
+         * ranges over `[zl, 0)`, `x/z -> -inf`, but `x / (+0.0)` evaluates
+         * to `+inf`. A wrong-signed `+inf` merged into `r2`'s LOWER bound
+         * is catastrophic: `LB::bot()` is `+inf`, so this immediately (and
+         * unsoundly) collapses `r2` to `bot`.
+         * `zu_signed` negates the raw float (which DOES flip a zero's sign
+         * bit, unlike `meet`) only when `zu` is exactly zero, giving
+         * `div_down`/`div_up` the correctly-signed zero to divide by; any
+         * genuine nonzero `zu` passes through unchanged. `zl` never needs
+         * this treatment: in the `z >= 0` cases (0-4) below, a zero-touching
+         * `zl` approaches zero from the POSITIVE side, which is exactly
+         * what the ordinary (unsigned) `+0.0` already represents. */
+        value_t zu_signed = (zu == value_t{0.0}) ? -zu : zu;
+
+        /** Parenthesize the whole x-category ternary before adding the
+         * z-offset: `?:` binds looser than `+`, so `A ? 0 : B + C` parses as
+         * `A ? 0 : (B + C)` -- the `+ C` (the z-offset, +5 for z < 0) was
+         * only ever added inside the FALSE branch of the outermost ternary,
+         * i.e. only when `xl <= 0`. Whenever `xl > 0` (the TRUE branch),
+         * the whole expression collapsed to a bare `0`, silently routing
+         * an entirely-positive-x/entirely-negative-z pair into the
+         * z>=0 case 0 formula (which divides by the raw, unsigned `zu`)
+         * instead of the correct case 5 -- corrupting the result whenever
+         * `zu` happened to be exactly `0.0`. */
+        switch((xl > 0 ? 0 : (xl == 0 ? 1 : (xl < 0 && xu > 0 ? 2 : (xu == 0 ? 3 : 4)))) + (zl >= 0 ? 0 : 5)) {
+          case 0: { r2.meet_lb(LB(battery::div_down<value_t>(xl, zu))); r2.meet_ub(UB(battery::div_up<value_t>(xu, zl))); break; }
+          case 1: { r2.meet_lb(LB(value_t{0.0})); r2.meet_ub(UB(battery::div_up<value_t>(xu, zl))); break; }
+          case 2: { r2.meet_lb(LB(battery::div_down<value_t>(xl, zl))); r2.meet_ub(UB(battery::div_up<value_t>(xu, zl))); break; }
+          case 3: { r2.meet_lb(LB(battery::div_down<value_t>(xl, zl))); r2.meet_ub(UB(value_t{0.0})); break; }
+          case 4: { r2.meet_lb(LB(battery::div_down<value_t>(xl, zl))); r2.meet_ub(UB(battery::div_up<value_t>(xu, zu))); break; }
+          case 5: { r2.meet_lb(LB(battery::div_down<value_t>(xu, zu_signed))); r2.meet_ub(UB(battery::div_up<value_t>(xl, zl))); break; }
+          case 6: { r2.meet_lb(LB(battery::div_down<value_t>(xu, zu_signed))); r2.meet_ub(UB(value_t{0.0})); break; }
+          case 7: { r2.meet_lb(LB(battery::div_down<value_t>(xu, zu_signed))); r2.meet_ub(UB(battery::div_up<value_t>(xl, zu_signed))); break; }
+          case 8: { r2.meet_lb(LB(value_t{0.0})); r2.meet_ub(UB(battery::div_up<value_t>(xl, zu_signed))); break; }
+          case 9:
+          default: { r2.meet_lb(LB(battery::div_down<value_t>(xu, zl))); r2.meet_ub(UB(battery::div_up<value_t>(xl, zu_signed))); break; }
+        }
+      }
+    }
+  }
+
+  CUDA local::B fembed(AVar x, const Itv& r, const float epsilon) {
+    value_t width = battery::sub_up((*sub)[x.vid()].ub().value(), (*sub)[x.vid()].lb().value());
+    local::B has_changed = sub->embed(x, r);
+    if(has_changed && width <= epsilon) {
+      return false;
+    }
+    return has_changed;
+  }
+
+  CUDA local::B fdeduce(bytecode_type bytecode, const float epsilon) {
+    if constexpr(std::is_floating_point_v<value_t>) {
+      local::B has_changed = false;
+      // We load the variables. 
+      Itv r1((*sub)[bytecode.x]);
+      Itv r2((*sub)[bytecode.y]);
+      Itv r3((*sub)[bytecode.z]);
+      value_t t1, t2, t3, t4, t5, t6, t7, t8; // Temporary variables for multipilication. 
+    
+      switch(bytecode.op) {
+        case EQ: {
+          if(r1 == ONE) {
+            has_changed |= fembed(bytecode.y, r3, epsilon);
+            has_changed |= fembed(bytecode.z, r2, epsilon);
+          }
+          else if(r1 == ZERO && (yl == yu || zl == zu)) {}
+          else if (yu == zl && yl == zu) { has_changed |= fembed(bytecode.x, ONE, epsilon); } 
+          else if (yl > zu || yu < zl) { has_changed |= fembed(bytecode.x, ZERO, epsilon); }
+          return has_changed;
+        }
+        case LEQ: {
+          if(r1 == ONE) {
+            has_changed |= fembed(bytecode.y, Itv(yl, zu), epsilon);
+            has_changed |= fembed(bytecode.z, Itv(yl, zu), epsilon);
+          }
+          else if(r1 == ZERO) { 
+            // if y <= z is false, we update the intervals by y >= z.
+            has_changed |= fembed(bytecode.y, Itv(zl, yu), epsilon);
+            has_changed |= fembed(bytecode.z, Itv(zl, yu), epsilon); 
+          }
+          else if(yu <= zl) { has_changed |= fembed(bytecode.x, ONE, epsilon); }
+          else if(yl > zu) { has_changed |= fembed(bytecode.x, ZERO, epsilon); }
+          return has_changed;
+        }
+        case ADD: {
+          // r1.lb() = (yl == MINF || zl == MINF) ? xl : battery::max(xl, battery::add_down(yl, zl));
+          // r1.ub() = (yu == INF || zu == INF) ? xu : battery::min(xu, battery::add_up(yu, zu));
+          // r2.lb() = (xl == MINF || zu == INF) ? yl : battery::max(yl, battery::sub_down(xl, zu));
+          // r2.ub() = (xu == INF || zl == MINF) ? yu : battery::min(yu, battery::sub_up(xu, zl));
+          // r3.lb() = (xl == MINF || yu == INF) ? zl : battery::max(zl, battery::sub_down(xl, yu));
+          // r3.ub() = (xu == INF || yl == MINF) ? zu : battery::min(zu, battery::sub_up(xu, yl));
+          
+          // x = y + z
+          // y = x - z
+          // z = x - y
+          if (r2.is_bot() || r3.is_bot()) r1.meet_bot();
+          else {
+            r1.meet_lb(LB(battery::add_down<value_t>(yl, zl)));
+            r1.meet_ub(UB(battery::add_up<value_t>(yu, zu)));
+          }
+
+          if (r1.is_bot() || r3.is_bot()) r2.meet_bot();
+          else {
+            r2.meet_lb(LB(battery::sub_down<value_t>(xl, zu)));
+            r2.meet_ub(UB(battery::sub_up<value_t>(xu, zl)));
+          }
+
+          if (r1.is_bot() || r2.is_bot()) r3.meet_bot();
+          else {
+            r3.meet_lb(LB(battery::sub_down<value_t>(xl, yu)));
+            r3.meet_ub(UB(battery::sub_up<value_t>(xu, yl)));
+          }
+
+          break;
+        }
+        case MUL: {
+          // if(r2.is_bot() || r3.is_bot()) { break; }
+          // else {
+          //   t1 = battery::mul_down(yl, zl);
+          //   t2 = battery::mul_down(yl, zu);
+          //   t3 = battery::mul_down(yu, zl);
+          //   t4 = battery::mul_down(yu, zu);
+          //   t5 = battery::mul_up(yl, zl);
+          //   t6 = battery::mul_up(yl, zu);
+          //   t7 = battery::mul_up(yu, zl);
+          //   t8 = battery::mul_up(yu, zu);
+
+          //   r1.lb() = battery::max(xl, battery::min(battery::min(t1, t2), battery::min(t3, t4)));
+          //   r1.ub() = battery::min(xu, battery::max(battery::max(t5, t6), battery::max(t7, t8)));
+          // }
+          // if(r1.is_bot()) { break; }
+          // fitv_div(r1, r2, r3);
+          // if(r2.is_bot()) { break; }
+          // fitv_div(r1, r3, r2);
+
+          // x = y * z 
+          // y = x / z
+          // z = x / y
+          // Use the new propagator in lala-interval. 
+          if (r2.is_bot() || r3.is_bot()) r1.meet_bot();
+          else { 
+            // Bounded case
+            if (!r2.lb().is_top() && !r2.ub().is_top() && !r3.lb().is_top() && !r3.ub().is_top()){
+              r1.meet_lb(LB(battery::min(battery::min(battery::mul_down<value_t>(yl, zl), battery::mul_down<value_t>(yl, zu)), battery::min(battery::mul_down<value_t>(yu, zl), battery::mul_down<value_t>(yu, zu)))));
+              r1.meet_ub(UB(battery::max(battery::max(battery::mul_up<value_t>(yl, zl), battery::mul_up<value_t>(yl, zu)), battery::max(battery::mul_up<value_t>(yu, zl), battery::mul_up<value_t>(yu, zu)))));
+            }
+            else {
+              if ((yl == value_t{0.0} && yu == value_t{0.0}) || (zl == value_t{0.0} && zu == value_t{0.0})){
+                r1.meet_lb(LB(value_t{0.0}));
+                r1.meet_ub(UB(value_t{0.0}));
+              }
+              else {
+                switch(3 * (yl >= 0 ? 0 : (yu > 0 ? 1 : 2)) + (zl >= 0 ? 0 : (zu > 0 ? 1 : 2))) {
+                  case 0: { r1.meet_lb(LB(battery::mul_down<value_t>(yl, zl))); r1.meet_ub(UB(battery::mul_up<value_t>(yu, zu))); break; }
+                  case 1: { r1.meet_lb(LB(battery::mul_down<value_t>(yu, zl))); r1.meet_ub(UB(battery::mul_up<value_t>(yu, zu))); break; }
+                  case 2: { r1.meet_lb(LB(battery::mul_down<value_t>(yu, zl))); r1.meet_ub(UB(battery::mul_up<value_t>(yl, zu))); break; }
+                  case 3: { r1.meet_lb(LB(battery::mul_down<value_t>(yl, zu))); r1.meet_ub(UB(battery::mul_up<value_t>(yu, zu))); break; }
+                  case 4: { 
+                    r1.meet_lb(LB(battery::min(battery::mul_down<value_t>(yl, zu), battery::mul_down<value_t>(yu, zl)))); 
+                    r1.meet_ub(UB(battery::max(battery::mul_up<value_t>(yl, zl), battery::mul_up<value_t>(yu, zu)))); 
+                    break; 
+                  }
+                  case 5: { r1.meet_lb(LB(battery::mul_down<value_t>(yu, zl))); r1.meet_ub(UB(battery::mul_up<value_t>(yl, zl))); break; }
+                  case 6: { r1.meet_lb(LB(battery::mul_down<value_t>(yl, zu))); r1.meet_ub(UB(battery::mul_up<value_t>(yu, zl))); break; }
+                  case 7: { r1.meet_lb(LB(battery::mul_down<value_t>(yl, zu))); r1.meet_ub(UB(battery::mul_up<value_t>(yl, zl))); break; }
+                  case 8: 
+                  default: { r1.meet_lb(LB(battery::mul_down<value_t>(yu, zu))); r1.meet_ub(UB(battery::mul_up<value_t>(yl, zl))); break; }
+                }
+              }
+            }
+          }
+          
+          // if (r1.is_bot()) { break; }
+          fitv_div(r1, r2, r3);
+          // if (r2.is_bot()) { break; }
+          fitv_div(r1, r3, r2);
+
+          break;
+        }
+        case MIN: {
+          // r1.lb() = battery::max(xl, battery::min(yl, zl));
+          // r1.ub() = battery::min(xu, battery::min(yu, zu));
+          // r2.lb() = battery::max(yl, xl);
+          // if(xu < zl) { r2.ub() = battery::min(yu, xu); }
+          // r3.lb() = battery::max(zl, xl);
+          // if(xu < yl) { r3.ub() = battery::min(zu, xu); }
+
+          if (r2.is_bot() || r3.is_bot()) r1.meet_bot();
+          else {
+            r1.meet_lb(LB(battery::min(yl, zl)));
+            r1.meet_ub(UB(battery::min(yu, zu)));
+          }
+
+          r2.meet_lb(LB(xl));
+          if (xu < zl) { r2.meet_ub(UB(xu)); }
+
+          r3.meet_lb(LB(xl));
+          if (xu < yl) { r3.meet_ub(UB(xu)); }
+
+          break;
+        } 
+        case MAX: {
+          // r1.lb() = battery::max(xl, battery::max(yl, zl));
+          // r1.ub() = battery::min(xu, battery::max(yu, zu));
+          // r2.ub() = battery::min(yu, xu);
+          // if(xl > zu) { r2.lb() = battery::max(yl, xl); }
+          // r3.ub() = battery::min(zu, xu);
+          // if(xl > yu) { r3.lb() = battery::max(zl, xl); }
+
+          if (r2.is_bot() || r3.is_bot()) r1.meet_bot();
+          else {
+            r1.meet_lb(LB(battery::max(yl, zl)));
+            r1.meet_ub(UB(battery::max(yu, zu)));
+          }
+
+          r2.meet_ub(UB(xu));
+          if (xl > zu) { r2.meet_lb(LB(xl)); }
+
+          r3.meet_ub(UB(xu));
+          if (xl > yu) { r3.meet_lb(LB(xl)); }
+
+          break;
+        }
+        default: assert(false);
+      }
+      has_changed |= fembed(bytecode.x, r1, epsilon);
+      has_changed |= fembed(bytecode.y, r2, epsilon);
+      has_changed |= fembed(bytecode.z, r3, epsilon);
+      return has_changed;
+    }
+    else {
+      assert(false);
+      return false;
+    }
   }
 
 #undef xl

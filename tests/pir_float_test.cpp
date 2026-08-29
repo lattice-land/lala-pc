@@ -411,6 +411,30 @@ TEST(FPIRTest, TernaryMul4) {
     {create_float_interval<FItv>("-2.0","2.0"), create_float_interval<FItv>("-2.0","2.0"), create_float_interval<FItv>("-2.0","2.0")}, false);
 }
 
+TEST(FPIRTest, DivByNegativeZeroBound) {
+  // Regression test for two bugs in fitv_div's unbounded ("z touches zero")
+  // case: (1) a ternary/`+` operator-precedence bug in the case-index switch
+  // that silently dropped the z-negative offset whenever x was entirely
+  // positive, routing to the wrong (z>=0) formula; (2) the z>=0 formula then
+  // divided by the raw, unsigned zu=+0.0, which for x>0 gives the
+  // wrong-signed +inf (should be -inf as z -> 0^-), corrupting y's lower
+  // bound to LB::bot(). x = y * z, x in [2,10] (positive), z in [-3,0]
+  // (touches zero at its upper bound, approaching zero from the negative
+  // side): y = x/z must range down to -inf, not collapse the whole store
+  // to bot.
+  FPIR fpir = create_and_interpret_and_tell<FPIR, true, false>("var float: x; var float: y; var float: z;\
+    constraint float_ge(x, 2.0); constraint float_le(x, 10.0);\
+    constraint float_ge(y, -1000.0); constraint float_le(y, 1000.0);\
+    constraint float_ge(z, -3.0); constraint float_le(z, 0.0);\
+    constraint float_eq(float_times(y, z), x);");
+  GaussSeidelIteration{}.fixpoint(
+    fpir.num_deductions(),
+    [&](size_t i) { return fpir.fdeduce(i, 1e-10); });
+  EXPECT_FALSE(fpir.is_bot());
+  EXPECT_DOUBLE_EQ(fpir[0].lb().value(), 2.0);
+  EXPECT_DOUBLE_EQ(fpir[0].ub().value(), 10.0);
+}
+
 TEST(FPIRTest, TernaryAffine1) {
   // Choco + Ibex: 
   // w = [-0.2205673104617745, -0.20353400334715846]

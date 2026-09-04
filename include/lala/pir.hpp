@@ -224,6 +224,11 @@ public:
     return atype;
   }
 
+  /** The underlying store of variables. */
+  CUDA sub_ptr subdomain() const {
+    return sub;
+  }
+
   CUDA static this_type bot(AType atype = UNTYPED,
     AType atype_sub = UNTYPED,
     const allocator_type& alloc = allocator_type(),
@@ -259,79 +264,6 @@ public:
     AType atype_sub = env.extends_abstract_dom();
     AType atype = env.extends_abstract_dom();
     return top(atype, atype_sub, alloc, sub_alloc);
-  }
-
-private:
-  /** We interpret the formula `f` in the value `intermediate`, note that we only add one constraint to `intermediate` if the interpretation succeeds. */
-  template <IKind kind, bool diagnose, class F, class Env, class Intermediate>
-  CUDA bool interpret_formula(const F& f, Env& env, Intermediate& intermediate, IDiagnostics& diagnostics) const {
-    if(f.type() != aty() && !f.is_untyped()) {
-      RETURN_INTERPRETATION_ERROR("The type of the formula does not match the type of this abstract domain.");
-    }
-    if(f.is_binary()) {
-      Sig sig = f.sig();
-      // Expect constraint of the form X = Y <OP> Z, or Y <OP> Z = X.
-      int left = f.seq(0).is_binary() ? 1 : 0;
-      int right = f.seq(1).is_binary() ? 1 : 0;
-      if((sig == EQ || sig == EQUIV)  && (left + right == 1)) {
-        auto& X = f.seq(left);
-        auto& Y = f.seq(right).seq(0);
-        auto& Z = f.seq(right).seq(1);
-        bytecode_type bytecode;
-        bytecode.op = f.seq(right).sig();
-        if(X.is_variable() && Y.is_variable() && Z.is_variable() &&
-          (bytecode.op == ADD || bytecode.op == MUL || ::lala::is_z_division(bytecode.op)
-          || bytecode.op == MIN || bytecode.op == MAX
-          || bytecode.op == EQ || bytecode.op == LEQ))
-        {
-          if( env.template interpret<diagnose>(X, bytecode.x, diagnostics)
-           && env.template interpret<diagnose>(Y, bytecode.y, diagnostics)
-           && env.template interpret<diagnose>(Z, bytecode.z, diagnostics))
-          {
-            intermediate.bytecodes.push_back(bytecode);
-            return true;
-          }
-          RETURN_INTERPRETATION_ERROR("Could not interpret the variables in the environment.");
-        }
-      }
-    }
-    RETURN_INTERPRETATION_ERROR("The shape of this formula is not supported.");
-  }
-
-public:
-  template <IKind kind, bool diagnose = false, class F, class Env, class I>
-  CUDA NI bool interpret(const F& f, Env& env, I& intermediate, IDiagnostics& diagnostics) const {
-    size_t error_context = 0;
-    if constexpr(diagnose) {
-      diagnostics.add_suberror(IDiagnostics(false, name, "Uninterpretable formula in both PIR and its sub-domain.", f));
-      error_context = diagnostics.num_suberrors();
-    }
-    bool res = false;
-    AType current = f.type();
-    const_cast<F&>(f).type_as(sub->aty()); // We will restore the type after the call to sub->interpret.
-    if(sub->template interpret<kind, diagnose>(f, env, intermediate.sub_value, diagnostics)) {
-      res = true;
-    }
-    const_cast<F&>(f).type_as(current);
-    if(!res) {
-      res = interpret_formula<kind, diagnose>(f, env, intermediate, diagnostics);
-    }
-    if constexpr(diagnose) {
-      diagnostics.merge(res, error_context);
-    }
-    return res;
-  }
-
-  /** PIR expects a non-conjunctive formula \f$ c \f$ which can either be interpreted in the sub-domain `A` or in the current domain.
-  */
-  template <bool diagnose = false, class F, class Env, class Alloc2>
-  CUDA NI bool interpret_tell(const F& f, Env& env, tell_type<Alloc2>& tell, IDiagnostics& diagnostics) const {
-    return interpret<IKind::TELL, diagnose>(f, env, tell, diagnostics);
-  }
-
-  template <bool diagnose = false, class F, class Env, class Alloc2>
-  CUDA NI bool interpret_ask(const F& f, const Env& env, ask_type<Alloc2>& ask, IDiagnostics& diagnostics) const {
-    return interpret<IKind::ASK, diagnose>(f, const_cast<Env&>(env), ask, diagnostics);
   }
 
   /** Similar limitations than `PC::deduce`. */
@@ -910,49 +842,6 @@ public:
     else {
       sub->extract(ua);
     }
-  }
-
-private:
-  template<class Env, class Allocator2>
-  CUDA NI TFormula<Allocator2> deinterpret(bytecode_type bytecode, const Env& env, Allocator2 allocator) const {
-    using F = TFormula<Allocator2>;
-    auto X = F::make_lvar(bytecode.x.aty(), LVar<Allocator2>(env.name_of(bytecode.x), allocator));
-    auto Y = F::make_lvar(bytecode.y.aty(), LVar<Allocator2>(env.name_of(bytecode.y), allocator));
-    auto Z = F::make_lvar(bytecode.z.aty(), LVar<Allocator2>(env.name_of(bytecode.z), allocator));
-    return F::make_binary(X, EQ, F::make_binary(Y, bytecode.op, Z, aty(), allocator), aty(), allocator);
-  }
-
-public:
-  template<class Env, class Allocator2 = typename Env::allocator_type>
-  CUDA NI TFormula<Allocator2> deinterpret(const Env& env, bool remove_entailed, size_t& num_entailed, Allocator2 allocator = Allocator2()) const {
-    using F = TFormula<Allocator2>;
-    typename F::Sequence seq{allocator};
-    seq.push_back(sub->deinterpret(env, allocator));
-    for(int i = 0; i < bytecodes->size(); ++i) {
-      if(remove_entailed && ask(i)) {
-        num_entailed++;
-        continue;
-      }
-      seq.push_back(deinterpret((*bytecodes)[i], env, allocator));
-    }
-    return F::make_nary(AND, std::move(seq), aty());
-  }
-
-  template<class Env, class Allocator2 = typename Env::allocator_type>
-  CUDA NI TFormula<Allocator2> deinterpret(const Env& env, Allocator2 allocator = Allocator2()) const {
-    size_t num_entailed = 0;
-    return deinterpret(env, false, num_entailed, allocator);
-  }
-
-  template<class I, class Env, class Allocator2 = typename Env::allocator_type>
-  CUDA NI TFormula<Allocator2> deinterpret(const I& intermediate, const Env& env, Allocator2 allocator = Allocator2()) const {
-    using F = TFormula<Allocator2>;
-    typename F::Sequence seq{allocator};
-    seq.push_back(sub->deinterpret(intermediate.sub_value, env, allocator));
-    for(int i = 0; i < intermediate.bytecodes.size(); ++i) {
-      seq.push_back(deinterpret(intermediate.bytecodes[i], env, allocator));
-    }
-    return F::make_nary(AND, std::move(seq), aty());
   }
 };
 

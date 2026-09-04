@@ -17,8 +17,6 @@
 #include "lala/abstract_deps.hpp"
 #include "lala/vstore.hpp"
 
-#include "terms.hpp"
-
 namespace lala {
 
 template <class A, class Alloc> class PIR;

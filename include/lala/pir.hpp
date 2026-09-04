@@ -224,8 +224,7 @@ public:
     return atype;
   }
 
-  /** The underlying store of variables. Interpretation lives outside of this class and needs to
-   * reach the sub-domain in order to interpret the constraints it cannot represent itself. */
+  /** The underlying store of variables. */
   CUDA sub_ptr subdomain() const {
     return sub;
   }
@@ -266,12 +265,6 @@ public:
     AType atype = env.extends_abstract_dom();
     return top(atype, atype_sub, alloc, sub_alloc);
   }
-
-private:
-
-public:
-
-
 
   /** Similar limitations than `PC::deduce`. */
   template <class Alloc2>
@@ -850,12 +843,6 @@ public:
       sub->extract(ua);
     }
   }
-
-private:
-
-public:
-
-
 };
 
 }

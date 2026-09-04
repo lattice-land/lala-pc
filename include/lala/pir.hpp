@@ -13,9 +13,9 @@
 
 #include "lala/logic/logic.hpp"
 #include "lala/logic/ternarize.hpp"
-#include "lala/universes/arith_bound.hpp"
 #include "lala/abstract_deps.hpp"
 #include "lala/vstore.hpp"
+#include "lala/zinterval.hpp"
 
 namespace lala {
 
@@ -53,7 +53,7 @@ class PIR {
 public:
   using sub_type = A;
   using universe_type = typename A::universe_type;
-  using local_universe_type = typename universe_type::local_type;
+  using local_universe_type = typename universe_type::basic_type;
   using allocator_type = Allocator;
   using sub_allocator_type = typename A::allocator_type;
   using this_type = PIR<sub_type, allocator_type>;
@@ -84,16 +84,6 @@ public:
 
   using sub_ptr = abstract_ptr<sub_type>;
 
-  constexpr static const bool is_abstract_universe = false;
-  constexpr static const bool sequential = sub_type::sequential;
-  constexpr static const bool is_totally_ordered = false;
-  constexpr static const bool preserve_bot = true;
-  // The next properties should be checked more seriously, relying on the sub-domain might be uneccessarily restrictive.
-  constexpr static const bool preserve_top = sub_type::preserve_top;
-  constexpr static const bool preserve_join = sub_type::preserve_join;
-  constexpr static const bool preserve_meet = sub_type::preserve_meet;
-  constexpr static const bool injective_concretization = sub_type::injective_concretization;
-  constexpr static const bool preserve_concrete_covers = sub_type::preserve_concrete_covers;
   constexpr static const char* name = "PIR";
 
   template <class A2, class Alloc2>
@@ -119,8 +109,8 @@ private:
    *  Set to false when loading a pre-ordered TCN to preserve file order. */
   bool sort_bytecodes;
 
-  using LB = typename local_universe_type::LB;
-  using UB = typename local_universe_type::UB;
+  using LB = typename local_universe_type::lb_type;
+  using UB = typename local_universe_type::ub_type;
 
 public:
   template <class Alloc, class SubType>
@@ -159,8 +149,8 @@ public:
 
   CUDA PIR(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type{})
    : atype(atype), sub(std::move(sub))
-   , ZERO(local_universe_type::eq_zero())
-   , ONE(local_universe_type::eq_one())
+   , ZERO(local_universe_type(0, 0))
+   , ONE(local_universe_type(1, 1))
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, alloc))
    , sort_bytecodes(true)
   {}
@@ -168,8 +158,8 @@ public:
   template <class PIR2>
   CUDA PIR(const PIR2& other, sub_ptr sub, const allocator_type& alloc = allocator_type{})
    : atype(atype), sub(sub)
-   , ZERO(local_universe_type::eq_zero())
-   , ONE(local_universe_type::eq_one())
+   , ZERO(local_universe_type(0, 0))
+   , ONE(local_universe_type(1, 1))
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, *(other.bytecodes), alloc))
    , sort_bytecodes(other.sort_bytecodes)
   {}
@@ -330,447 +320,68 @@ public:
     return bytecodes->size();
   }
 
-public:
   CUDA local::B deduce(int i) {
     assert(i < num_deductions());
     return deduce(load_deduce(i));
   }
 
   using Itv = local_universe_type;
-  using value_t = typename Itv::LB::value_type;
-
-// Some defines to make the code more readable, and closer from the paper, without introducing local variables.
-#define xl r1.lb().value()
-#define xu r1.ub().value()
-#define yl r2.lb().value()
-#define yu r2.ub().value()
-#define zl r3.lb().value()
-#define zu r3.ub().value()
-
-#define INF std::numeric_limits<value_t>::max()
-#define MINF std::numeric_limits<value_t>::min()
 
 private:
-  CUDA INLINE value_t div(value_t a, Sig op, value_t b) const {
+  /** Deduce the constraint `x = y <op> z` by running lala-interval's propagator for `<op>`.
+   * The propagators are bidirectional: they narrow all three intervals. */
+  CUDA INLINE static void propagate(Sig op, Itv& r1, Itv& r2, Itv& r3) {
     switch(op) {
-      case TDIV: return battery::tdiv(a, b);
-      case CDIV: return battery::cdiv(a, b);
-      case FDIV: return battery::fdiv(a, b);
-      case EDIV: return battery::ediv(a, b);
-      default: assert(false); return a;
+      case EQ:   tell::zreq(r1, r2, r3); break;
+      case LEQ:  tell::zrleq(r1, r2, r3); break;
+      case ADD:  tell::zadd(r1, r2, r3); break;
+      case MUL:  tell::zmul(r1, r2, r3); break;
+      case MIN:  tell::zmin(r1, r2, r3); break;
+      case MAX:  tell::zmax(r1, r2, r3); break;
+      case TDIV: tell::ztdiv(r1, r2, r3); break;
+      case CDIV: tell::zcdiv(r1, r2, r3); break;
+      case FDIV: tell::zfdiv(r1, r2, r3); break;
+      case EDIV: tell::zediv(r1, r2, r3); break;
+      default: assert(false);
     }
   }
 
-  CUDA local::B ask(bytecode_type bytecode) const {
-    // We load the variables.
-    local_universe_type r1((*sub)[bytecode.x]);
-    local_universe_type r2((*sub)[bytecode.y]);
-    local_universe_type r3((*sub)[bytecode.z]);
-    switch(bytecode.op) {
-      case EQ: return (xl == 1 && yu == zl && yl == zu) || (xu == 0 && (yu < zl || yl > zu));
-      case LEQ: return (xl == 1 && yu <= zl) || (xu == 0 && yl > zu);
-      case ADD: return (xl == xu && yl == yu && zl == zu && xl == yl + zl);
-      case MUL: return xl == xu &&
-                        ((yl == yu && zl == zu && xl == yl * zl)
-                      || (xl == 0 && (r2 == 0 || r3 == 0)));
-      case TDIV:
-      case CDIV:
-      case FDIV:
-      case EDIV: return (xl == xu && yl == yu && zl == zu && zl != 0 && xl == div(yl, bytecode.op, zl))
-                     || (xl == yu && xu == yl && xl == 0 && (zl > 0 || zu < 0)); // 0 = 0 / z (z != 0).
-      case MIN: return (xl == yu && xu == yl && yu <= zl) || (xl == zu && xu == zl && zu <= yl);
-      case MAX: return (xl == yu && xu == yl && yl >= zu) || (xl == zu && xu == zl && zl >= yu);
+  /** \return `true` when `x = y <op> z` is entailed by the current domains. */
+  CUDA INLINE static bool entailed(Sig op, Itv& r1, Itv& r2, Itv& r3) {
+    switch(op) {
+      case EQ:   return ask::zreq(r1, r2, r3);
+      case LEQ:  return ask::zrleq(r1, r2, r3);
+      case ADD:  return ask::zadd(r1, r2, r3);
+      case MUL:  return ask::zmul(r1, r2, r3);
+      case MIN:  return ask::zmin(r1, r2, r3);
+      case MAX:  return ask::zmax(r1, r2, r3);
+      case TDIV: return ask::ztdiv(r1, r2, r3);
+      case CDIV: return ask::zcdiv(r1, r2, r3);
+      case FDIV: return ask::zfdiv(r1, r2, r3);
+      case EDIV: return ask::zediv(r1, r2, r3);
       default: assert(false); return false;
     }
   }
 
-  CUDA INLINE value_t min(value_t a, value_t b) const {
-    return battery::min(a, b);
-  }
-
-  CUDA INLINE value_t max(value_t a, value_t b) const {
-    return battery::max(a, b);
-  }
-
-  // r1 = r2 / r3
-  CUDA INLINE void itv_div(Sig op, Itv& r1, Itv& r2, Itv& r3) const {
-    if(zl < 0 && zu > 0) {
-      r1.lb() = max(xl, min(yl, yu == MINF ? INF : -yu));
-      r1.ub() = min(xu, max(yl == INF ? MINF : -yl, yu));
-    }
-    else {
-      if(zl == 0) { r3.lb() = 1; }
-      if(zu == 0) { r3.ub() = -1; }
-      if(yl == MINF || yu == INF || zl == MINF || zu == INF) { return; }
-      // Although it usually does not hurt to compute with bottom values, in this case, we want to prevent it from being equal to 0 (the previous conditions suppose r3 != bot).
-      if(r3.is_bot()) { return; }
-      auto t1 = div(yl, op, zl);
-      auto t2 = div(yl, op, zu);
-      auto t3 = div(yu, op, zl);
-      auto t4 = div(yu, op, zu);
-      r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
-      r1.ub() = min(xu, max(max(t1, t2), max(t3, t4)));
-    }
-  }
-
-  CUDA INLINE Itv num_fdiv(const Itv& r1, const Itv& r3) const {
-    if(zl < 0 && zu > 0) {
-      return Itv(min(min(xl, -xu), min(xl * zu, (xu + 1) * zl + 1)),
-                 max(max(-xl, xu), max(xl * zl, (xu + 1) * zu - 1)));
-    }
-    else if(zl > 0 || zu < 0) {
-      return Itv(min(min(xl * zl, xl * zu), min((xu + 1) * zl + 1, (xu + 1) * zu + 1)),
-                 max(max(xl * zl, xl * zu), max((xu + 1) * zl - 1, (xu + 1) * zu - 1)));
-    }
-    return Itv::top();
-  }
-
-  CUDA INLINE Itv num_cdiv(const Itv& r1, const Itv& r3) const {
-    if(zl < 0 && zu > 0) {
-      return Itv(min(min(xl, -xu), min(xu * zl, (xl - 1) * zu + 1)),
-                 max(max(-xl, xu), max(xu * zu, (xl - 1) * zl - 1)));
-    }
-    else if(zl > 0 || zu < 0) {
-      return Itv(min(min(xu * zl, xu * zu), min((xl - 1) * zl + 1, (xl - 1) * zu + 1)),
-                 max(max(xu * zl, xu * zu), max((xl - 1) * zl - 1, (xl - 1) * zu - 1)));
-    }
-    return Itv::top();
-  }
-
-  CUDA INLINE Itv num_tdiv(const Itv& r1, const Itv& r3) const {
-    if(xl > 0) {
-      return num_fdiv(r1, r3);
-    }
-    else if(xu < 0) {
-      return num_cdiv(r1, r3);
-    }
-    else if(xl <= 0 && 0 <= xu) {
-      Itv r(min(zl, -zu) + 1, max(-zl, zu) - 1);
-      if(xl != 0) { r.join(num_cdiv(Itv(xl,-1), r3)); }
-      if(xu != 0) { r.join(num_fdiv(Itv(1, xu), r3)); }
-      return r;
-    }
-    return Itv::top();
-  }
-
-  // Lemma C.10
-  CUDA INLINE Itv num_ediv(const Itv& r1, const Itv& r3) const {
-    if(zl > 0) { return num_fdiv(r1, r3); }
-    else if(zu < 0) { return num_cdiv(r1, r3); }
-    else if(zl < 0 && zu > 0) {
-      return fjoin(num_cdiv(r1, Itv(zl, -1)), num_fdiv(r1, Itv(1, zu)));
-    }
-    return Itv::top();
-  }
-
-  // Lemma A.11
-  CUDA Itv den_fdiv(const Itv& r1, const Itv& r2) const {
-    using namespace battery;
-    if(xl > 0 || xu + 1 < 0) {
-      if(yl > 0) {
-        return Itv(
-          min(fdiv(yl, xu + 1), fdiv(yu, xu + 1)) + 1,
-          max(fdiv(yl, xl), fdiv(yu, xl))
-        );
-      }
-      else if(yu < 0) {
-        return Itv(
-          min(cdiv(yl, xl), cdiv(yu, xl)),
-          max(cdiv(yl, xu + 1), cdiv(yu, xu + 1)) - 1
-        );
-      }
-      else if(0 == yl && yl < yu) {
-        return den_fdiv(r1, Itv(1, yu));
-      }
-      else if(yl < yu && yu == 0) {
-        return den_fdiv(r1, Itv(yl, -1));
-      }
-      else if(yl < 0 && 0 < yu) {
-        return fjoin(den_fdiv(r1, Itv(yl, -1)), den_fdiv(r1, Itv(1, yu)));
-      }
-      else if(yl == 0 && yu == 0) {
-        return Itv::bot();
-      }
-    }
-    else if(xl == 0 && xu == 0) {
-      if(yl > 0) { return Itv(yl + 1, INF); }
-      else if(yu < 0) { return Itv(MINF, yu - 1); }
-      // else if(yl <= 0 && 0 <= yu) { return Itv::top(); }
-    }
-    else if(xl == -1 && xu == -1) {
-      if(yl > 0) { return Itv(MINF, -yl); }
-      else if(yu < 0) { return Itv(-yu, INF); }
-      else if(0 == yl && yl < yu) { return Itv(MINF, -1); }
-      else if(yl < yu && yu == 0) { return Itv(1, INF); }
-      else if(yl == 0 && yu == 0) { return Itv::bot(); }
-    }
-    else if(xl == 0 && 0 < xu) {
-      return fjoin(den_fdiv(Itv(0,0), r2), den_fdiv(Itv(1, xu), r2));
-    }
-    else if(xl < -1 && xu == -1) {
-      return fjoin(den_fdiv(Itv(xl, -2), r2), den_fdiv(Itv(-1, -1), r2));
-    }
-    else if(xl <= -1 && xu >= 0) {
-      Itv r(den_fdiv(Itv(-1, -1), r2));
-      r.join(den_fdiv(Itv(0, 0), r2));
-      if(xl != -1) { r.join(den_fdiv(Itv(xl, -2), r2)); }
-      if(xu != 0) { r.join(den_fdiv(Itv(1, xu), r2)); }
-      return r;
-    }
-    return Itv::top();
-  }
-
-  // Lemma C.12
-  CUDA Itv den_cdiv(const Itv& r1, const Itv& r2) const {
-    using namespace battery;
-    if(xl - 1 > 0 || xu < 0) {
-      if(yl > 0) {
-        return Itv(
-          min(cdiv(yl, xu), cdiv(yu, xu)),
-          max(cdiv(yl, xl - 1), cdiv(yu, xl - 1)) - 1
-        );
-      }
-      else if(yu < 0) {
-        return Itv(
-          min(fdiv(yl, xl - 1), fdiv(yu, xl - 1)) + 1,
-          max(fdiv(yl, xu), fdiv(yu, xu))
-        );
-      }
-      else if(0 == yl && yl < yu) {
-        return den_cdiv(r1, Itv(1, yu));
-      }
-      else if(yl < yu && yu == 0) {
-        return den_cdiv(r1, Itv(yl, -1));
-      }
-      else if(yl < 0 && 0 < yu) {
-        return fjoin(den_cdiv(r1, Itv(yl, -1)), den_cdiv(r1, Itv(1, yu)));
-      }
-      else if(yl == 0 && yu == 0) {
-        return Itv::bot();
-      }
-    }
-    else if(xl == 0 && xu == 0) {
-      if(yl > 0) { return Itv(MINF, -yl - 1); }
-      else if(yu < 0) { return Itv(-yu + 1, INF); }
-    }
-    else if(xl == 1 && xu == 1) {
-      if(yl > 0) { return Itv(yl, INF); }
-      else if(yu < 0) { return Itv(MINF, yu); }
-      else if(0 == yl && yl < yu) { return Itv(1, INF); }
-      else if(yl < yu && yu == 0) { return Itv(MINF, -1); }
-      else if(yl == 0 && yu == 0) { return Itv::bot(); }
-    }
-    else if(xl < 0 && xu == 0) {
-      return fjoin(den_cdiv(Itv(xl, -1), r2), den_cdiv(Itv(0, 0), r2));
-    }
-    else if(xl == 1 && 1 < xu) {
-      return fjoin(den_cdiv(Itv(1, 1), r2), den_cdiv(Itv(2, xu), r2));
-    }
-    else if(xl <= 0 && xu >= 1) {
-      Itv r(den_cdiv(Itv(1, 1), r2));
-      r.join(den_cdiv(Itv(0, 0), r2));
-      if(xl != 0) { r.join(den_cdiv(Itv(xl, -1), r2)); }
-      if(xu != 1) { r.join(den_cdiv(Itv(2, xu), r2)); }
-      return r;
-    }
-    return Itv::top();
-  }
-
-  // Lemma C.13
-  CUDA Itv den_tdiv(const Itv& r1, const Itv& r2, const Itv& r3) const {
-    if(xl > 0) { return den_fdiv(r1, r2); }
-    else if(xu < 0) { return den_cdiv(r1, r2); }
-    else if(xl == 0 && xu == 0) {
-      if(yl > 0 && zl > 0) { return Itv(yl + 1, INF); }
-      if(yl > 0 && zu < 0) { return Itv(MINF, -yl - 1); }
-      if(yu < 0 && zl > 0) { return Itv(-yu + 1, INF); }
-      if(yu < 0 && zu < 0) { return Itv(MINF, yu - 1); }
-    }
-    else if(xl <= 0 && 0 <= xu) {
-      Itv r(den_tdiv(Itv(0, 0), r2, r3));
-      if(xl != 0) { r.join(den_cdiv(Itv(xl, -1), r2)); }
-      if(xu != 0) { r.join(den_fdiv(Itv(1, xu), r2)); }
-      return r;
-    }
-    return Itv::top();
-  }
-
-  CUDA INLINE Itv den_ediv(const Itv& r1, const Itv& r2, const Itv& r3) const {
-    if(zl > 0) { return den_fdiv(r1, r2); }
-    else if(zu < 0) { return den_cdiv(r1, r2); }
-    else if(zl < 0 && 0 < zu) {
-      return fjoin(den_fdiv(r1, r2), den_cdiv(r1, r2));
-    }
-    return Itv::top();
-  }
-
-  CUDA INLINE void itv_div_num(Sig op, Itv& r1, Itv& r2, Itv& r3) const {
-    switch(op) {
-      case FDIV: {
-        r2.meet(num_fdiv(r1, r3));
-        break;
-      }
-      case CDIV: {
-        r2.meet(num_cdiv(r1, r3));
-        break;
-      }
-      case TDIV: {
-        r2.meet(num_tdiv(r1, r3));
-        break;
-      }
-      case EDIV: {
-        r2.meet(num_ediv(r1, r3));
-        break;
-      }
-    }
-  }
-
-  CUDA INLINE void itv_div_den(Sig op, Itv& r1, Itv& r2, Itv& r3) const {
-    switch(op) {
-      case FDIV: {
-        r3.meet(den_fdiv(r1, r2));
-        break;
-      }
-      case CDIV: {
-        r3.meet(den_cdiv(r1, r2));
-        break;
-      }
-      case TDIV: {
-        r3.meet(den_tdiv(r1, r2, r3));
-        break;
-      }
-      case EDIV: {
-        r3.meet(den_ediv(r1, r2, r3));
-        break;
-      }
-    }
-  }
-
-  CUDA INLINE void mul_inv(const Itv& r1, Itv& r2, Itv& r3) {
-    if(xl > 0 || xu < 0) {
-      if(zl == 0) { r3.lb() = 1; }
-      if(zu == 0) { r3.ub() = -1; }
-    }
-    if((xl > 0 || xu < 0) && zl < 0 && zu > 0) {
-      r2.lb() = max(yl, min(xl, xu == MINF ? INF : -xu));
-      r2.ub() = min(yu, max(xl == INF ? MINF : -xl, xu));
-    }
-    else if(xl > 0 || xu < 0 || zl > 0 || zu < 0) {
-      if(xl == MINF || xu == INF || zl == MINF || zu == INF) { return; }
-      // Although it usually does not hurt to compute with bottom values, in this case, we want to prevent it from being equal to 0 (the previous conditions suppose r3 != bot).
-      if(r3.is_bot()) { return; }
-      r2.lb() = max(yl, min(min(battery::cdiv(xl, zl), battery::cdiv(xl, zu)), min(battery::cdiv(xu, zl), battery::cdiv(xu, zu))));
-      r2.ub() = min(yu, max(max(battery::fdiv(xl, zl), battery::fdiv(xl, zu)), max(battery::fdiv(xu, zl), battery::fdiv(xu, zu))));
-    }
+  CUDA local::B ask(bytecode_type bytecode) const {
+    Itv r1((*sub)[bytecode.x]);
+    Itv r2((*sub)[bytecode.y]);
+    Itv r3((*sub)[bytecode.z]);
+    return entailed(bytecode.op, r1, r2, r3);
   }
 
 public:
   CUDA local::B deduce(bytecode_type bytecode) {
-    local::B has_changed = false;
-    // We load the variables.
     Itv r1((*sub)[bytecode.x]);
     Itv r2((*sub)[bytecode.y]);
     Itv r3((*sub)[bytecode.z]);
-    value_t t1, t2, t3, t4; // Temporary variables for multiplication.
-
-    switch(bytecode.op) {
-      case EQ: {
-        if(r1 == ONE) {
-          has_changed |= sub->embed(bytecode.y, r3);
-          has_changed |= sub->embed(bytecode.z, r2);
-        }
-        else if(r1 == ZERO && (yl == yu || zl == zu)) {
-          has_changed |= sub->embed(zl == zu ? bytecode.y : bytecode.z, // If z is a singleton, we update y, and vice-versa.
-            Itv(
-              yl == zl ? yl + 1 : LB::top().value(),
-              yu == zu ? yu - 1 : UB::top().value()));
-        }
-        else if(yu == zl && yl == zu) { has_changed |= sub->embed(bytecode.x, ONE); }
-        else if(yl > zu || yu < zl) { has_changed |= sub->embed(bytecode.x, ZERO); }
-        return has_changed;
-      }
-      case LEQ: {
-        if(r1 == ONE) {
-          has_changed |= sub->embed(bytecode.y, Itv(yl, zu));
-          has_changed |= sub->embed(bytecode.z, Itv(yl, zu));
-        }
-        else if(r1 == ZERO) {
-          has_changed |= sub->embed(bytecode.y, Itv(zl + 1, yu));
-          has_changed |= sub->embed(bytecode.z, Itv(zl, yu - 1));
-        }
-        else if(yu <= zl) { has_changed |= sub->embed(bytecode.x, ONE); }
-        else if(yl > zu) { has_changed |= sub->embed(bytecode.x, ZERO); }
-        return has_changed;
-      }
-      case ADD: {
-        r1.lb() = (yl == MINF || zl == MINF) ? xl : max(xl, yl + zl);
-        r1.ub() = (yu == INF || zu == INF) ? xu : min(xu, yu + zu);
-        r2.lb() = (xl == MINF || zu == INF) ? yl : max(yl, xl - zu);
-        r2.ub() = (xu == INF || zl == MINF) ? yu : min(yu, xu - zl);
-        r3.lb() = (xl == MINF || yu == INF) ? zl : max(zl, xl - yu);
-        r3.ub() = (xu == INF || yl == MINF) ? zu : min(zu, xu - yl);
-        break;
-      }
-      case MUL: {
-        if(yl != MINF && yu != INF && zl != MINF && zu != INF) {
-          t1 = yl * zl;
-          t2 = yl * zu;
-          t3 = yu * zl;
-          t4 = yu * zu;
-          r1.lb() = max(xl, min(min(t1, t2), min(t3, t4)));
-          r1.ub() = min(xu, max(max(t1, t2), max(t3, t4)));
-        }
-        mul_inv(r1, r2, r3);
-        mul_inv(r1, r3, r2);
-        break;
-      }
-      case TDIV:
-      case CDIV:
-      case FDIV:
-      case EDIV: {
-        itv_div(bytecode.op, r1, r2, r3);
-        if(!r1.is_bot() && !r3.is_bot()) {
-          itv_div_num(bytecode.op, r1, r2, r3);
-          if(!r2.is_bot()) {
-            itv_div_den(bytecode.op, r1, r2, r3);
-          }
-        }
-        break;
-      }
-      case MIN: {
-        r1.lb() = max(xl, min(yl, zl));
-        r1.ub() = min(xu, min(yu, zu));
-        r2.lb() = max(yl, xl);
-        if(xu < zl) { r2.ub() = min(yu, xu); }
-        r3.lb() = max(zl, xl);
-        if(xu < yl) { r3.ub() = min(zu, xu); }
-        break;
-      }
-      case MAX: {
-        r1.lb() = max(xl, max(yl, zl));
-        r1.ub() = min(xu, max(yu, zu));
-        r2.ub() = min(yu, xu);
-        if(xl > zu) { r2.lb() = max(yl, xl); }
-        r3.ub() = min(zu, xu);
-        if(xl > yu) { r3.lb() = max(zl, xl); }
-        break;
-      }
-      default: assert(false);
-    }
-    has_changed |= sub->embed(bytecode.x, r1);
+    propagate(bytecode.op, r1, r2, r3);
+    local::B has_changed = sub->embed(bytecode.x, r1);
     has_changed |= sub->embed(bytecode.y, r2);
     has_changed |= sub->embed(bytecode.z, r3);
     return has_changed;
   }
 
-#undef xl
-#undef xu
-#undef yl
-#undef yu
-#undef zl
-#undef zu
-#undef INF
-#undef MINF
 
   // Functions forwarded to the sub-domain `A`.
 

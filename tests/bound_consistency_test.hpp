@@ -6,7 +6,6 @@
 #include "lala/cartesian_product.hpp"
 #include "lala/interval.hpp"
 #include "lala/pir.hpp"
-#include "lala/terms.hpp"
 #include "lala/fixpoint.hpp"
 
 #include <format>

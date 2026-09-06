@@ -16,6 +16,7 @@
 #include "lala/abstract_deps.hpp"
 #include "lala/vstore.hpp"
 #include "lala/zinterval.hpp"
+#include "lala/finterval.hpp"
 
 namespace lala {
 
@@ -94,9 +95,6 @@ private:
   AType atype;
   sub_ptr sub;
 
-  const basic_universe_type ZERO;
-  const basic_universe_type ONE;
-
   static_assert(sizeof(int) == sizeof(AVar), "The size of AVar must be equal to the size of an int.");
   static_assert(sizeof(int) == sizeof(Sig), "The size of Sig must be equal to the size of an int.");
 
@@ -147,8 +145,6 @@ public:
 
   CUDA PIR(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type{})
    : atype(atype), sub(std::move(sub))
-   , ZERO(basic_universe_type(0, 0))
-   , ONE(basic_universe_type(1, 1))
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, alloc))
    , sort_bytecodes(true)
   {}
@@ -156,8 +152,6 @@ public:
   template <class PIR2>
   CUDA PIR(const PIR2& other, sub_ptr sub, const allocator_type& alloc = allocator_type{})
    : atype(atype), sub(sub)
-   , ZERO(basic_universe_type(0, 0))
-   , ONE(basic_universe_type(1, 1))
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, *(other.bytecodes), alloc))
    , sort_bytecodes(other.sort_bytecodes)
   {}
@@ -165,8 +159,6 @@ public:
   CUDA PIR(PIR&& other)
     : atype(other.atype)
     , sub(std::move(other.sub))
-    , ZERO(std::move(other.ZERO))
-    , ONE(std::move(other.ONE))
     , bytecodes(std::move(other.bytecodes))
     , sort_bytecodes(other.sort_bytecodes)
   {}
@@ -192,8 +184,6 @@ public:
   CUDA PIR(const PIR<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
    : atype(other.atype)
    , sub(deps.template clone<A>(other.sub))
-   , ZERO(other.ZERO)
-   , ONE(other.ONE)
    , bytecodes(init_bytecodes(other, deps))
    , sort_bytecodes(other.sort_bytecodes)
   {}
@@ -326,9 +316,10 @@ public:
   using Itv = basic_universe_type;
 
 private:
-  /** Deduce the constraint `x = y <op> z` by running lala-interval's propagator for `<op>`.
+  /** Deduce the constraint `x = y <op> z` over integer intervals, by running lala-interval's propagator for `<op>`.
    * The propagators are bidirectional: they narrow all three intervals. */
-  CUDA INLINE static void propagate(Sig op, Itv& r1, Itv& r2, Itv& r3) {
+  template <class VT>
+  CUDA INLINE static void propagate(Sig op, ZInterval<VT>& r1, ZInterval<VT>& r2, ZInterval<VT>& r3) {
     switch(op) {
       case EQ:   tell::zreq(r1, r2, r3); break;
       case LEQ:  tell::zrleq(r1, r2, r3); break;
@@ -344,12 +335,28 @@ private:
     }
   }
 
-public:
-  CUDA bool ask(bytecode_type bytecode) const {
-    Itv r1((*sub)[bytecode.x]);
-    Itv r2((*sub)[bytecode.y]);
-    Itv r3((*sub)[bytecode.z]);
-    switch(bytecode.op) {
+  /** Same as above over floating-point intervals.
+   * The four integer divisions (TDIV, CDIV, FDIV, EDIV) have no counterpart here: over a continuous
+   * domain, division is the single operator `DIV`. Conversely, `SUB` is absent from both overloads
+   * because the ternarization rewrites `x = y - z` into `y = x + z`. */
+  template <class VT>
+  CUDA INLINE static void propagate(Sig op, FInterval<VT>& r1, FInterval<VT>& r2, FInterval<VT>& r3) {
+    switch(op) {
+      case EQ:   tell::freq(r1, r2, r3); break;
+      case LEQ:  tell::frleq(r1, r2, r3); break;
+      case ADD:  tell::fadd(r1, r2, r3); break;
+      case MUL:  tell::fmul(r1, r2, r3); break;
+      case MIN:  tell::fmin(r1, r2, r3); break;
+      case MAX:  tell::fmax(r1, r2, r3); break;
+      case DIV:  tell::fdiv(r1, r2, r3); break;
+      default: assert(false);
+    }
+  }
+
+  /** Test the entailment of the constraint `x = y <op> z` over integer intervals. */
+  template <class VT>
+  CUDA INLINE static bool ask(Sig op, ZInterval<VT>& r1, ZInterval<VT>& r2, ZInterval<VT>& r3) {
+    switch(op) {
       case EQ:   return ask::zreq(r1, r2, r3);
       case LEQ:  return ask::zrleq(r1, r2, r3);
       case ADD:  return ask::zadd(r1, r2, r3);
@@ -362,6 +369,29 @@ public:
       case EDIV: return ask::zediv(r1, r2, r3);
       default: assert(false); return false;
     }
+  }
+
+  /** Same as above over floating-point intervals. */
+  template <class VT>
+  CUDA INLINE static bool ask(Sig op, FInterval<VT>& r1, FInterval<VT>& r2, FInterval<VT>& r3) {
+    switch(op) {
+      case EQ:   return ask::freq(r1, r2, r3);
+      case LEQ:  return ask::frleq(r1, r2, r3);
+      case ADD:  return ask::fadd(r1, r2, r3);
+      case MUL:  return ask::fmul(r1, r2, r3);
+      case MIN:  return ask::fmin(r1, r2, r3);
+      case MAX:  return ask::fmax(r1, r2, r3);
+      case DIV:  return ask::fdiv(r1, r2, r3);
+      default: assert(false); return false;
+    }
+  }
+
+public:
+  CUDA bool ask(bytecode_type bytecode) const {
+    Itv r1((*sub)[bytecode.x]);
+    Itv r2((*sub)[bytecode.y]);
+    Itv r3((*sub)[bytecode.z]);
+    return ask(bytecode.op, r1, r2, r3);
   }
 
   CUDA bool deduce(bytecode_type bytecode) {

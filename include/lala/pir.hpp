@@ -53,7 +53,7 @@ class PIR {
 public:
   using sub_type = A;
   using universe_type = typename A::universe_type;
-  using local_universe_type = typename universe_type::basic_type;
+  using basic_univ_type = typename universe_type::basic_type;
   using allocator_type = Allocator;
   using sub_allocator_type = typename A::allocator_type;
   using this_type = PIR<sub_type, allocator_type>;
@@ -94,8 +94,8 @@ private:
   AType atype;
   sub_ptr sub;
 
-  const local_universe_type ZERO;
-  const local_universe_type ONE;
+  const basic_univ_type ZERO;
+  const basic_univ_type ONE;
 
   static_assert(sizeof(int) == sizeof(AVar), "The size of AVar must be equal to the size of an int.");
   static_assert(sizeof(int) == sizeof(Sig), "The size of Sig must be equal to the size of an int.");
@@ -147,8 +147,8 @@ public:
 
   CUDA PIR(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type{})
    : atype(atype), sub(std::move(sub))
-   , ZERO(local_universe_type(0, 0))
-   , ONE(local_universe_type(1, 1))
+   , ZERO(basic_univ_type(0, 0))
+   , ONE(basic_univ_type(1, 1))
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, alloc))
    , sort_bytecodes(true)
   {}
@@ -156,8 +156,8 @@ public:
   template <class PIR2>
   CUDA PIR(const PIR2& other, sub_ptr sub, const allocator_type& alloc = allocator_type{})
    : atype(atype), sub(sub)
-   , ZERO(local_universe_type(0, 0))
-   , ONE(local_universe_type(1, 1))
+   , ZERO(basic_univ_type(0, 0))
+   , ONE(basic_univ_type(1, 1))
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, *(other.bytecodes), alloc))
    , sort_bytecodes(other.sort_bytecodes)
   {}
@@ -263,7 +263,7 @@ public:
       for(int i = 0; i < t.bytecodes.size(); ++i) {
         bytecodes->push_back(t.bytecodes[i]);
         if(t.bytecodes[i].op == EQ || t.bytecodes[i].op == LEQ) {
-          sub->embed(t.bytecodes[i].x, local_universe_type(0,1));
+          sub->embed(t.bytecodes[i].x, basic_univ_type(0,1));
         }
       }
     /** This is sorting the constraints `X = Y <op> Z` according to <OP>.
@@ -323,7 +323,7 @@ public:
     return deduce(load_deduce(i));
   }
 
-  using Itv = local_universe_type;
+  using Itv = basic_univ_type;
 
 private:
   /** Deduce the constraint `x = y <op> z` by running lala-interval's propagator for `<op>`.

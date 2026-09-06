@@ -244,7 +244,6 @@ public:
     return top(atype, atype_sub, alloc, sub_alloc);
   }
 
-  /** Similar limitations than `PC::deduce`. */
   template <class Alloc2>
   CUDA bool deduce(const tell_type<Alloc2>& t) {
     bool has_changed = sub->deduce(t.sub_value);
@@ -319,7 +318,7 @@ private:
   /** Deduce the constraint `x = y <op> z` over integer intervals, by running lala-interval's propagator for `<op>`.
    * The propagators are bidirectional: they narrow all three intervals. */
   template <class VT>
-  CUDA INLINE static void propagate(Sig op, ZInterval<VT>& r1, ZInterval<VT>& r2, ZInterval<VT>& r3) {
+  CUDA INLINE static void deduce(Sig op, ZInterval<VT>& r1, ZInterval<VT>& r2, ZInterval<VT>& r3) {
     switch(op) {
       case EQ:   tell::zreq(r1, r2, r3); break;
       case LEQ:  tell::zrleq(r1, r2, r3); break;
@@ -327,20 +326,19 @@ private:
       case MUL:  tell::zmul(r1, r2, r3); break;
       case MIN:  tell::zmin(r1, r2, r3); break;
       case MAX:  tell::zmax(r1, r2, r3); break;
-      case TDIV: tell::ztdiv(r1, r2, r3); break;
-      case CDIV: tell::zcdiv(r1, r2, r3); break;
-      case FDIV: tell::zfdiv(r1, r2, r3); break;
-      case EDIV: tell::zediv(r1, r2, r3); break;
+      case TDIV: tell::ztdiv_4(r1, r2, r3); break;
+      case CDIV: tell::zcdiv_4(r1, r2, r3); break;
+      case FDIV: tell::zfdiv_4(r1, r2, r3); break;
+      case EDIV: tell::zediv_4(r1, r2, r3); break;
       default: assert(false);
     }
   }
 
   /** Same as above over floating-point intervals.
    * The four integer divisions (TDIV, CDIV, FDIV, EDIV) have no counterpart here: over a continuous
-   * domain, division is the single operator `DIV`. Conversely, `SUB` is absent from both overloads
-   * because the ternarization rewrites `x = y - z` into `y = x + z`. */
+   * domain, division is the single operator `DIV`. */
   template <class VT>
-  CUDA INLINE static void propagate(Sig op, FInterval<VT>& r1, FInterval<VT>& r2, FInterval<VT>& r3) {
+  CUDA INLINE static void deduce(Sig op, FInterval<VT>& r1, FInterval<VT>& r2, FInterval<VT>& r3) {
     switch(op) {
       case EQ:   tell::freq(r1, r2, r3); break;
       case LEQ:  tell::frleq(r1, r2, r3); break;
@@ -398,7 +396,7 @@ public:
     Itv r1((*sub)[bytecode.x]);
     Itv r2((*sub)[bytecode.y]);
     Itv r3((*sub)[bytecode.z]);
-    propagate(bytecode.op, r1, r2, r3);
+    deduce(bytecode.op, r1, r2, r3);
     bool has_changed = sub->embed(bytecode.x, r1);
     has_changed |= sub->embed(bytecode.y, r2);
     has_changed |= sub->embed(bytecode.z, r3);

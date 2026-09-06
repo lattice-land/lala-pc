@@ -344,9 +344,12 @@ private:
     }
   }
 
-  /** \return `true` when `x = y <op> z` is entailed by the current domains. */
-  CUDA INLINE static bool entailed(Sig op, Itv& r1, Itv& r2, Itv& r3) {
-    switch(op) {
+public:
+  CUDA bool ask(bytecode_type bytecode) const {
+    Itv r1((*sub)[bytecode.x]);
+    Itv r2((*sub)[bytecode.y]);
+    Itv r3((*sub)[bytecode.z]);
+    switch(bytecode.op) {
       case EQ:   return ask::zreq(r1, r2, r3);
       case LEQ:  return ask::zrleq(r1, r2, r3);
       case ADD:  return ask::zadd(r1, r2, r3);
@@ -361,14 +364,6 @@ private:
     }
   }
 
-  CUDA bool ask(bytecode_type bytecode) const {
-    Itv r1((*sub)[bytecode.x]);
-    Itv r2((*sub)[bytecode.y]);
-    Itv r3((*sub)[bytecode.z]);
-    return entailed(bytecode.op, r1, r2, r3);
-  }
-
-public:
   CUDA bool deduce(bytecode_type bytecode) {
     Itv r1((*sub)[bytecode.x]);
     Itv r2((*sub)[bytecode.y]);
@@ -379,7 +374,6 @@ public:
     has_changed |= sub->embed(bytecode.z, r3);
     return has_changed;
   }
-
 
   // Functions forwarded to the sub-domain `A`.
 

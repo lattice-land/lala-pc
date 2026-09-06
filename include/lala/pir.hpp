@@ -109,8 +109,6 @@ private:
    *  Set to false when loading a pre-ordered TCN to preserve file order. */
   bool sort_bytecodes;
 
-  using LB = typename local_universe_type::lb_type;
-  using UB = typename local_universe_type::ub_type;
 
 public:
   template <class Alloc, class SubType>
@@ -258,8 +256,8 @@ public:
 
   /** Similar limitations than `PC::deduce`. */
   template <class Alloc2>
-  CUDA local::B deduce(const tell_type<Alloc2>& t) {
-    local::B has_changed = sub->deduce(t.sub_value);
+  CUDA UB<bool> deduce(const tell_type<Alloc2>& t) {
+    UB<bool> has_changed = sub->deduce(t.sub_value);
     if(t.bytecodes.size() > 0) {
       bytecodes->reserve(bytecodes->size() + t.bytecodes.size());
       for(int i = 0; i < t.bytecodes.size(); ++i) {
@@ -302,12 +300,12 @@ public:
   #endif
   }
 
-  CUDA local::B ask(int i) const {
+  CUDA UB<bool> ask(int i) const {
     return ask(load_deduce(i));
   }
 
   template <class Alloc2>
-  CUDA local::B ask(const ask_type<Alloc2>& t) const {
+  CUDA UB<bool> ask(const ask_type<Alloc2>& t) const {
     for(int i = 0; i < t.bytecodes.size(); ++i) {
       if(!ask(t.bytecodes[i])) {
         return false;
@@ -320,7 +318,7 @@ public:
     return bytecodes->size();
   }
 
-  CUDA local::B deduce(int i) {
+  CUDA UB<bool> deduce(int i) {
     assert(i < num_deductions());
     return deduce(load_deduce(i));
   }
@@ -363,7 +361,7 @@ private:
     }
   }
 
-  CUDA local::B ask(bytecode_type bytecode) const {
+  CUDA UB<bool> ask(bytecode_type bytecode) const {
     Itv r1((*sub)[bytecode.x]);
     Itv r2((*sub)[bytecode.y]);
     Itv r3((*sub)[bytecode.z]);
@@ -371,14 +369,14 @@ private:
   }
 
 public:
-  CUDA local::B deduce(bytecode_type bytecode) {
+  CUDA UB<bool> deduce(bytecode_type bytecode) {
     Itv r1((*sub)[bytecode.x]);
     Itv r2((*sub)[bytecode.y]);
     Itv r3((*sub)[bytecode.z]);
     propagate(bytecode.op, r1, r2, r3);
-    local::B has_changed = sub->embed(bytecode.x, r1);
-    has_changed |= sub->embed(bytecode.y, r2);
-    has_changed |= sub->embed(bytecode.z, r3);
+    UB<bool> has_changed = sub->embed(bytecode.x, r1);
+    has_changed.join(sub->embed(bytecode.y, r2));
+    has_changed.join(sub->embed(bytecode.z, r3));
     return has_changed;
   }
 
@@ -386,12 +384,12 @@ public:
   // Functions forwarded to the sub-domain `A`.
 
   /** `true` if the underlying abstract element is bot, `false` otherwise. */
-  CUDA local::B is_bot() const {
+  CUDA UB<bool> is_bot() const {
     return sub->is_bot();
   }
 
   /** `true` if the underlying abstract element is top and there is no deduction function, `false` otherwise. */
-  CUDA local::B is_top() const {
+  CUDA UB<bool> is_top() const {
     return sub->is_top() && bytecodes->size() == 0;
   }
 

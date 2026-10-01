@@ -965,11 +965,11 @@ public:
   }
 
   CUDA local::B fembed(AVar x, const Itv& r, const float epsilon) {
-    value_t width = battery::sub_up((*sub)[x.vid()].ub().value(), (*sub)[x.vid()].lb().value());
+    // value_t width = battery::sub_up((*sub)[x.vid()].ub().value(), (*sub)[x.vid()].lb().value());
     local::B has_changed = sub->embed(x, r);
-    if(has_changed && width <= epsilon) {
-      return false;
-    }
+    // if(has_changed && width <= epsilon) {
+      // return false;
+    // }
     return has_changed;
   }
 

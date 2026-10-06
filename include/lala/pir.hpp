@@ -409,6 +409,12 @@ public:
     return fdeduce(load_deduce(i), epsilon);
   }
 
+  /** Same as `fdeduce(int, float)` with less floating-point work, see `fdeduce_v2(bytecode_type, float)`. */
+  CUDA local::B fdeduce_v2(int i, const float epsilon) {
+    assert(i < num_deductions());
+    return fdeduce_v2(load_deduce(i), epsilon);
+  }
+
   using Itv = local_universe_type;
   using value_t = typename Itv::LB::value_type;
 
@@ -1157,6 +1163,123 @@ public:
       assert(false);
       return false;
     }
+  }
+
+  /** `[c, c] * [al, au]` for a finite `c != 0` and a finite `[al, au]`, rounded outward: `[pl, pu]`, bitwise
+   * equal to the bounded case of the forward projection of `MUL` in `fdeduce` (the `min` of the four
+   * `mul_down`, the `max` of the four `mul_up`). With an operand `[c, c]` the four products are only two,
+   * `c * al` and `c * au`, ordered by the sign of `c` since the directed roundings are monotone: each bound
+   * is the product on the side given by the sign of `c`. Two products of equal value have the same bits,
+   * except two zeros of opposite signs, which `min`/`max` decide: when the bound found is a zero, we also
+   * compute the other product and take the `min`/`max` as `fdeduce` does. */
+  CUDA INLINE static void fmul_by_constant(value_t c, value_t al, value_t au, value_t& pl, value_t& pu) {
+    const value_t a = battery::mul_down<value_t>(c, c > value_t{0.0} ? al : au);
+    pl = (a == value_t{0.0})
+      ? battery::min(battery::mul_down<value_t>(c, al), battery::mul_down<value_t>(c, au))
+      : a;
+    const value_t b = battery::mul_up<value_t>(c, c > value_t{0.0} ? au : al);
+    pu = (b == value_t{0.0})
+      ? battery::max(battery::mul_up<value_t>(c, al), battery::mul_up<value_t>(c, au))
+      : b;
+  }
+
+  /** `[nl, nu] / [c, c]` for a finite `c != 0` and a finite `[nl, nu]`, rounded outward: `[ql, qu]`, bitwise
+   * equal to the bounded case of `fitv_div` (the `min` of the four `div_down`, the `max` of the four
+   * `div_up`), for the same reasons as `fmul_by_constant`. */
+  CUDA INLINE static void fdiv_by_constant(value_t c, value_t nl, value_t nu, value_t& ql, value_t& qu) {
+    const value_t a = battery::div_down<value_t>(c > value_t{0.0} ? nl : nu, c);
+    ql = (a == value_t{0.0})
+      ? battery::min(battery::div_down<value_t>(nl, c), battery::div_down<value_t>(nu, c))
+      : a;
+    const value_t b = battery::div_up<value_t>(c > value_t{0.0} ? nu : nl, c);
+    qu = (b == value_t{0.0})
+      ? battery::max(battery::div_up<value_t>(nl, c), battery::div_up<value_t>(nu, c))
+      : b;
+  }
+
+  /** `fitv_div(r1, r2, r3)`, that is `r2 = r1 / r3`, bitwise, with less arithmetic in its bounded case
+   * (`r1` and `r3` bounded and not empty, `r3` without zero, `r1` not `[0, 0]`) when an operand is a
+   * constant:
+   *   * the divisor `r3` is a nonzero constant `[c, c]`: 2 divisions instead of 8 (`fdiv_by_constant`);
+   *   * the target `r2` is a constant `[c, c]`: the projection keeps `c` or empties `r2`, and keeps it
+   *     when `c` lies between the `min` of the four `div_down` and the `max` of the four `div_up`, that
+   *     is when one `div_down` is at most `c` and one `div_up` at least `c`: we stop at the first such
+   *     quotient on each side (often the first one). When `c` is outside, it is `fitv_div`, which then
+   *     empties `r2` exactly as before.
+   * Otherwise it is `fitv_div`. */
+  CUDA INLINE void fitv_div_v2(const Itv& r1, Itv& r2, Itv& r3) {
+    if constexpr(std::is_floating_point_v<value_t>) {
+      const bool bounded_case = !r1.is_bot() && !r3.is_bot() && zl != value_t{0.0} && zu != value_t{0.0}
+        && !(zl < value_t{0.0} && zu > value_t{0.0})
+        && !r1.lb().is_top() && !r1.ub().is_top() && !r3.lb().is_top() && !r3.ub().is_top()
+        && !(xl == value_t{0.0} && xu == value_t{0.0});
+      if(bounded_case) {
+        if(zl == zu) {
+          value_t ql, qu;
+          fdiv_by_constant(zl, xl, xu, ql, qu);
+          r2.meet_lb(LB(ql));
+          r2.meet_ub(UB(qu));
+          return;
+        }
+        if(!r2.is_bot() && yl == yu) {
+          const value_t c = yl;
+          const bool lb_below = battery::div_down<value_t>(xl, zl) <= c || battery::div_down<value_t>(xl, zu) <= c
+            || battery::div_down<value_t>(xu, zl) <= c || battery::div_down<value_t>(xu, zu) <= c;
+          const bool ub_above = lb_below && (battery::div_up<value_t>(xl, zl) >= c || battery::div_up<value_t>(xl, zu) >= c
+            || battery::div_up<value_t>(xu, zl) >= c || battery::div_up<value_t>(xu, zu) >= c);
+          if(ub_above) { return; }
+        }
+      }
+    }
+    fitv_div(r1, r2, r3);
+  }
+
+  /** The same deduction as `fdeduce`, bitwise (the store and the returned value), with less
+   * floating-point work on the products by a constant, `p = c * x`, which are the weights of a network.
+   * `fdeduce` itself is unchanged, and every operator other than `MUL` is `fdeduce`.
+   *
+   * `x = y * z` with `y` and `z` bounded and one of them a nonzero constant `[c, c]` follows the steps
+   * of `fdeduce`, forward then backward:
+   *   1. forward, `x = y * z`: 2 directed products instead of 8 (`fmul_by_constant`);
+   *   2. backward, `y = x / z`, then
+   *   3. backward, `z = x / y` (with the `y` of step 2), both with `fitv_div_v2`: the one whose divisor
+   *      is the constant takes 2 divisions instead of 8 (`fdiv_by_constant`), the other one, onto the
+   *      constant itself, only checks that the constant is still in `x / z` (usually 2 divisions instead
+   *      of 8);
+   *   4. the three results are embedded in the store, as in `fdeduce`.
+   * Any other `MUL` (no constant operand, an unbounded or empty operand) is `fdeduce`. */
+  CUDA local::B fdeduce_v2(bytecode_type bytecode, const float epsilon) {
+    if constexpr(std::is_floating_point_v<value_t>) {
+      if(bytecode.op == MUL) {
+        Itv r1((*sub)[bytecode.x]);
+        Itv r2((*sub)[bytecode.y]);
+        Itv r3((*sub)[bytecode.z]);
+        if(!r2.is_bot() && !r3.is_bot()
+          && !r2.lb().is_top() && !r2.ub().is_top() && !r3.lb().is_top() && !r3.ub().is_top())
+        {
+          const bool y_constant = (yl == yu && yl != value_t{0.0});
+          const bool z_constant = (zl == zu && zl != value_t{0.0});
+          if(y_constant || z_constant) {
+            /** 1. Forward: x = y * z. */
+            value_t pl, pu;
+            if(y_constant) { fmul_by_constant(yl, zl, zu, pl, pu); }
+            else { fmul_by_constant(zl, yl, yu, pl, pu); }
+            r1.meet_lb(LB(pl));
+            r1.meet_ub(UB(pu));
+            /** 2. and 3. Backward: y = x / z, then z = x / y. */
+            fitv_div_v2(r1, r2, r3);
+            fitv_div_v2(r1, r3, r2);
+            /** 4. */
+            local::B has_changed = false;
+            has_changed |= fembed(bytecode.x, r1, epsilon);
+            has_changed |= fembed(bytecode.y, r2, epsilon);
+            has_changed |= fembed(bytecode.z, r3, epsilon);
+            return has_changed;
+          }
+        }
+      }
+    }
+    return fdeduce(bytecode, epsilon);
   }
 
 #undef xl

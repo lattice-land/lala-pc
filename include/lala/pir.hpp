@@ -31,18 +31,20 @@ namespace impl {
   };
 }
 
-// This represents the constraints `X = Y [op] Z`.
+/** This represents the constraints `X = Y [op] Z`, where `x`, `y` and `z` are the indices of the variables `X`, `Y` and `Z` in the sub-domain. */
 struct bytecode_type {
   Sig op;
-  AVar x;
-  AVar y;
-  AVar z;
+  int x;
+  int y;
+  int z;
   constexpr bytecode_type() = default;
   constexpr bytecode_type(const bytecode_type&) = default;
-  CUDA INLINE const AVar& operator[](int i) const {
+  CUDA INLINE int operator[](int i) const {
     return i == 0 ? x : (i == 1 ? y : z);
   }
 };
+
+static_assert(sizeof(bytecode_type) == 4 * sizeof(int), "`PIR::load_deduce` loads a bytecode as an `int4`.");
 
 /** PIR is an abstract transformer built on top of an abstract domain `A`.
     It is expected that `A` has a projection function `u = project(x)`.
@@ -91,13 +93,11 @@ public:
 
   using bytecodes_type = battery::vector<bytecode_type, allocator_type>;
 private:
-  AType atype;
   sub_ptr sub;
 
   const basic_universe_type ZERO;
   const basic_universe_type ONE;
 
-  static_assert(sizeof(int) == sizeof(AVar), "The size of AVar must be equal to the size of an int.");
   static_assert(sizeof(int) == sizeof(Sig), "The size of Sig must be equal to the size of an int.");
 
   using bytecodes_ptr = battery::root_ptr<battery::vector<bytecode_type, allocator_type>, allocator_type>;
@@ -145,8 +145,8 @@ public:
   template <class Alloc>
   using ask_type = interpreted_type<Alloc, typename sub_type::template ask_type<Alloc>>;
 
-  CUDA PIR(AType atype, sub_ptr sub, const allocator_type& alloc = allocator_type{})
-   : atype(atype), sub(std::move(sub))
+  CUDA PIR(sub_ptr sub, const allocator_type& alloc = allocator_type{})
+   : sub(std::move(sub))
    , ZERO(basic_universe_type(0, 0))
    , ONE(basic_universe_type(1, 1))
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, alloc))
@@ -155,7 +155,7 @@ public:
 
   template <class PIR2>
   CUDA PIR(const PIR2& other, sub_ptr sub, const allocator_type& alloc = allocator_type{})
-   : atype(atype), sub(sub)
+   : sub(sub)
    , ZERO(basic_universe_type(0, 0))
    , ONE(basic_universe_type(1, 1))
    , bytecodes(battery::allocate_root<bytecodes_type, allocator_type>(alloc, *(other.bytecodes), alloc))
@@ -163,8 +163,7 @@ public:
   {}
 
   CUDA PIR(PIR&& other)
-    : atype(other.atype)
-    , sub(std::move(other.sub))
+    : sub(std::move(other.sub))
     , ZERO(std::move(other.ZERO))
     , ONE(std::move(other.ONE))
     , bytecodes(std::move(other.bytecodes))
@@ -190,8 +189,7 @@ private:
 public:
   template<class A2, class Alloc2, class... Allocators>
   CUDA PIR(const PIR<A2, Alloc2>& other, AbstractDeps<Allocators...>& deps)
-   : atype(other.atype)
-   , sub(deps.template clone<A>(other.sub))
+   : sub(deps.template clone<A>(other.sub))
    , ZERO(other.ZERO)
    , ONE(other.ONE)
    , bytecodes(init_bytecodes(other, deps))
@@ -208,50 +206,22 @@ public:
     return bytecodes.get_allocator();
   }
 
-  CUDA AType aty() const {
-    return atype;
-  }
-
   /** The underlying store of variables. */
   CUDA sub_ptr subdomain() const {
     return sub;
   }
 
-  CUDA static this_type bot(AType atype = UNTYPED,
-    AType atype_sub = UNTYPED,
-    const allocator_type& alloc = allocator_type(),
+  /** A special symbolic element representing bottom. */
+  CUDA static this_type bot(const allocator_type& alloc = allocator_type(),
     const sub_allocator_type& sub_alloc = sub_allocator_type())
   {
-    return PIR{atype, battery::allocate_shared<sub_type>(sub_alloc, sub_type::bot(atype_sub, sub_alloc)), alloc};
+    return PIR{battery::allocate_shared<sub_type>(sub_alloc, sub_type::bot(sub_alloc)), alloc};
   }
 
-  /** A special symbolic element representing top. */
-  CUDA static this_type top(AType atype = UNTYPED,
-    AType atype_sub = UNTYPED,
-    const allocator_type& alloc = allocator_type(),
+  CUDA static this_type top(const allocator_type& alloc = allocator_type(),
     const sub_allocator_type& sub_alloc = sub_allocator_type())
   {
-    return PIR{atype, battery::allocate_shared<sub_type>(sub_alloc, sub_type::top(atype_sub, sub_alloc)), alloc};
-  }
-
-  template <class Env>
-  CUDA static this_type bot(Env& env,
-    const allocator_type& alloc = allocator_type(),
-    const sub_allocator_type& sub_alloc = sub_allocator_type())
-  {
-    AType atype_sub = env.extends_abstract_dom();
-    AType atype = env.extends_abstract_dom();
-    return bot(atype, atype_sub, alloc, sub_alloc);
-  }
-
-  template <class Env>
-  CUDA static this_type top(Env& env,
-    const allocator_type& alloc = allocator_type(),
-    const sub_allocator_type& sub_alloc = sub_allocator_type())
-  {
-    AType atype_sub = env.extends_abstract_dom();
-    AType atype = env.extends_abstract_dom();
-    return top(atype, atype_sub, alloc, sub_alloc);
+    return PIR{battery::allocate_shared<sub_type>(sub_alloc, sub_type::top(sub_alloc)), alloc};
   }
 
   /** Similar limitations than `PC::deduce`. */
@@ -277,7 +247,7 @@ public:
       std::stable_sort(bytecodes->data(), bytecodes->data() + bytecodes->size(),
         [](const bytecode_type& a, const bytecode_type& b) {
           // return a.op < b.op;
-          return a.op == b.op ? (a.y.vid() == b.y.vid() ? (a.x.vid() == b.x.vid() ? a.z.vid() < b.z.vid() : a.x.vid() < b.x.vid()) : a.y.vid() < b.y.vid()) : a.op < b.op;
+          return a.op == b.op ? (a.y == b.y ? (a.x == b.x ? a.z < b.z : a.x < b.x) : a.y < b.y) : a.op < b.op;
         });
     #endif
     }
@@ -286,7 +256,7 @@ public:
     return has_changed;
   }
 
-  CUDA bool embed(AVar x, const universe_type& dom) {
+  CUDA bool embed(int x, const universe_type& dom) {
     return sub->embed(x, dom);
   }
 
@@ -391,12 +361,12 @@ public:
     return (*sub)[x];
   }
 
-  CUDA auto /* universe_type or const universe_type& */ project(AVar x) const {
+  CUDA auto /* universe_type or const universe_type& */ project(int x) const {
     return sub->project(x);
   }
 
   template <class Univ>
-  CUDA void project(AVar x, Univ& u) const {
+  CUDA void project(int x, Univ& u) const {
     sub->project(x, u);
   }
 

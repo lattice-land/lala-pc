@@ -232,7 +232,7 @@ public:
       bytecodes->reserve(bytecodes->size() + t.bytecodes.size());
       for(int i = 0; i < t.bytecodes.size(); ++i) {
         bytecodes->push_back(t.bytecodes[i]);
-        if(t.bytecodes[i].op == EQ || t.bytecodes[i].op == LEQ) {
+        if(t.bytecodes[i].op == ZEQ || t.bytecodes[i].op == ZLEQ) {
           sub->embed(t.bytecodes[i].x, basic_universe_type(0,1));
         }
       }
@@ -300,16 +300,16 @@ private:
    * The propagators are bidirectional: they narrow all three intervals. */
   CUDA INLINE static void propagate(Sig op, Itv& r1, Itv& r2, Itv& r3) {
     switch(op) {
-      case EQ:   tell::zreq(r1, r2, r3); break;
-      case LEQ:  tell::zrleq(r1, r2, r3); break;
-      case ADD:  tell::zadd(r1, r2, r3); break;
-      case MUL:  tell::zmul(r1, r2, r3); break;
-      case MIN:  tell::zmin(r1, r2, r3); break;
-      case MAX:  tell::zmax(r1, r2, r3); break;
-      case TDIV: tell::ztdiv(r1, r2, r3); break;
-      case CDIV: tell::zcdiv(r1, r2, r3); break;
-      case FDIV: tell::zfdiv(r1, r2, r3); break;
-      case EDIV: tell::zediv(r1, r2, r3); break;
+      case ZEQ:  tell::zreq(r1, r2, r3); break;
+      case ZLEQ: tell::zrleq(r1, r2, r3); break;
+      case ZADD: tell::zadd(r1, r2, r3); break;
+      case ZMUL: tell::zmul(r1, r2, r3); break;
+      case ZMIN: tell::zmin(r1, r2, r3); break;
+      case ZMAX: tell::zmax(r1, r2, r3); break;
+      case ZTDIV: tell::ztdiv(r1, r2, r3); break;
+      case ZCDIV: tell::zcdiv(r1, r2, r3); break;
+      case ZFDIV: tell::zfdiv(r1, r2, r3); break;
+      case ZEDIV: tell::zediv(r1, r2, r3); break;
       default: assert(false);
     }
   }
@@ -320,16 +320,16 @@ public:
     Itv r2((*sub)[bytecode.y]);
     Itv r3((*sub)[bytecode.z]);
     switch(bytecode.op) {
-      case EQ:   return ask::zreq(r1, r2, r3);
-      case LEQ:  return ask::zrleq(r1, r2, r3);
-      case ADD:  return ask::zadd(r1, r2, r3);
-      case MUL:  return ask::zmul(r1, r2, r3);
-      case MIN:  return ask::zmin(r1, r2, r3);
-      case MAX:  return ask::zmax(r1, r2, r3);
-      case TDIV: return ask::ztdiv(r1, r2, r3);
-      case CDIV: return ask::zcdiv(r1, r2, r3);
-      case FDIV: return ask::zfdiv(r1, r2, r3);
-      case EDIV: return ask::zediv(r1, r2, r3);
+      case ZEQ:  return ask::zreq(r1, r2, r3);
+      case ZLEQ: return ask::zrleq(r1, r2, r3);
+      case ZADD: return ask::zadd(r1, r2, r3);
+      case ZMUL: return ask::zmul(r1, r2, r3);
+      case ZMIN: return ask::zmin(r1, r2, r3);
+      case ZMAX: return ask::zmax(r1, r2, r3);
+      case ZTDIV: return ask::ztdiv(r1, r2, r3);
+      case ZCDIV: return ask::zcdiv(r1, r2, r3);
+      case ZFDIV: return ask::zfdiv(r1, r2, r3);
+      case ZEDIV: return ask::zediv(r1, r2, r3);
       default: assert(false); return false;
     }
   }
